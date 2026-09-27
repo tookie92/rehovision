@@ -1,0 +1,548 @@
+import {
+  httpAction,
+  internalMutation,
+  internalQuery,
+  query,
+} from "./_generated/server";
+import { MutationCtx } from "./_generated/server";
+import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import { Id } from "./_generated/dataModel";
+import { requireUserId } from "./lib/auth";
+import { assertWorkerSecret } from "./lib/workerAuth";
+import { buildImagePrompt } from "./lib/imagePrompt";
+import { parseGeneratedScript } from "./lib/scriptPrompt";
+
+/** Jobs "processing" plus vieux que ça = worker probablement mort → requeue. */
+const STALE_PROCESSING_MS = 10 * 60 * 1000;
+
+const jobDoc = v.object({
+  _id: v.id("generationJobs"),
+  _creationTime: v.number(),
+  type: v.union(
+    v.literal("script"),
+    v.literal("image"),
+    v.literal("voiceover"),
+    v.literal("video_assembly"),
+  ),
+  sceneId: v.optional(v.id("scenes")),
+  videoProjectId: v.id("videoProjects"),
+  status: v.union(
+    v.literal("pending"),
+    v.literal("processing"),
+    v.literal("done"),
+    v.literal("failed"),
+  ),
+  provider: v.union(v.literal("local"), v.literal("api-fallback")),
+  payload: v.any(),
+  resultUrl: v.optional(v.string()),
+  errorMessage: v.optional(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+});
+
+/**
+ * Jobs d'un projet (temps réel UI) — ownership via le Studio.
+ */
+export const getJobsByProject = query({
+  args: { videoProjectId: v.id("videoProjects") },
+  returns: v.array(jobDoc),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.videoProjectId);
+    if (!project) return [];
+
+    const studio = await ctx.db.get(project.studioId);
+    if (!studio || studio.userId !== userId) return [];
+
+    const jobs = await ctx.db
+      .query("generationJobs")
+      .withIndex("by_videoProjectId", (q) =>
+        q.eq("videoProjectId", args.videoProjectId),
+      )
+      .collect();
+
+    // Plus récents d'abord pour l'UI
+    jobs.sort((a, b) => b.updatedAt - a.updatedAt);
+    return jobs;
+  },
+});
+
+/**
+ * Récupère le prochain job pending (ordre de création) et le passe en processing.
+ * Remet aussi en file les jobs processing trop anciens (worker crash / arrêt).
+ */
+export const claimNextJob = internalMutation({
+  args: {},
+  returns: v.union(
+    v.object({
+      _id: v.id("generationJobs"),
+      type: v.union(
+        v.literal("script"),
+        v.literal("image"),
+        v.literal("voiceover"),
+        v.literal("video_assembly"),
+      ),
+      sceneId: v.optional(v.id("scenes")),
+      videoProjectId: v.id("videoProjects"),
+      status: v.literal("processing"),
+      provider: v.union(v.literal("local"), v.literal("api-fallback")),
+      payload: v.any(),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const staleBefore = now - STALE_PROCESSING_MS;
+
+    const processing = await ctx.db
+      .query("generationJobs")
+      .withIndex("by_status", (q) => q.eq("status", "processing"))
+      .collect();
+
+    for (const job of processing) {
+      if (job.updatedAt < staleBefore) {
+        await ctx.db.patch(job._id, {
+          status: "pending",
+          errorMessage: undefined,
+          updatedAt: now,
+        });
+      }
+    }
+
+    const pending = await ctx.db
+      .query("generationJobs")
+      .withIndex("by_status_and_createdAt", (q) => q.eq("status", "pending"))
+      .order("asc")
+      .first();
+
+    if (!pending) return null;
+
+    await ctx.db.patch(pending._id, {
+      status: "processing",
+      updatedAt: now,
+    });
+
+    return {
+      _id: pending._id,
+      type: pending.type,
+      sceneId: pending.sceneId,
+      videoProjectId: pending.videoProjectId,
+      status: "processing" as const,
+      provider: pending.provider,
+      payload: pending.payload,
+      createdAt: pending.createdAt,
+      updatedAt: now,
+    };
+  },
+});
+
+/**
+ * Contexte scènes pour un job video_assembly.
+ */
+export const getAssemblyContext = internalQuery({
+  args: { videoProjectId: v.id("videoProjects") },
+  returns: v.union(
+    v.object({
+      title: v.string(),
+      scenes: v.array(
+        v.object({
+          order: v.number(),
+          narrationText: v.string(),
+          imageUrl: v.optional(v.string()),
+          audioUrl: v.optional(v.string()),
+          durationSeconds: v.optional(v.number()),
+        }),
+      ),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.videoProjectId);
+    if (!project) return null;
+
+    const scenes = await ctx.db
+      .query("scenes")
+      .withIndex("by_videoProjectId", (q) =>
+        q.eq("videoProjectId", args.videoProjectId),
+      )
+      .collect();
+
+    scenes.sort((a, b) => a.order - b.order);
+
+    return {
+      title: project.title,
+      scenes: scenes.map((s) => ({
+        order: s.order,
+        narrationText: s.narrationText,
+        imageUrl: s.imageUrl,
+        audioUrl: s.audioUrl,
+        durationSeconds: s.durationSeconds,
+      })),
+    };
+  },
+});
+
+/**
+ * Applique le résultat d'un job sur la scène / le projet, puis vérifie la complétion.
+ */
+export const applyJobResult = internalMutation({
+  args: {
+    jobId: v.id("generationJobs"),
+    resultUrl: v.string(),
+    durationSeconds: v.optional(v.number()),
+    errorMessage: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (!job) throw new Error("Job introuvable");
+
+    const now = Date.now();
+
+    if (args.errorMessage) {
+      await ctx.db.patch(args.jobId, {
+        status: "failed",
+        errorMessage: args.errorMessage,
+        updatedAt: now,
+      });
+      return null;
+    }
+
+    await ctx.db.patch(args.jobId, {
+      status: "done",
+      resultUrl: args.resultUrl,
+      updatedAt: now,
+    });
+
+    if (job.type === "image" && job.sceneId) {
+      await ctx.db.patch(job.sceneId, { imageUrl: args.resultUrl });
+    } else if (job.type === "voiceover" && job.sceneId) {
+      const patch: { audioUrl: string; durationSeconds?: number } = {
+        audioUrl: args.resultUrl,
+      };
+      if (args.durationSeconds !== undefined) {
+        patch.durationSeconds = args.durationSeconds;
+      }
+      await ctx.db.patch(job.sceneId, patch);
+    } else if (job.type === "video_assembly") {
+      await ctx.db.patch(job.videoProjectId, {
+        finalVideoUrl: args.resultUrl,
+        status: "ready",
+      });
+    }
+    // type "script" : géré via applyScriptResult (JSON), pas un fichier
+
+    await ensureAssemblyJobIfReady(ctx, job.videoProjectId);
+    return null;
+  },
+});
+
+/**
+ * Applique le JSON script renvoyé par Ollama (worker local).
+ */
+export const applyScriptResult = internalMutation({
+  args: {
+    jobId: v.id("generationJobs"),
+    rawScript: v.string(),
+    errorMessage: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (!job) throw new Error("Job introuvable");
+    if (job.type !== "script") {
+      throw new Error("Ce job n'est pas un job script");
+    }
+
+    const now = Date.now();
+
+    if (args.errorMessage) {
+      await ctx.db.patch(args.jobId, {
+        status: "failed",
+        errorMessage: args.errorMessage,
+        updatedAt: now,
+      });
+      return null;
+    }
+
+    const project = await ctx.db.get(job.videoProjectId);
+    if (!project) throw new Error("Projet introuvable");
+    const studio = await ctx.db.get(project.studioId);
+    if (!studio) throw new Error("Studio introuvable");
+
+    const script = parseGeneratedScript(args.rawScript);
+    const scenes = script.scenes.map((scene) => ({
+      order: scene.order,
+      narrationText: scene.narrationText,
+      imagePrompt: buildImagePrompt({
+        visualBeat: scene.visualBeat,
+        visualStyle: studio.visualStyle,
+        narrationTone: studio.narrationTone,
+      }),
+    }));
+
+    const existing = await ctx.db
+      .query("scenes")
+      .withIndex("by_videoProjectId", (q) =>
+        q.eq("videoProjectId", job.videoProjectId),
+      )
+      .collect();
+
+    for (const scene of existing) {
+      await ctx.db.delete(scene._id);
+    }
+
+    for (const scene of scenes) {
+      await ctx.db.insert("scenes", {
+        videoProjectId: job.videoProjectId,
+        order: scene.order,
+        narrationText: scene.narrationText,
+        imagePrompt: scene.imagePrompt,
+      });
+    }
+
+    await ctx.db.patch(job.videoProjectId, {
+      title: script.title,
+      status: "script_ready",
+    });
+
+    await ctx.db.patch(args.jobId, {
+      status: "done",
+      updatedAt: now,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Mutation interne exposée : vérifie si le projet peut passer en montage.
+ */
+export const checkProjectCompletion = internalMutation({
+  args: { videoProjectId: v.id("videoProjects") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ensureAssemblyJobIfReady(ctx, args.videoProjectId);
+    return null;
+  },
+});
+
+/**
+ * Si toutes les scènes ont image + audio, crée un job video_assembly.
+ */
+async function ensureAssemblyJobIfReady(
+  ctx: MutationCtx,
+  videoProjectId: Id<"videoProjects">,
+) {
+  const project = await ctx.db.get(videoProjectId);
+  if (!project) return;
+  if (project.status === "ready" || project.status === "exported") return;
+
+  const scenes = await ctx.db
+    .query("scenes")
+    .withIndex("by_videoProjectId", (q) =>
+      q.eq("videoProjectId", videoProjectId),
+    )
+    .collect();
+
+  if (scenes.length === 0) return;
+
+  const allReady = scenes.every((s) => s.imageUrl && s.audioUrl);
+  if (!allReady) return;
+
+  const existingJobs = await ctx.db
+    .query("generationJobs")
+    .withIndex("by_videoProjectId", (q) =>
+      q.eq("videoProjectId", videoProjectId),
+    )
+    .collect();
+
+  const hasAssembly = existingJobs.some(
+    (j) =>
+      j.type === "video_assembly" &&
+      (j.status === "pending" ||
+        j.status === "processing" ||
+        j.status === "done"),
+  );
+  if (hasAssembly) return;
+
+  const now = Date.now();
+  await ctx.db.insert("generationJobs", {
+    type: "video_assembly",
+    videoProjectId,
+    status: "pending",
+    provider: "local",
+    payload: {
+      sceneIds: scenes.map((s) => s._id),
+    },
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+/**
+ * HTTP Action — prochain job pending.
+ * Auth : header `x-worker-secret` (pas Clerk).
+ */
+export const getNextJob = httpAction(async (ctx, request) => {
+  try {
+    assertWorkerSecret(request);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unauthorized";
+    const status = msg === "UNAUTHORIZED_WORKER" ? 401 : 500;
+    return json({ error: msg }, status);
+  }
+
+  const job = await ctx.runMutation(internal.generationJobs.claimNextJob, {});
+
+  if (!job) {
+    return json({ job: null });
+  }
+
+  let assemblyContext = null;
+  if (job.type === "video_assembly") {
+    assemblyContext = await ctx.runQuery(
+      internal.generationJobs.getAssemblyContext,
+      { videoProjectId: job.videoProjectId },
+    );
+  }
+
+  return json({ job: { ...job, assemblyContext } });
+});
+
+/**
+ * HTTP Action — upload du résultat + marquage done.
+ * Body : fichier brut | Query : jobId, durationSeconds?, error?
+ */
+export const submitJobResult = httpAction(async (ctx, request) => {
+  try {
+    assertWorkerSecret(request);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unauthorized";
+    const status = msg === "UNAUTHORIZED_WORKER" ? 401 : 500;
+    return json({ error: msg }, status);
+  }
+
+  try {
+    const url = new URL(request.url);
+    const jobIdParam = url.searchParams.get("jobId");
+    if (!jobIdParam) {
+      return json({ error: "jobId requis" }, 400);
+    }
+    const jobId = jobIdParam as Id<"generationJobs">;
+
+    const errorMessage = url.searchParams.get("error");
+    if (errorMessage) {
+      await ctx.runMutation(internal.generationJobs.applyJobResult, {
+        jobId,
+        resultUrl: "",
+        errorMessage,
+      });
+      return json({ ok: true, failed: true });
+    }
+
+    // arrayBuffer + Uint8Array : Blob([ArrayBuffer]) échoue parfois côté Convex
+    const buffer = await request.arrayBuffer();
+    if (!buffer || buffer.byteLength === 0) {
+      return json({ error: "Fichier vide" }, 400);
+    }
+
+    const contentType =
+      request.headers.get("Content-Type") || "application/octet-stream";
+    const blob = new Blob([new Uint8Array(buffer)], { type: contentType });
+
+    const storageId = await ctx.storage.store(blob);
+    const resultUrl = await ctx.storage.getUrl(storageId);
+    if (!resultUrl) {
+      return json({ error: "URL storage indisponible" }, 500);
+    }
+
+    const durationParam = url.searchParams.get("durationSeconds");
+    const parsedDuration = durationParam ? Number(durationParam) : undefined;
+    // Arrondi pour éviter les floats trop longs côté JSON / logs
+    const durationSeconds =
+      parsedDuration !== undefined && !Number.isNaN(parsedDuration)
+        ? Math.round(parsedDuration * 1000) / 1000
+        : undefined;
+
+    await ctx.runMutation(internal.generationJobs.applyJobResult, {
+      jobId,
+      resultUrl,
+      durationSeconds,
+    });
+
+    return json({ ok: true, resultUrl, storageId });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("submitJobResult failed:", msg);
+    return json({ error: msg }, 500);
+  }
+});
+
+/**
+ * HTTP Action — résultat JSON du job script (Ollama).
+ * Body : { "rawScript": "..." } ou { "error": "..." }
+ */
+export const submitScriptResult = httpAction(async (ctx, request) => {
+  try {
+    assertWorkerSecret(request);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unauthorized";
+    const status = msg === "UNAUTHORIZED_WORKER" ? 401 : 500;
+    return json({ error: msg }, status);
+  }
+
+  const url = new URL(request.url);
+  const jobIdParam = url.searchParams.get("jobId");
+  if (!jobIdParam) {
+    return json({ error: "jobId requis" }, 400);
+  }
+  const jobId = jobIdParam as Id<"generationJobs">;
+
+  let body: { rawScript?: string; error?: string };
+  try {
+    body = (await request.json()) as { rawScript?: string; error?: string };
+  } catch {
+    return json({ error: "JSON invalide" }, 400);
+  }
+
+  if (body.error) {
+    await ctx.runMutation(internal.generationJobs.applyScriptResult, {
+      jobId,
+      rawScript: "",
+      errorMessage: body.error,
+    });
+    return json({ ok: true, failed: true });
+  }
+
+  if (!body.rawScript) {
+    return json({ error: "rawScript requis" }, 400);
+  }
+
+  try {
+    await ctx.runMutation(internal.generationJobs.applyScriptResult, {
+      jobId,
+      rawScript: body.rawScript,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Erreur applyScriptResult";
+    await ctx.runMutation(internal.generationJobs.applyScriptResult, {
+      jobId,
+      rawScript: "",
+      errorMessage: msg,
+    });
+    return json({ error: msg }, 422);
+  }
+
+  return json({ ok: true });
+});
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}

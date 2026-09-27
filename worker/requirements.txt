@@ -1,0 +1,8 @@
+requests>=2.31.0
+python-dotenv>=1.0.0
+diffusers>=0.31.0
+transformers>=4.44.0
+accelerate>=0.33.0
+safetensors>=0.4.0
+Pillow>=10.0.0
+# torch + torchvision : installer séparément avec l'index CUDA (voir README)

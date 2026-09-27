@@ -32,6 +32,14 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# Python worker
+worker/.venv/
+worker/bin/
+worker/models/
+__pycache__/
+*.pyc
 
 # vercel
 .vercel
@@ -39,3 +47,4 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.clerk/
