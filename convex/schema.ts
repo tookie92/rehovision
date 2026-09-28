@@ -73,6 +73,30 @@ export default defineSchema({
     durationSeconds: v.optional(v.number()),
     // Transcript JSON : { language, segments: [{ start, end, text }] }
     transcript: v.optional(v.any()),
+    // Options de rendu Opus-like (appliquées au re-render)
+    captionStyle: v.optional(
+      v.union(
+        v.literal("viral"),
+        v.literal("bold_green"),
+        v.literal("yellow_pop"),
+        v.literal("minimal"),
+      ),
+    ),
+    layoutMode: v.optional(
+      v.union(
+        v.literal("smart"),
+        v.literal("fill"),
+        v.literal("fit"),
+        v.literal("split"),
+      ),
+    ),
+    voiceoverMode: v.optional(
+      v.union(
+        v.literal("off"),
+        v.literal("mix"),
+        v.literal("replace"),
+      ),
+    ),
     errorMessage: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_userId", ["userId"]),

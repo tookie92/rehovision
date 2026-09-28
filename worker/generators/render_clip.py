@@ -1,5 +1,5 @@
 """
-Découpe un clip (ffmpeg) + reframe 9:16 + captions virales + B-roll IA optionnel.
+Découpe clip : reframe (smart/fill/fit/split) + captions stylées + B-roll + VO optionnel.
 """
 
 from __future__ import annotations
@@ -33,9 +33,11 @@ def _ffmpeg_cut(
     *,
     start_sec: float,
     duration: float,
-    vf: str,
+    vf: str | None = None,
+    filter_complex: str | None = None,
+    ass_path: Path | None = None,
 ) -> None:
-    cmd = [
+    cmd: list[str] = [
         "ffmpeg",
         "-y",
         "-ss",
@@ -44,8 +46,24 @@ def _ffmpeg_cut(
         str(source_path),
         "-t",
         f"{duration:.3f}",
-        "-vf",
-        vf,
+    ]
+
+    if filter_complex:
+        fc = filter_complex
+        map_v = "[vout]"
+        if ass_path is not None:
+            fc = f"{fc};{map_v}{ass_filter_arg(ass_path)}[vcap]"
+            map_v = "[vcap]"
+        cmd += ["-filter_complex", fc, "-map", map_v, "-map", "0:a?"]
+    else:
+        parts = [vf] if vf else []
+        if ass_path is not None:
+            parts.append(ass_filter_arg(ass_path))
+        if not parts:
+            raise RuntimeError("Aucun filtre vidéo")
+        cmd += ["-vf", ",".join(parts)]
+
+    cmd += [
         "-c:v",
         "libx264",
         "-preset",
@@ -69,6 +87,89 @@ def _ffmpeg_cut(
         raise RuntimeError("Clip rendu vide")
 
 
+def _apply_voiceover(
+    video_path: Path,
+    output_path: Path,
+    *,
+    text: str,
+    mode: str,
+    work_dir: Path,
+) -> bool:
+    mode = (mode or "off").strip().lower()
+    if mode in ("", "off", "0", "false"):
+        return False
+    if not text.strip():
+        return False
+
+    try:
+        from generators.voiceover import generate_voiceover
+    except Exception as e:
+        log.warning("Voiceover import KO (%s)", e)
+        return False
+
+    wav = work_dir / "clip_vo.wav"
+    try:
+        generate_voiceover(text.strip()[:800], tone="", output_path=wav)
+    except Exception as e:
+        log.warning("TTS clip KO (%s)", e)
+        return False
+
+    if mode == "replace":
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-i",
+            str(wav),
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            str(output_path),
+        ]
+    else:
+        # mix
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-i",
+            str(wav),
+            "-filter_complex",
+            "[1:a]volume=0.4[vo];[0:a][vo]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+            "-map",
+            "0:v:0",
+            "-map",
+            "[aout]",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            str(output_path),
+        ]
+
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        log.warning("Mix VO échoué: %s", proc.stderr[-400:])
+        return False
+    return output_path.is_file() and output_path.stat().st_size > 0
+
+
 def render_clip(
     source_path: Path,
     output_path: Path,
@@ -78,6 +179,9 @@ def render_clip(
     caption_text: str | None = None,
     caption_segments: list[dict[str, Any]] | None = None,
     broll_cues: list[dict[str, Any]] | None = None,
+    caption_style: str | None = None,
+    layout_mode: str | None = None,
+    voiceover_mode: str | None = None,
 ) -> Path:
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg introuvable dans le PATH")
@@ -99,25 +203,24 @@ def render_clip(
     ass_path: Path | None = None
     if cues:
         ass_path = work / "captions.ass"
-        write_viral_ass(ass_path, cues)
+        write_viral_ass(ass_path, cues, style_name=caption_style)
 
-    reframe_vf = build_reframe_vf(
+    vf, filter_complex = build_reframe_vf(
         source_path,
         float(start_sec),
         float(end_sec),
         work,
+        layout_mode=layout_mode,
     )
-    vf_parts = [reframe_vf]
-    if ass_path is not None:
-        vf_parts.append(ass_filter_arg(ass_path))
-    vf = ",".join(vf_parts)
 
     base_path = work / "clip_base.mp4"
     log.info(
-        "ffmpeg cut %.1f–%.1f captions=%s reframe → base",
+        "ffmpeg cut %.1f–%.1f captions=%s layout=%s style=%s",
         start_sec,
         end_sec,
         len(cues),
+        layout_mode or "smart",
+        caption_style or "viral",
     )
 
     try:
@@ -126,11 +229,13 @@ def render_clip(
             base_path,
             start_sec=float(start_sec),
             duration=duration,
-            vf=vf,
+            vf=vf or None,
+            filter_complex=filter_complex,
+            ass_path=ass_path,
         )
     except RuntimeError:
         if ass_path is not None:
-            log.warning("render avec captions échoué — retry sans captions")
+            log.warning("render captions échoué — retry sans captions")
             return render_clip(
                 source_path,
                 output_path,
@@ -139,21 +244,25 @@ def render_clip(
                 caption_text=None,
                 caption_segments=None,
                 broll_cues=broll_cues,
+                caption_style=caption_style,
+                layout_mode=layout_mode,
+                voiceover_mode=voiceover_mode,
             )
-        log.warning("reframe échoué — retry letterbox")
-        vf_lb = (
-            "scale=1080:1920:force_original_aspect_ratio=decrease,"
-            "pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
-        )
+        log.warning("reframe échoué — letterbox")
         _ffmpeg_cut(
             source_path,
             base_path,
             start_sec=float(start_sec),
             duration=duration,
-            vf=vf_lb,
+            vf=(
+                "scale=1080:1920:force_original_aspect_ratio=decrease,"
+                "pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
+            ),
+            ass_path=None,
         )
 
-    # B-roll IA (optionnel) — ne fait pas échouer le clip si KO
+    current = base_path
+
     if broll_enabled():
         try:
             resolved = resolve_broll_cues(
@@ -164,11 +273,26 @@ def render_clip(
             )
             shots = generate_broll_images(resolved, work)
             if shots:
-                composite_broll(base_path, output_path, shots)
-                log.info("Clip final avec %d B-roll(s)", len(shots))
-                return output_path
+                broll_out = work / "clip_broll.mp4"
+                composite_broll(current, broll_out, shots)
+                current = broll_out
+                log.info("B-roll ×%d appliqué", len(shots))
         except Exception as e:
-            log.warning("B-roll ignoré (%s) — export talking-head seul", e)
+            log.warning("B-roll ignoré (%s)", e)
 
-    shutil.copy2(base_path, output_path)
+    vo_mode = (voiceover_mode or "off").strip().lower()
+    if vo_mode not in ("", "off"):
+        vo_out = work / "clip_vo.mp4"
+        ok = _apply_voiceover(
+            current,
+            vo_out,
+            text=caption_text or "",
+            mode=vo_mode,
+            work_dir=work,
+        )
+        if ok:
+            current = vo_out
+            log.info("Voiceover mode=%s appliqué", vo_mode)
+
+    shutil.copy2(current, output_path)
     return output_path

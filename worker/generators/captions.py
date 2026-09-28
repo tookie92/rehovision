@@ -163,17 +163,57 @@ def build_cues_for_clip(
     return cues
 
 
-def write_viral_ass(path: Path, cues: list[tuple[float, float, str]]) -> Path:
+def write_viral_ass(
+    path: Path,
+    cues: list[tuple[float, float, str]],
+    style_name: str | None = None,
+) -> Path:
+    style_key = (style_name or os.getenv("CAPTION_STYLE", "viral")).strip().lower()
+    presets: dict[str, dict[str, Any]] = {
+        "viral": {
+            "fontsize": 68,
+            "primary": "&H00FFFFFF",
+            "secondary": "&H003DD6C6",
+            "outline": "&H00000000",
+            "outline_w": 5,
+            "margin_v": 260,
+        },
+        "bold_green": {
+            "fontsize": 72,
+            "primary": "&H0000FF7A",  # lime-ish BGR
+            "secondary": "&H00FFFFFF",
+            "outline": "&H00000000",
+            "outline_w": 6,
+            "margin_v": 280,
+        },
+        "yellow_pop": {
+            "fontsize": 70,
+            "primary": "&H0000F0FF",
+            "secondary": "&H00FFFFFF",
+            "outline": "&H00000000",
+            "outline_w": 6,
+            "margin_v": 270,
+        },
+        "minimal": {
+            "fontsize": 48,
+            "primary": "&H00FFFFFF",
+            "secondary": "&H00CCCCCC",
+            "outline": "&H00000000",
+            "outline_w": 3,
+            "margin_v": 160,
+        },
+    }
+    preset = presets.get(style_key, presets["viral"])
     font = os.getenv("CAPTION_FONT", _find_font_name())
-    fontsize = int(os.getenv("CAPTION_FONT_SIZE", "68"))
-    # &HAABBGGRR — blanc + cyan signal en secondary (karaoke)
-    primary = "&H00FFFFFF"
-    secondary = "&H003DD6C6"
-    outline = "&H00000000"
-    margin_v = int(os.getenv("CAPTION_MARGIN_V", "260"))
+    fontsize = int(os.getenv("CAPTION_FONT_SIZE", str(preset["fontsize"])))
+    primary = str(preset["primary"])
+    secondary = str(preset["secondary"])
+    outline = str(preset["outline"])
+    outline_w = int(preset["outline_w"])
+    margin_v = int(os.getenv("CAPTION_MARGIN_V", str(preset["margin_v"])))
 
     header = f"""[Script Info]
-Title: Rehovision Viral Captions
+Title: Rehovision Captions ({style_key})
 ScriptType: v4.00+
 PlayResX: {VIDEO_W}
 PlayResY: {VIDEO_H}
@@ -181,7 +221,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Viral,{font},{fontsize},{primary},{secondary},{outline},&H80000000,-1,0,0,0,100,100,0,0,1,5,0,2,70,70,{margin_v},1
+Style: Viral,{font},{fontsize},{primary},{secondary},{outline},&H80000000,-1,0,0,0,100,100,0,0,1,{outline_w},0,2,70,70,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -196,7 +236,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(lines), encoding="utf-8")
-    log.info("ASS captions → %s (%d cues)", path.name, len(cues))
+    log.info("ASS captions style=%s → %s (%d cues)", style_key, path.name, len(cues))
     return path
 
 

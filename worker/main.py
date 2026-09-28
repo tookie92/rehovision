@@ -327,6 +327,9 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
                 caption_text=payload.get("captionText") or "",
                 caption_segments=payload.get("captionSegments") or None,
                 broll_cues=payload.get("brollCues") or payload.get("broll") or None,
+                caption_style=payload.get("captionStyle") or None,
+                layout_mode=payload.get("layoutMode") or None,
+                voiceover_mode=payload.get("voiceoverMode") or None,
             )
             submit_file_result(site_url, job_id, path, "video/mp4")
             return

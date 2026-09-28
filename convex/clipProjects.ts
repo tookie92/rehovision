@@ -22,6 +22,25 @@ const clipProjectDoc = v.object({
   sourceYoutubeUrl: v.optional(v.string()),
   durationSeconds: v.optional(v.number()),
   transcript: v.optional(v.any()),
+  captionStyle: v.optional(
+    v.union(
+      v.literal("viral"),
+      v.literal("bold_green"),
+      v.literal("yellow_pop"),
+      v.literal("minimal"),
+    ),
+  ),
+  layoutMode: v.optional(
+    v.union(
+      v.literal("smart"),
+      v.literal("fill"),
+      v.literal("fit"),
+      v.literal("split"),
+    ),
+  ),
+  voiceoverMode: v.optional(
+    v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
+  ),
   errorMessage: v.optional(v.string()),
   createdAt: v.number(),
 });
@@ -182,6 +201,25 @@ const clipProjectSummary = v.object({
   sourceYoutubeUrl: v.optional(v.string()),
   durationSeconds: v.optional(v.number()),
   transcript: v.optional(v.any()),
+  captionStyle: v.optional(
+    v.union(
+      v.literal("viral"),
+      v.literal("bold_green"),
+      v.literal("yellow_pop"),
+      v.literal("minimal"),
+    ),
+  ),
+  layoutMode: v.optional(
+    v.union(
+      v.literal("smart"),
+      v.literal("fill"),
+      v.literal("fit"),
+      v.literal("split"),
+    ),
+  ),
+  voiceoverMode: v.optional(
+    v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
+  ),
   errorMessage: v.optional(v.string()),
   createdAt: v.number(),
   clipCount: v.number(),
@@ -371,6 +409,9 @@ export const retryFailedClips = mutation({
             clip.endSec,
           ),
           brollCues: [],
+          captionStyle: project.captionStyle ?? "viral",
+          layoutMode: project.layoutMode ?? "smart",
+          voiceoverMode: project.voiceoverMode ?? "off",
           title: clip.title,
         },
         createdAt: now,
@@ -384,5 +425,145 @@ export const retryFailedClips = mutation({
     });
 
     return failed.length;
+  },
+});
+
+/**
+ * Met à jour les options de rendu (captions / layout / voiceover).
+ */
+export const updateRenderOptions = mutation({
+  args: {
+    clipProjectId: v.id("clipProjects"),
+    captionStyle: v.optional(
+      v.union(
+        v.literal("viral"),
+        v.literal("bold_green"),
+        v.literal("yellow_pop"),
+        v.literal("minimal"),
+      ),
+    ),
+    layoutMode: v.optional(
+      v.union(
+        v.literal("smart"),
+        v.literal("fill"),
+        v.literal("fit"),
+        v.literal("split"),
+      ),
+    ),
+    voiceoverMode: v.optional(
+      v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
+    ),
+  },
+  returns: v.id("clipProjects"),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.clipProjectId);
+    if (!project || project.userId !== userId) {
+      throw new Error("Projet introuvable");
+    }
+    const patch: {
+      captionStyle?: typeof args.captionStyle;
+      layoutMode?: typeof args.layoutMode;
+      voiceoverMode?: typeof args.voiceoverMode;
+    } = {};
+    if (args.captionStyle !== undefined) patch.captionStyle = args.captionStyle;
+    if (args.layoutMode !== undefined) patch.layoutMode = args.layoutMode;
+    if (args.voiceoverMode !== undefined) {
+      patch.voiceoverMode = args.voiceoverMode;
+    }
+    await ctx.db.patch(args.clipProjectId, patch);
+    return args.clipProjectId;
+  },
+});
+
+/**
+ * Relance le rendu de tous les clips avec les options actuelles du projet.
+ */
+export const rerenderAll = mutation({
+  args: { clipProjectId: v.id("clipProjects") },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.clipProjectId);
+    if (!project || project.userId !== userId) {
+      throw new Error("Projet introuvable");
+    }
+    if (!project.sourceVideoUrl) {
+      throw new Error("Vidéo source absente");
+    }
+
+    const clips = await ctx.db
+      .query("clips")
+      .withIndex("by_clipProjectId", (q) =>
+        q.eq("clipProjectId", args.clipProjectId),
+      )
+      .collect();
+    if (clips.length === 0) {
+      throw new Error("Aucun clip à re-rendre");
+    }
+
+    const now = Date.now();
+    const transcript = project.transcript;
+
+    // Annuler jobs render encore actifs
+    const jobs = await ctx.db
+      .query("generationJobs")
+      .withIndex("by_clipProjectId", (q) =>
+        q.eq("clipProjectId", args.clipProjectId),
+      )
+      .collect();
+    for (const job of jobs) {
+      if (
+        job.type === "render_clip" &&
+        (job.status === "pending" || job.status === "processing")
+      ) {
+        await ctx.db.patch(job._id, {
+          status: "failed",
+          errorMessage: "Annulé pour re-rendu",
+          updatedAt: now,
+        });
+      }
+    }
+
+    for (const clip of clips) {
+      await ctx.db.patch(clip._id, {
+        status: "rendering",
+        errorMessage: undefined,
+        resultUrl: undefined,
+      });
+      await ctx.db.insert("generationJobs", {
+        type: "render_clip",
+        clipProjectId: args.clipProjectId,
+        clipId: clip._id,
+        status: "pending",
+        provider: "local",
+        payload: {
+          sourceVideoUrl: project.sourceVideoUrl,
+          youtubeUrl: project.sourceYoutubeUrl,
+          startSec: clip.startSec,
+          endSec: clip.endSec,
+          captionText: clip.captionText ?? "",
+          captionSegments: sliceCaptionSegments(
+            transcript,
+            clip.startSec,
+            clip.endSec,
+          ),
+          brollCues: [],
+          captionStyle: project.captionStyle ?? "viral",
+          layoutMode: project.layoutMode ?? "smart",
+          voiceoverMode: project.voiceoverMode ?? "off",
+          title: clip.title,
+        },
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    await ctx.db.patch(args.clipProjectId, {
+      status: "rendering",
+      errorMessage: undefined,
+    });
+
+    return clips.length;
   },
 });

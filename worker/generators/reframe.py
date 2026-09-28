@@ -210,22 +210,183 @@ def compute_crop_box(
     return crop_w, crop_h, x, y
 
 
-def build_reframe_vf(
+def _detect_faces_on_frame(image_path: Path) -> list[tuple[float, float, float]]:
+    """Liste (cx, cy, area) normalisés, triée par aire desc."""
+    import cv2
+
+    img = cv2.imread(str(image_path))
+    if img is None:
+        return []
+    h, w = img.shape[:2]
+    if w < 2 or h < 2:
+        return []
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    faces = _get_cascade().detectMultiScale(
+        gray,
+        scaleFactor=1.1,
+        minNeighbors=5,
+        minSize=(max(24, w // 40), max(24, h // 40)),
+    )
+    out: list[tuple[float, float, float]] = []
+    for x, y, fw, fh in faces:
+        cx = (x + fw / 2) / w
+        cy = (y + fh * 0.35) / h
+        area = (fw * fh) / (w * h)
+        out.append((float(cx), float(cy), float(area)))
+    out.sort(key=lambda t: t[2], reverse=True)
+    return out
+
+
+def estimate_two_subjects(
+    source_path: Path,
+    start_sec: float,
+    end_sec: float,
+    work_dir: Path,
+) -> list[tuple[float, float]]:
+    """Jusqu'à 2 centres visage (cx, cy) pour layout Split."""
+    n = max(3, int(os.getenv("REFRAME_SAMPLES", "8")))
+    duration = max(0.2, float(end_sec) - float(start_sec))
+    margin = min(0.35, duration * 0.08)
+    t0 = float(start_sec) + margin
+    t1 = float(end_sec) - margin
+    if t1 <= t0:
+        t0, t1 = float(start_sec), float(end_sec)
+
+    times = np.linspace(t0, t1, n)
+    frames_dir = work_dir / "reframe_frames_split"
+    if frames_dir.exists():
+        shutil.rmtree(frames_dir, ignore_errors=True)
+    frames_dir.mkdir(parents=True, exist_ok=True)
+
+    # Accumule votes par "slot" gauche/droite selon cx
+    left: list[tuple[float, float, float]] = []
+    right: list[tuple[float, float, float]] = []
+    for i, t in enumerate(times):
+        frame_path = frames_dir / f"f_{i:02d}.jpg"
+        if not _extract_frame(source_path, float(t), frame_path):
+            continue
+        faces = _detect_faces_on_frame(frame_path)
+        for cx, cy, area in faces[:2]:
+            if cx < 0.5:
+                left.append((cx, cy, area))
+            else:
+                right.append((cx, cy, area))
+
+    shutil.rmtree(frames_dir, ignore_errors=True)
+
+    def _avg(bucket: list[tuple[float, float, float]]) -> tuple[float, float] | None:
+        if not bucket:
+            return None
+        w = np.asarray([b[2] for b in bucket], dtype=np.float64)
+        w = w / w.sum()
+        cx = float(np.average([b[0] for b in bucket], weights=w))
+        cy = float(np.average([b[1] for b in bucket], weights=w))
+        return min(0.92, max(0.08, cx)), min(0.75, max(0.2, cy))
+
+    centers: list[tuple[float, float]] = []
+    for bucket in (left, right):
+        hit = _avg(bucket)
+        if hit:
+            centers.append(hit)
+    # Si un seul côté a des faces, prendre top-2 globaux
+    if len(centers) < 2:
+        # Re-sample mid frame
+        mid = (t0 + t1) / 2
+        tmp = work_dir / "split_mid.jpg"
+        if _extract_frame(source_path, mid, tmp):
+            faces = _detect_faces_on_frame(tmp)
+            centers = [(f[0], f[1]) for f in faces[:2]]
+            tmp.unlink(missing_ok=True)
+    if len(centers) == 0:
+        return [(0.35, 0.4), (0.65, 0.4)]
+    if len(centers) == 1:
+        cx, cy = centers[0]
+        return [(max(0.2, cx - 0.2), cy), (min(0.8, cx + 0.2), cy)]
+    return centers[:2]
+
+
+def build_split_filter_complex(
     source_path: Path,
     start_sec: float,
     end_sec: float,
     work_dir: Path,
 ) -> str:
+    width, height = _ffprobe_size(source_path)
+    centers = estimate_two_subjects(source_path, start_sec, end_sec, work_dir)
+    half_h = OUT_H // 2
+    crops = []
+    for cx, cy in centers[:2]:
+        cw, ch, x, y = compute_crop_box(width, height, cx, cy)
+        # Forcer crop plus carré-horizontal pour demi-écran : aspect 1080:960
+        target_a = OUT_W / half_h
+        if width / height >= target_a:
+            ch2 = height
+            cw2 = int(round(height * target_a))
+            cw2 = min(cw2, width)
+            x2 = int(round(cx * width - cw2 / 2))
+            x2 = max(0, min(x2, width - cw2))
+            y2 = 0
+            cw, ch, x, y = cw2, ch2, x2, y2
+        else:
+            cw2 = width
+            ch2 = int(round(width / target_a))
+            ch2 = min(ch2, height)
+            y2 = int(round(cy * height - ch2 / 2))
+            y2 = max(0, min(y2, height - ch2))
+            cw, ch, x, y = cw2, ch2, 0, y2
+        cw = max(2, cw - (cw % 2))
+        ch = max(2, ch - (ch % 2))
+        crops.append((cw, ch, x, y))
+
+    while len(crops) < 2:
+        crops.append(crops[0] if crops else (width, height, 0, 0))
+
+    (cw0, ch0, x0, y0) = crops[0]
+    (cw1, ch1, x1, y1) = crops[1]
+    return (
+        f"[0:v]crop={cw0}:{ch0}:{x0}:{y0},scale={OUT_W}:{half_h}[top];"
+        f"[0:v]crop={cw1}:{ch1}:{x1}:{y1},scale={OUT_W}:{half_h}[bot];"
+        f"[top][bot]vstack=inputs=2[vout]"
+    )
+
+
+def build_reframe_vf(
+    source_path: Path,
+    start_sec: float,
+    end_sec: float,
+    work_dir: Path,
+    layout_mode: str | None = None,
+) -> tuple[str, str | None]:
     """
-    Filtre ffmpeg : crop smart (ou mode forcé) + scale 1080x1920.
-    Modes: smart (défaut) | center | letterbox
+    Retourne (vf_simple | "", filter_complex | None).
+    Modes: smart | fill | fit | split | center | letterbox
     """
-    mode = (os.getenv("REFRAME_MODE") or "smart").strip().lower()
+    mode = (
+        layout_mode
+        or os.getenv("REFRAME_MODE")
+        or "smart"
+    ).strip().lower()
+    # Alias Opus
+    if mode == "fill":
+        mode = "center"
+    if mode == "fit":
+        mode = "letterbox"
+
+    if mode == "split":
+        try:
+            fc = build_split_filter_complex(
+                source_path, start_sec, end_sec, work_dir
+            )
+            return "", fc
+        except Exception as e:
+            log.warning("Split échoué (%s) — fallback smart", e)
+            mode = "smart"
 
     if mode == "letterbox":
         return (
             f"scale={OUT_W}:{OUT_H}:force_original_aspect_ratio=decrease,"
-            f"pad={OUT_W}:{OUT_H}:(ow-iw)/2:(oh-ih)/2"
+            f"pad={OUT_W}:{OUT_H}:(ow-iw)/2:(oh-ih)/2",
+            None,
         )
 
     try:
@@ -234,7 +395,8 @@ def build_reframe_vf(
         log.warning("ffprobe size échoué (%s) — letterbox", e)
         return (
             f"scale={OUT_W}:{OUT_H}:force_original_aspect_ratio=decrease,"
-            f"pad={OUT_W}:{OUT_H}:(ow-iw)/2:(oh-ih)/2"
+            f"pad={OUT_W}:{OUT_H}:(ow-iw)/2:(oh-ih)/2",
+            None,
         )
 
     if mode == "center":
@@ -250,7 +412,7 @@ def build_reframe_vf(
 
     crop_w, crop_h, x, y = compute_crop_box(width, height, cx, cy)
     log.info(
-        "Crop %dx%d @ %d,%d (source %dx%d) → %dx%d",
+        "Crop %dx%d @ %d,%d (source %dx%d) → %dx%d mode=%s",
         crop_w,
         crop_h,
         x,
@@ -259,5 +421,6 @@ def build_reframe_vf(
         height,
         OUT_W,
         OUT_H,
+        mode,
     )
-    return f"crop={crop_w}:{crop_h}:{x}:{y},scale={OUT_W}:{OUT_H}"
+    return f"crop={crop_w}:{crop_h}:{x}:{y},scale={OUT_W}:{OUT_H}", None

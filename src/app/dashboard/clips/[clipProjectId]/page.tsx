@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardNav } from "@/components/DashboardNav";
 import { ClipPipelineProgress } from "@/components/ClipPipelineProgress";
+import { ClipRenderOptions } from "@/components/ClipRenderOptions";
 import {
   CLIP_STATUS_LABEL,
   formatClipDuration,
@@ -18,6 +19,11 @@ import {
   projectStatusTone,
   safeDownloadName,
 } from "@/lib/clipStatus";
+import type {
+  CaptionStyleId,
+  LayoutModeId,
+  VoiceoverModeId,
+} from "@/lib/renderPresets";
 
 export default function ClipProjectPage() {
   const params = useParams();
@@ -25,7 +31,10 @@ export default function ClipProjectPage() {
   const data = useQuery(api.clipProjects.getById, { clipProjectId });
   const retry = useMutation(api.clipProjects.retry);
   const retryFailedClips = useMutation(api.clipProjects.retryFailedClips);
+  const updateRenderOptions = useMutation(api.clipProjects.updateRenderOptions);
+  const rerenderAll = useMutation(api.clipProjects.rerenderAll);
   const [retrying, setRetrying] = useState(false);
+  const [rerendering, setRerendering] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
 
   async function onRetryPipeline() {
@@ -52,6 +61,33 @@ export default function ClipProjectPage() {
       setRetryError(err instanceof Error ? err.message : "Erreur");
     } finally {
       setRetrying(false);
+    }
+  }
+
+  async function persistOption(
+    patch: Partial<{
+      captionStyle: CaptionStyleId;
+      layoutMode: LayoutModeId;
+      voiceoverMode: VoiceoverModeId;
+    }>,
+  ) {
+    setRetryError(null);
+    try {
+      await updateRenderOptions({ clipProjectId, ...patch });
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : "Erreur");
+    }
+  }
+
+  async function onApplyRerender() {
+    setRetryError(null);
+    setRerendering(true);
+    try {
+      await rerenderAll({ clipProjectId });
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setRerendering(false);
     }
   }
 
@@ -91,6 +127,12 @@ export default function ClipProjectPage() {
     failedCount > 0 &&
     Boolean(project.sourceVideoUrl) &&
     (project.status === "ready" || project.status === "failed");
+  const canRerender =
+    clips.length > 0 && Boolean(project.sourceVideoUrl);
+
+  const captionStyle = (project.captionStyle ?? "viral") as CaptionStyleId;
+  const layoutMode = (project.layoutMode ?? "smart") as LayoutModeId;
+  const voiceoverMode = (project.voiceoverMode ?? "off") as VoiceoverModeId;
 
   return (
     <div>
@@ -123,7 +165,9 @@ export default function ClipProjectPage() {
             </span>
           )}
           {clips.length > 0 && (
-            <span className={`timecode text-xs ${projectStatusTone(project.status)}`}>
+            <span
+              className={`timecode text-xs ${projectStatusTone(project.status)}`}
+            >
               {readyCount}/{clips.length} prêts
               {failedCount > 0 ? ` · ${failedCount} échec` : ""}
             </span>
@@ -137,6 +181,18 @@ export default function ClipProjectPage() {
           errorMessage={project.errorMessage}
           readyCount={readyCount}
           clipCount={clips.length}
+        />
+
+        <ClipRenderOptions
+          captionStyle={captionStyle}
+          layoutMode={layoutMode}
+          voiceoverMode={voiceoverMode}
+          disabled={!canRerender}
+          saving={rerendering || isPipelineActive(project.status)}
+          onCaptionStyle={(v) => void persistOption({ captionStyle: v })}
+          onLayoutMode={(v) => void persistOption({ layoutMode: v })}
+          onVoiceoverMode={(v) => void persistOption({ voiceoverMode: v })}
+          onApplyRerender={() => void onApplyRerender()}
         />
 
         {(canRetryPipeline || canRetryFailed) && (
