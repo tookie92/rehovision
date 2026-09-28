@@ -21,7 +21,14 @@ Réponds UNIQUEMENT en JSON valide:
       "hookReason": "pourquoi ce passage marche",
       "startSec": 12.5,
       "endSec": 42.0,
-      "captionText": "texte principal du clip pour sous-titres"
+      "captionText": "texte principal du clip pour sous-titres",
+      "broll": [
+        {
+          "relStartSec": 5.0,
+          "durationSec": 1.8,
+          "prompt": "English cinematic B-roll photo prompt, vertical 9:16, no text"
+        }
+      ]
     }
   ]
 }
@@ -30,6 +37,7 @@ Règles:
 - endSec - startSec entre 15 et 60
 - clips non chevauchants autant que possible
 - captionText = paraphrase claire du passage (FR si transcript FR)
+- broll optionnel : 0–2 cutaways, relStartSec relatif au début du clip, prompt EN sans texte dans l'image
 """
 
 
@@ -103,6 +111,32 @@ def _heuristic_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
     return clips
 
 
+def _parse_broll(item: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = item.get("broll") or item.get("brollCues") or []
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for b in raw[:2]:
+        if not isinstance(b, dict):
+            continue
+        prompt = str(b.get("prompt") or "").strip()
+        if not prompt:
+            continue
+        try:
+            rel = float(b.get("relStartSec", b.get("startSec", 0)))
+            dur = float(b.get("durationSec", 1.8))
+        except (TypeError, ValueError):
+            continue
+        out.append(
+            {
+                "relStartSec": round(rel, 2),
+                "durationSec": round(max(1.0, min(2.8, dur)), 2),
+                "prompt": prompt[:400],
+            }
+        )
+    return out
+
+
 def _parse_clips(raw: str, duration: float) -> list[dict[str, Any]]:
     try:
         data = json.loads(raw)
@@ -127,15 +161,17 @@ def _parse_clips(raw: str, duration: float) -> list[dict[str, Any]]:
             continue
         if end - start > 75:
             end = start + 60
-        out.append(
-            {
-                "title": str(item.get("title") or "Clip")[:120],
-                "hookReason": str(item.get("hookReason") or "")[:300],
-                "startSec": round(start, 2),
-                "endSec": round(end, 2),
-                "captionText": str(item.get("captionText") or "")[:500],
-            }
-        )
+        entry: dict[str, Any] = {
+            "title": str(item.get("title") or "Clip")[:120],
+            "hookReason": str(item.get("hookReason") or "")[:300],
+            "startSec": round(start, 2),
+            "endSec": round(end, 2),
+            "captionText": str(item.get("captionText") or "")[:500],
+        }
+        broll = _parse_broll(item)
+        if broll:
+            entry["broll"] = broll
+        out.append(entry)
     return out[:8]
 
 

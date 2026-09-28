@@ -1,5 +1,5 @@
 """
-Découpe un clip (ffmpeg) + reframe 9:16 intelligent + captions virales (ASS).
+Découpe un clip (ffmpeg) + reframe 9:16 + captions virales + B-roll IA optionnel.
 """
 
 from __future__ import annotations
@@ -10,6 +10,12 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from generators.broll import (
+    broll_enabled,
+    composite_broll,
+    generate_broll_images,
+    resolve_broll_cues,
+)
 from generators.captions import (
     ass_filter_arg,
     build_cues_for_clip,
@@ -21,6 +27,48 @@ from generators.reframe import build_reframe_vf
 log = logging.getLogger("rehovision-worker.render_clip")
 
 
+def _ffmpeg_cut(
+    source_path: Path,
+    output_path: Path,
+    *,
+    start_sec: float,
+    duration: float,
+    vf: str,
+) -> None:
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-ss",
+        f"{start_sec:.3f}",
+        "-i",
+        str(source_path),
+        "-t",
+        f"{duration:.3f}",
+        "-vf",
+        vf,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-movflags",
+        "+faststart",
+        str(output_path),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg failed ({proc.returncode}): {proc.stderr[-800:]}"
+        )
+    if not output_path.is_file() or output_path.stat().st_size == 0:
+        raise RuntimeError("Clip rendu vide")
+
+
 def render_clip(
     source_path: Path,
     output_path: Path,
@@ -29,6 +77,7 @@ def render_clip(
     end_sec: float,
     caption_text: str | None = None,
     caption_segments: list[dict[str, Any]] | None = None,
+    broll_cues: list[dict[str, Any]] | None = None,
 ) -> Path:
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg introuvable dans le PATH")
@@ -61,43 +110,25 @@ def render_clip(
     vf_parts = [reframe_vf]
     if ass_path is not None:
         vf_parts.append(ass_filter_arg(ass_path))
-
     vf = ",".join(vf_parts)
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-ss",
-        f"{start_sec:.3f}",
-        "-i",
-        str(source_path),
-        "-t",
-        f"{duration:.3f}",
-        "-vf",
-        vf,
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "23",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-movflags",
-        "+faststart",
-        str(output_path),
-    ]
 
+    base_path = work / "clip_base.mp4"
     log.info(
-        "ffmpeg cut %.1f–%.1f captions=%s reframe → %s",
+        "ffmpeg cut %.1f–%.1f captions=%s reframe → base",
         start_sec,
         end_sec,
         len(cues),
-        output_path.name,
     )
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
+
+    try:
+        _ffmpeg_cut(
+            source_path,
+            base_path,
+            start_sec=float(start_sec),
+            duration=duration,
+            vf=vf,
+        )
+    except RuntimeError:
         if ass_path is not None:
             log.warning("render avec captions échoué — retry sans captions")
             return render_clip(
@@ -107,26 +138,37 @@ def render_clip(
                 end_sec=end_sec,
                 caption_text=None,
                 caption_segments=None,
+                broll_cues=broll_cues,
             )
-        # Dernier recours letterbox
-        log.warning("reframe échoué — retry letterbox: %s", proc.stderr[-400:])
+        log.warning("reframe échoué — retry letterbox")
         vf_lb = (
             "scale=1080:1920:force_original_aspect_ratio=decrease,"
             "pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
         )
-        cmd_lb = cmd.copy()
-        # Remplacer -vf value
-        vf_idx = cmd_lb.index("-vf") + 1
-        cmd_lb[vf_idx] = vf_lb
-        proc2 = subprocess.run(cmd_lb, capture_output=True, text=True)
-        if proc2.returncode != 0:
-            raise RuntimeError(
-                f"ffmpeg failed ({proc2.returncode}): {proc2.stderr[-800:]}"
-            )
-        if not output_path.is_file() or output_path.stat().st_size == 0:
-            raise RuntimeError("Clip rendu vide")
-        return output_path
+        _ffmpeg_cut(
+            source_path,
+            base_path,
+            start_sec=float(start_sec),
+            duration=duration,
+            vf=vf_lb,
+        )
 
-    if not output_path.is_file() or output_path.stat().st_size == 0:
-        raise RuntimeError("Clip rendu vide")
+    # B-roll IA (optionnel) — ne fait pas échouer le clip si KO
+    if broll_enabled():
+        try:
+            resolved = resolve_broll_cues(
+                clip_duration=duration,
+                caption_text=caption_text,
+                caption_segments=caption_segments,
+                payload_cues=broll_cues,
+            )
+            shots = generate_broll_images(resolved, work)
+            if shots:
+                composite_broll(base_path, output_path, shots)
+                log.info("Clip final avec %d B-roll(s)", len(shots))
+                return output_path
+        except Exception as e:
+            log.warning("B-roll ignoré (%s) — export talking-head seul", e)
+
+    shutil.copy2(base_path, output_path)
     return output_path

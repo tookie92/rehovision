@@ -370,6 +370,7 @@ export const retryFailedClips = mutation({
             clip.startSec,
             clip.endSec,
           ),
+          brollCues: [],
           title: clip.title,
         },
         createdAt: now,

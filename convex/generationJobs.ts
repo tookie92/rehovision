@@ -606,6 +606,15 @@ export const applyClipPipelineResult = internalMutation({
           startSec: v.number(),
           endSec: v.number(),
           captionText: v.optional(v.string()),
+          broll: v.optional(
+            v.array(
+              v.object({
+                relStartSec: v.number(),
+                durationSec: v.number(),
+                prompt: v.string(),
+              }),
+            ),
+          ),
         }),
       ),
     ),
@@ -722,6 +731,7 @@ export const applyClipPipelineResult = internalMutation({
             endSec: p.endSec,
             captionText: p.captionText ?? "",
             captionSegments,
+            brollCues: p.broll ?? [],
             title: p.title,
           },
           createdAt: now,
@@ -864,6 +874,11 @@ export const submitClipPipelineResult = httpAction(async (ctx, request) => {
       startSec: number;
       endSec: number;
       captionText?: string;
+      broll?: Array<{
+        relStartSec: number;
+        durationSec: number;
+        prompt: string;
+      }>;
     }>;
     error?: string;
   };

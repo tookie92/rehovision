@@ -90,8 +90,8 @@ export function pipelineDetail(
       return "Ollama cherche les hooks viraux…";
     case "rendering":
       return total > 0
-        ? `Reframe 9:16 + captions — ${ready}/${total} clips`
-        : "Reframe 9:16 + captions ffmpeg…";
+        ? `Reframe + captions + B-roll — ${ready}/${total} clips`
+        : "Reframe 9:16, captions et B-roll…";
     case "ready":
       return total > 0
         ? `${ready}/${total} clip${total > 1 ? "s" : ""} prêts à poster`
