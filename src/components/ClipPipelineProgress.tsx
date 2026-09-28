@@ -16,6 +16,26 @@ type Props = {
   clipCount?: number;
 };
 
+/** Erreurs yt-dlp trop longues → message actionnable. */
+export function friendlyPipelineError(msg: string): string {
+  const lower = msg.toLowerCase();
+  if (
+    lower.includes("sign in to confirm") ||
+    lower.includes("anti-bot") ||
+    lower.includes("yt_cookies") ||
+    lower.includes("not a bot")
+  ) {
+    return (
+      "YouTube bloque le téléchargement (anti-bot). " +
+      "Sur le worker : place les cookies dans worker/cookies/youtube.txt, " +
+      "ajoute YT_COOKIES=./cookies/youtube.txt dans worker/.env, redémarre le worker, " +
+      "puis Relancer — ou importe un fichier MP4 depuis Import."
+    );
+  }
+  if (msg.length > 320) return `${msg.slice(0, 320)}…`;
+  return msg;
+}
+
 /**
  * Stepper visuel du funnel clips (source → Whisper → hooks → rendu).
  */
@@ -77,7 +97,7 @@ export function ClipPipelineProgress({
 
       {errorMessage && (
         <p className="mt-2 text-sm text-destructive" role="alert">
-          {errorMessage}
+          {friendlyPipelineError(errorMessage)}
         </p>
       )}
     </div>

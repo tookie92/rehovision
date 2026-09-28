@@ -43,8 +43,7 @@ __pycache__/
 *.pyc
 
 # YouTube cookies (secrets — never commit)
-worker/cookies/
-worker/cookies/*  
+worker/cookies/*
 !worker/cookies/README.md
 
 # vercel
@@ -55,7 +54,3 @@ worker/cookies/*
 next-env.d.ts
 .clerk/
 worker/logs/
-
-# YouTube cookies (secrets — never commit)
-worker/cookies/*
-!worker/cookies/README.md

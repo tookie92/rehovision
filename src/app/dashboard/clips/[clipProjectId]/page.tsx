@@ -149,8 +149,6 @@ export default function ClipProjectPage() {
     (project.status === "ready" || project.status === "failed");
   const hasSource = Boolean(project.sourceVideoUrl);
   const canRerender = clips.length > 0 && hasSource;
-  // Options cliquables dès qu’il y a une source — même si status = rendering
-  const optionsLocked = !hasSource;
 
   const captionStyle = (project.captionStyle ?? "viral") as CaptionStyleId;
   const layoutMode = (project.layoutMode ?? "smart") as LayoutModeId;
@@ -205,27 +203,55 @@ export default function ClipProjectPage() {
           clipCount={clips.length}
         />
 
-        <ClipRenderOptions
-          captionStyle={captionStyle}
-          layoutMode={layoutMode}
-          voiceoverMode={voiceoverMode}
-          disabled={optionsLocked}
-          applyDisabled={!canRerender}
-          saving={rerendering}
-          onCaptionStyle={(v) => void persistOption({ captionStyle: v })}
-          onLayoutMode={(v) => void persistOption({ layoutMode: v })}
-          onVoiceoverMode={(v) => void persistOption({ voiceoverMode: v })}
-          onApplyRerender={() => void onApplyRerender()}
-        />
-
-        {project.sourceVideoUrl && (
-          <ClipManualTrim
-            sourceUrl={project.sourceVideoUrl}
-            durationSeconds={project.durationSeconds}
-            disabled={optionsLocked}
-            creating={creatingManual}
-            onCreate={onCreateManual}
-          />
+        {!hasSource ? (
+          <div className="space-y-3 rounded-xl border border-border bg-card/40 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+              Rendu & trim
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Indisponibles tant qu’il n’y a pas de vidéo source. L’échec
+              YouTube ci-dessus bloque tout (captions, layout, trim).
+            </p>
+            <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
+              <li>
+                Contournement :{" "}
+                <Link
+                  href="/dashboard"
+                  className="text-signal underline-offset-4 hover:underline"
+                >
+                  Import → Fichier
+                </Link>{" "}
+                (MP4, sans cookies)
+              </li>
+              <li>
+                Ou configure les cookies yt-dlp sur Ubuntu (
+                <code className="text-xs">worker/cookies/README.md</code>
+                ), puis Relancer
+              </li>
+            </ul>
+          </div>
+        ) : (
+          <>
+            <ClipRenderOptions
+              captionStyle={captionStyle}
+              layoutMode={layoutMode}
+              voiceoverMode={voiceoverMode}
+              disabled={false}
+              applyDisabled={!canRerender}
+              saving={rerendering}
+              onCaptionStyle={(v) => void persistOption({ captionStyle: v })}
+              onLayoutMode={(v) => void persistOption({ layoutMode: v })}
+              onVoiceoverMode={(v) => void persistOption({ voiceoverMode: v })}
+              onApplyRerender={() => void onApplyRerender()}
+            />
+            <ClipManualTrim
+              sourceUrl={project.sourceVideoUrl!}
+              durationSeconds={project.durationSeconds}
+              disabled={false}
+              creating={creatingManual}
+              onCreate={onCreateManual}
+            />
+          </>
         )}
 
         {(canRetryPipeline || canRetryFailed) && (
