@@ -158,7 +158,21 @@ def assemble_video(
         if duration <= 0:
             duration = 1.0
 
-        # Image fixe + audio → clip
+        fade_in = min(0.2, duration * 0.15)
+        fade_out = min(0.25, duration * 0.2)
+        fade_out_start = max(0.0, duration - fade_out)
+        vf = (
+            f"scale={VIDEO_W}:{VIDEO_H}:force_original_aspect_ratio=increase,"
+            f"crop={VIDEO_W}:{VIDEO_H},"
+            f"fade=t=in:st=0:d={fade_in:.3f},"
+            f"fade=t=out:st={fade_out_start:.3f}:d={fade_out:.3f}"
+        )
+        af = (
+            f"afade=t=in:st=0:d={fade_in:.3f},"
+            f"afade=t=out:st={fade_out_start:.3f}:d={fade_out:.3f}"
+        )
+
+        # Image fixe + audio → clip (fade léger entre scènes)
         cmd = [
             "ffmpeg",
             "-y",
@@ -179,8 +193,11 @@ def assemble_video(
             "-pix_fmt",
             "yuv420p",
             "-vf",
-            f"scale={VIDEO_W}:{VIDEO_H}:force_original_aspect_ratio=increase,crop={VIDEO_W}:{VIDEO_H}",
-            "-shortest",
+            vf,
+            "-af",
+            af,
+            "-t",
+            f"{duration:.3f}",
             "-movflags",
             "+faststart",
             str(clip_path),

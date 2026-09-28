@@ -12,21 +12,29 @@ import { requireUserId } from "./lib/auth";
 import { assertWorkerSecret } from "./lib/workerAuth";
 import { buildImagePrompt } from "./lib/imagePrompt";
 import { parseGeneratedScript } from "./lib/scriptPrompt";
+import { enqueueAssetJobsForProject } from "./lib/enqueueAssets";
 
 /** Jobs "processing" plus vieux que ça = worker probablement mort → requeue. */
 const STALE_PROCESSING_MS = 10 * 60 * 1000;
 
+const jobType = v.union(
+  v.literal("script"),
+  v.literal("image"),
+  v.literal("voiceover"),
+  v.literal("video_assembly"),
+  v.literal("transcribe"),
+  v.literal("propose_clips"),
+  v.literal("render_clip"),
+);
+
 const jobDoc = v.object({
   _id: v.id("generationJobs"),
   _creationTime: v.number(),
-  type: v.union(
-    v.literal("script"),
-    v.literal("image"),
-    v.literal("voiceover"),
-    v.literal("video_assembly"),
-  ),
+  type: jobType,
   sceneId: v.optional(v.id("scenes")),
-  videoProjectId: v.id("videoProjects"),
+  videoProjectId: v.optional(v.id("videoProjects")),
+  clipProjectId: v.optional(v.id("clipProjects")),
+  clipId: v.optional(v.id("clips")),
   status: v.union(
     v.literal("pending"),
     v.literal("processing"),
@@ -77,14 +85,11 @@ export const claimNextJob = internalMutation({
   returns: v.union(
     v.object({
       _id: v.id("generationJobs"),
-      type: v.union(
-        v.literal("script"),
-        v.literal("image"),
-        v.literal("voiceover"),
-        v.literal("video_assembly"),
-      ),
+      type: jobType,
       sceneId: v.optional(v.id("scenes")),
-      videoProjectId: v.id("videoProjects"),
+      videoProjectId: v.optional(v.id("videoProjects")),
+      clipProjectId: v.optional(v.id("clipProjects")),
+      clipId: v.optional(v.id("clips")),
       status: v.literal("processing"),
       provider: v.union(v.literal("local"), v.literal("api-fallback")),
       payload: v.any(),
@@ -130,6 +135,8 @@ export const claimNextJob = internalMutation({
       type: pending.type,
       sceneId: pending.sceneId,
       videoProjectId: pending.videoProjectId,
+      clipProjectId: pending.clipProjectId,
+      clipId: pending.clipId,
       status: "processing" as const,
       provider: pending.provider,
       payload: pending.payload,
@@ -208,6 +215,15 @@ export const applyJobResult = internalMutation({
         errorMessage: args.errorMessage,
         updatedAt: now,
       });
+      if (job.type === "render_clip" && job.clipId) {
+        await ctx.db.patch(job.clipId, {
+          status: "failed",
+          errorMessage: args.errorMessage,
+        });
+        if (job.clipProjectId) {
+          await refreshClipProjectStatus(ctx, job.clipProjectId);
+        }
+      }
       return null;
     }
 
@@ -227,15 +243,26 @@ export const applyJobResult = internalMutation({
         patch.durationSeconds = args.durationSeconds;
       }
       await ctx.db.patch(job.sceneId, patch);
-    } else if (job.type === "video_assembly") {
+    } else if (job.type === "video_assembly" && job.videoProjectId) {
       await ctx.db.patch(job.videoProjectId, {
         finalVideoUrl: args.resultUrl,
         status: "ready",
       });
+    } else if (job.type === "render_clip" && job.clipId) {
+      await ctx.db.patch(job.clipId, {
+        resultUrl: args.resultUrl,
+        status: "ready",
+        errorMessage: undefined,
+      });
+      if (job.clipProjectId) {
+        await refreshClipProjectStatus(ctx, job.clipProjectId);
+      }
     }
-    // type "script" : géré via applyScriptResult (JSON), pas un fichier
+    // type "script" / "transcribe" / "propose_clips" : JSON via apply*Result
 
-    await ensureAssemblyJobIfReady(ctx, job.videoProjectId);
+    if (job.videoProjectId) {
+      await ensureAssemblyJobIfReady(ctx, job.videoProjectId);
+    }
     return null;
   },
 });
@@ -268,7 +295,11 @@ export const applyScriptResult = internalMutation({
       return null;
     }
 
-    const project = await ctx.db.get(job.videoProjectId);
+    if (!job.videoProjectId) {
+      throw new Error("Job script sans videoProjectId");
+    }
+    const videoProjectId = job.videoProjectId;
+    const project = await ctx.db.get(videoProjectId);
     if (!project) throw new Error("Projet introuvable");
     const studio = await ctx.db.get(project.studioId);
     if (!studio) throw new Error("Studio introuvable");
@@ -277,17 +308,20 @@ export const applyScriptResult = internalMutation({
     const scenes = script.scenes.map((scene) => ({
       order: scene.order,
       narrationText: scene.narrationText,
+      visualBeat: scene.visualBeat,
       imagePrompt: buildImagePrompt({
-        visualBeat: scene.visualBeat,
+        visualBeat: scene.visualBeat || scene.narrationText,
         visualStyle: studio.visualStyle,
         narrationTone: studio.narrationTone,
+        topic: project.topic,
+        hasStyleReference: Boolean(studio.referenceImageUrl),
       }),
     }));
 
     const existing = await ctx.db
       .query("scenes")
       .withIndex("by_videoProjectId", (q) =>
-        q.eq("videoProjectId", job.videoProjectId),
+        q.eq("videoProjectId", videoProjectId),
       )
       .collect();
 
@@ -297,14 +331,15 @@ export const applyScriptResult = internalMutation({
 
     for (const scene of scenes) {
       await ctx.db.insert("scenes", {
-        videoProjectId: job.videoProjectId,
+        videoProjectId,
         order: scene.order,
         narrationText: scene.narrationText,
+        visualBeat: scene.visualBeat,
         imagePrompt: scene.imagePrompt,
       });
     }
 
-    await ctx.db.patch(job.videoProjectId, {
+    await ctx.db.patch(videoProjectId, {
       title: script.title,
       status: "script_ready",
     });
@@ -313,6 +348,18 @@ export const applyScriptResult = internalMutation({
       status: "done",
       updatedAt: now,
     });
+
+    // Flux sujet → reel : enchaîner images + voix sans second clic
+    if (project.autoGenerateAssets) {
+      const refreshed = await ctx.db.get(videoProjectId);
+      if (refreshed) {
+        await enqueueAssetJobsForProject(ctx, {
+          project: refreshed,
+          studio,
+          userId: studio.userId,
+        });
+      }
+    }
 
     return null;
   },
@@ -403,7 +450,7 @@ export const getNextJob = httpAction(async (ctx, request) => {
   }
 
   let assemblyContext = null;
-  if (job.type === "video_assembly") {
+  if (job.type === "video_assembly" && job.videoProjectId) {
     assemblyContext = await ctx.runQuery(
       internal.generationJobs.getAssemblyContext,
       { videoProjectId: job.videoProjectId },
@@ -532,6 +579,302 @@ export const submitScriptResult = httpAction(async (ctx, request) => {
     await ctx.runMutation(internal.generationJobs.applyScriptResult, {
       jobId,
       rawScript: "",
+      errorMessage: msg,
+    });
+    return json({ error: msg }, 422);
+  }
+
+  return json({ ok: true });
+});
+
+/**
+ * Applique transcript (Whisper) ou propositions de clips (Ollama).
+ * Body selon le type de job :
+ * - transcribe: { transcript: { language, duration, segments } }
+ * - propose_clips: { clips: [{ title, hookReason, startSec, endSec, captionText }] }
+ */
+export const applyClipPipelineResult = internalMutation({
+  args: {
+    jobId: v.id("generationJobs"),
+    transcript: v.optional(v.any()),
+    clips: v.optional(
+      v.array(
+        v.object({
+          title: v.string(),
+          hookReason: v.optional(v.string()),
+          startSec: v.number(),
+          endSec: v.number(),
+          captionText: v.optional(v.string()),
+        }),
+      ),
+    ),
+    errorMessage: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (!job) throw new Error("Job introuvable");
+    if (!job.clipProjectId) {
+      throw new Error("Job clip sans clipProjectId");
+    }
+
+    const now = Date.now();
+    const projectId = job.clipProjectId;
+
+    if (args.errorMessage) {
+      await ctx.db.patch(args.jobId, {
+        status: "failed",
+        errorMessage: args.errorMessage,
+        updatedAt: now,
+      });
+      await ctx.db.patch(projectId, {
+        status: "failed",
+        errorMessage: args.errorMessage,
+      });
+      return null;
+    }
+
+    if (job.type === "transcribe") {
+      if (!args.transcript) {
+        throw new Error("transcript requis");
+      }
+      const duration =
+        typeof args.transcript.duration === "number"
+          ? args.transcript.duration
+          : undefined;
+
+      await ctx.db.patch(projectId, {
+        transcript: args.transcript,
+        durationSeconds: duration,
+        status: "proposing",
+        errorMessage: undefined,
+      });
+
+      await ctx.db.patch(args.jobId, {
+        status: "done",
+        updatedAt: now,
+      });
+
+      await ctx.db.insert("generationJobs", {
+        type: "propose_clips",
+        clipProjectId: projectId,
+        status: "pending",
+        provider: "local",
+        payload: { transcript: args.transcript },
+        createdAt: now,
+        updatedAt: now,
+      });
+      return null;
+    }
+
+    if (job.type === "propose_clips") {
+      const proposals = args.clips ?? [];
+      if (proposals.length === 0) {
+        throw new Error("Aucun clip proposé");
+      }
+
+      const existing = await ctx.db
+        .query("clips")
+        .withIndex("by_clipProjectId", (q) =>
+          q.eq("clipProjectId", projectId),
+        )
+        .collect();
+      for (const c of existing) {
+        await ctx.db.delete(c._id);
+      }
+
+      const project = await ctx.db.get(projectId);
+      const sourceVideoUrl = project?.sourceVideoUrl;
+      const youtubeUrl = project?.sourceYoutubeUrl;
+
+      for (let i = 0; i < proposals.length; i++) {
+        const p = proposals[i]!;
+        const clipId = await ctx.db.insert("clips", {
+          clipProjectId: projectId,
+          order: i + 1,
+          title: p.title,
+          hookReason: p.hookReason,
+          startSec: p.startSec,
+          endSec: p.endSec,
+          captionText: p.captionText,
+          status: "rendering",
+          createdAt: now,
+        });
+
+        await ctx.db.insert("generationJobs", {
+          type: "render_clip",
+          clipProjectId: projectId,
+          clipId,
+          status: "pending",
+          provider: "local",
+          payload: {
+            sourceVideoUrl,
+            youtubeUrl,
+            startSec: p.startSec,
+            endSec: p.endSec,
+            captionText: p.captionText ?? "",
+            title: p.title,
+          },
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      await ctx.db.patch(projectId, {
+        status: "rendering",
+        errorMessage: undefined,
+      });
+      await ctx.db.patch(args.jobId, {
+        status: "done",
+        updatedAt: now,
+      });
+      return null;
+    }
+
+    throw new Error(`Type de job clip invalide: ${job.type}`);
+  },
+});
+
+async function refreshClipProjectStatus(
+  ctx: MutationCtx,
+  clipProjectId: Id<"clipProjects">,
+) {
+  const clips = await ctx.db
+    .query("clips")
+    .withIndex("by_clipProjectId", (q) => q.eq("clipProjectId", clipProjectId))
+    .collect();
+  if (clips.length === 0) return;
+
+  const anyFailed = clips.some((c) => c.status === "failed");
+  const allDone = clips.every(
+    (c) => c.status === "ready" || c.status === "failed",
+  );
+  if (!allDone) return;
+
+  await ctx.db.patch(clipProjectId, {
+    status: anyFailed && clips.every((c) => c.status === "failed")
+      ? "failed"
+      : "ready",
+  });
+}
+
+/**
+ * Après yt-dlp : enregistre la vidéo source téléchargée sur le projet clip.
+ */
+export const setClipProjectSource = internalMutation({
+  args: {
+    jobId: v.id("generationJobs"),
+    storageId: v.id("_storage"),
+    resultUrl: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (!job?.clipProjectId) {
+      throw new Error("Job clip introuvable");
+    }
+    await ctx.db.patch(job.clipProjectId, {
+      sourceStorageId: args.storageId,
+      sourceVideoUrl: args.resultUrl,
+      status: "transcribing",
+      errorMessage: undefined,
+    });
+    return null;
+  },
+});
+
+/**
+ * HTTP — upload de la vidéo source (YouTube → storage) pendant un job transcribe.
+ * Query: jobId — Body: fichier brut
+ */
+export const submitSourceVideo = httpAction(async (ctx, request) => {
+  try {
+    assertWorkerSecret(request);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unauthorized";
+    const status = msg === "UNAUTHORIZED_WORKER" ? 401 : 500;
+    return json({ error: msg }, status);
+  }
+
+  const url = new URL(request.url);
+  const jobIdParam = url.searchParams.get("jobId");
+  if (!jobIdParam) {
+    return json({ error: "jobId requis" }, 400);
+  }
+  const jobId = jobIdParam as Id<"generationJobs">;
+
+  try {
+    const buffer = await request.arrayBuffer();
+    if (!buffer || buffer.byteLength === 0) {
+      return json({ error: "Fichier vide" }, 400);
+    }
+    const contentType =
+      request.headers.get("Content-Type") || "video/mp4";
+    const blob = new Blob([new Uint8Array(buffer)], { type: contentType });
+    const storageId = await ctx.storage.store(blob);
+    const resultUrl = await ctx.storage.getUrl(storageId);
+    if (!resultUrl) {
+      return json({ error: "URL storage indisponible" }, 500);
+    }
+    await ctx.runMutation(internal.generationJobs.setClipProjectSource, {
+      jobId,
+      storageId,
+      resultUrl,
+    });
+    return json({ ok: true, resultUrl, storageId });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return json({ error: msg }, 500);
+  }
+});
+
+/**
+ * HTTP — résultat JSON pipeline ChatCut (transcribe / propose_clips).
+ */
+export const submitClipPipelineResult = httpAction(async (ctx, request) => {
+  try {
+    assertWorkerSecret(request);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unauthorized";
+    const status = msg === "UNAUTHORIZED_WORKER" ? 401 : 500;
+    return json({ error: msg }, status);
+  }
+
+  const url = new URL(request.url);
+  const jobIdParam = url.searchParams.get("jobId");
+  if (!jobIdParam) {
+    return json({ error: "jobId requis" }, 400);
+  }
+  const jobId = jobIdParam as Id<"generationJobs">;
+
+  let body: {
+    transcript?: unknown;
+    clips?: Array<{
+      title: string;
+      hookReason?: string;
+      startSec: number;
+      endSec: number;
+      captionText?: string;
+    }>;
+    error?: string;
+  };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return json({ error: "JSON invalide" }, 400);
+  }
+
+  try {
+    await ctx.runMutation(internal.generationJobs.applyClipPipelineResult, {
+      jobId,
+      transcript: body.transcript,
+      clips: body.clips,
+      errorMessage: body.error,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Erreur applyClipPipelineResult";
+    await ctx.runMutation(internal.generationJobs.applyClipPipelineResult, {
+      jobId,
       errorMessage: msg,
     });
     return json({ error: msg }, 422);

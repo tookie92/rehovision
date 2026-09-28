@@ -1,11 +1,12 @@
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireUserId } from "./lib/auth";
-import {
-  SCRIPT_SYSTEM_PROMPT,
-  buildScriptUserPrompt,
-} from "./lib/scriptPrompt";
-import { bumpUsage, checkUsageLimit } from "./usage";
+import { getScriptSystemPrompt } from "./lib/genrePrompt";
+import { buildScriptUserPrompt } from "./lib/scriptPrompt";
+import { buildImagePrompt } from "./lib/imagePrompt";
+import { bumpUsage, checkUsageLimit, checkStudioLimit } from "./usage";
+import { DEFAULT_STUDIO, DEFAULT_STUDIO_NAME } from "./lib/studioDefaults";
+import { enqueueAssetJobsForProject } from "./lib/enqueueAssets";
 
 const projectStatus = v.union(
   v.literal("draft"),
@@ -21,6 +22,7 @@ const sceneDoc = v.object({
   videoProjectId: v.id("videoProjects"),
   order: v.number(),
   narrationText: v.string(),
+  visualBeat: v.optional(v.string()),
   imagePrompt: v.optional(v.string()),
   imageUrl: v.optional(v.string()),
   audioUrl: v.optional(v.string()),
@@ -34,6 +36,7 @@ const projectDoc = v.object({
   title: v.string(),
   topic: v.string(),
   status: projectStatus,
+  autoGenerateAssets: v.optional(v.boolean()),
   finalVideoUrl: v.optional(v.string()),
   createdAt: v.number(),
 });
@@ -66,10 +69,135 @@ export const createVideoProject = mutation({
       createdAt: Date.now(),
     });
 
-    // Compte comme une vidéo générée dès la création (quota mensuel)
     await bumpUsage(ctx, userId, { videosGenerated: 1 });
 
     return projectId;
+  },
+});
+
+/**
+ * Flux sujet → reel : studio défaut + projet + job script (assets auto après).
+ */
+export const createAndStartReel = mutation({
+  args: {
+    topic: v.string(),
+    planSlug: v.optional(v.string()),
+  },
+  returns: v.object({
+    projectId: v.id("videoProjects"),
+    studioId: v.id("studios"),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const topic = args.topic.trim();
+    if (!topic) throw new Error("Sujet vide");
+
+    await checkUsageLimit(ctx, userId, args.planSlug ?? "solo");
+
+    const studios = await ctx.db
+      .query("studios")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+
+    let studioId = studios.find((s) => s.name === DEFAULT_STUDIO_NAME)?._id;
+    if (!studioId && studios.length > 0) {
+      studioId = studios[0]._id;
+    }
+    if (!studioId) {
+      await checkStudioLimit(ctx, userId, args.planSlug ?? "solo");
+      studioId = await ctx.db.insert("studios", {
+        userId,
+        name: DEFAULT_STUDIO.name,
+        visualStyle: DEFAULT_STUDIO.visualStyle,
+        narrationTone: DEFAULT_STUDIO.narrationTone,
+        genre: DEFAULT_STUDIO.genre,
+        createdAt: Date.now(),
+      });
+    }
+
+    const studio = await ctx.db.get(studioId);
+    if (!studio) throw new Error("Studio introuvable");
+
+    const now = Date.now();
+    const projectId = await ctx.db.insert("videoProjects", {
+      studioId,
+      title: topic,
+      topic,
+      status: "draft",
+      autoGenerateAssets: true,
+      createdAt: now,
+    });
+
+    await bumpUsage(ctx, userId, { videosGenerated: 1 });
+
+    const systemPrompt = getScriptSystemPrompt(studio.genre);
+    const userPrompt = buildScriptUserPrompt({
+      topic,
+      title: topic,
+      narrationTone: studio.narrationTone,
+      visualStyle: studio.visualStyle,
+      genre: studio.genre ?? "true_crime",
+    });
+
+    await ctx.db.insert("generationJobs", {
+      type: "script",
+      videoProjectId: projectId,
+      status: "pending",
+      provider: "local",
+      payload: {
+        systemPrompt,
+        userPrompt,
+        visualStyle: studio.visualStyle,
+        narrationTone: studio.narrationTone,
+        genre: studio.genre ?? "true_crime",
+        topic,
+        title: topic,
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return { projectId, studioId };
+  },
+});
+
+/**
+ * Projets récents de l'utilisateur (tous studios), pour le dashboard.
+ */
+export const getRecentProjects = query({
+  args: { limit: v.optional(v.number()) },
+  returns: v.array(
+    v.object({
+      project: projectDoc,
+      studioName: v.string(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const limit = Math.min(Math.max(args.limit ?? 20, 1), 50);
+    const studios = await ctx.db
+      .query("studios")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+    const studioMap = new Map(studios.map((s) => [s._id, s.name]));
+
+    const all = [];
+    for (const studio of studios) {
+      const projects = await ctx.db
+        .query("videoProjects")
+        .withIndex("by_studioId", (q) => q.eq("studioId", studio._id))
+        .order("desc")
+        .take(limit);
+      for (const project of projects) {
+        all.push({
+          project,
+          studioName: studioMap.get(studio._id) ?? studio.name,
+        });
+      }
+    }
+
+    all.sort((a, b) => b.project.createdAt - a.project.createdAt);
+    return all.slice(0, limit);
   },
 });
 
@@ -171,12 +299,13 @@ export const generateScript = mutation({
       }
     }
 
-    const systemPrompt = SCRIPT_SYSTEM_PROMPT;
+    const systemPrompt = getScriptSystemPrompt(studio.genre);
     const userPrompt = buildScriptUserPrompt({
       topic: project.topic,
       title: project.title,
       narrationTone: studio.narrationTone,
       visualStyle: studio.visualStyle,
+      genre: studio.genre ?? "true_crime",
     });
 
     const jobId = await ctx.db.insert("generationJobs", {
@@ -189,6 +318,7 @@ export const generateScript = mutation({
         userPrompt,
         visualStyle: studio.visualStyle,
         narrationTone: studio.narrationTone,
+        genre: studio.genre ?? "true_crime",
         topic: project.topic,
         title: project.title,
       },
@@ -197,6 +327,245 @@ export const generateScript = mutation({
     });
 
     return { jobId };
+  },
+});
+
+/**
+ * Met à jour narration / prompt image d'une scène (révision script).
+ * Invalide image/audio si le texte change.
+ */
+export const updateScene = mutation({
+  args: {
+    sceneId: v.id("scenes"),
+    narrationText: v.optional(v.string()),
+    imagePrompt: v.optional(v.string()),
+  },
+  returns: v.id("scenes"),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const scene = await ctx.db.get(args.sceneId);
+    if (!scene) throw new Error("Scène introuvable");
+
+    const project = await ctx.db.get(scene.videoProjectId);
+    if (!project) throw new Error("Projet introuvable");
+
+    const studio = await ctx.db.get(project.studioId);
+    if (!studio || studio.userId !== userId) {
+      throw new Error("Non autorisé");
+    }
+
+    const patch: {
+      narrationText?: string;
+      imagePrompt?: string;
+      imageUrl?: undefined;
+      audioUrl?: undefined;
+      durationSeconds?: undefined;
+    } = {};
+
+    let invalidateAssets = false;
+
+    if (args.narrationText !== undefined) {
+      const next = args.narrationText.trim();
+      if (!next) throw new Error("Narration vide");
+      if (next !== scene.narrationText) {
+        patch.narrationText = next;
+        invalidateAssets = true;
+      }
+    }
+
+    if (args.imagePrompt !== undefined) {
+      const next = args.imagePrompt.trim();
+      if (next !== (scene.imagePrompt ?? "")) {
+        patch.imagePrompt = next;
+        invalidateAssets = true;
+      }
+    }
+
+    if (invalidateAssets) {
+      patch.imageUrl = undefined;
+      patch.audioUrl = undefined;
+      patch.durationSeconds = undefined;
+      if (project.status === "ready" || project.status === "generating") {
+        await ctx.db.patch(project._id, {
+          status: "script_ready",
+          finalVideoUrl: undefined,
+        });
+      }
+    }
+
+    if (Object.keys(patch).length > 0) {
+      await ctx.db.patch(args.sceneId, patch);
+    }
+
+    return args.sceneId;
+  },
+});
+
+/**
+ * Supprime une scène et réordonne les suivantes.
+ */
+export const deleteScene = mutation({
+  args: { sceneId: v.id("scenes") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const scene = await ctx.db.get(args.sceneId);
+    if (!scene) throw new Error("Scène introuvable");
+
+    const project = await ctx.db.get(scene.videoProjectId);
+    if (!project) throw new Error("Projet introuvable");
+
+    const studio = await ctx.db.get(project.studioId);
+    if (!studio || studio.userId !== userId) {
+      throw new Error("Non autorisé");
+    }
+
+    const siblings = await ctx.db
+      .query("scenes")
+      .withIndex("by_videoProjectId", (q) =>
+        q.eq("videoProjectId", scene.videoProjectId),
+      )
+      .collect();
+
+    if (siblings.length <= 1) {
+      throw new Error("Garde au moins une scène");
+    }
+
+    await ctx.db.delete(args.sceneId);
+
+    const remaining = siblings
+      .filter((s) => s._id !== args.sceneId)
+      .sort((a, b) => a.order - b.order);
+
+    for (let i = 0; i < remaining.length; i++) {
+      await ctx.db.patch(remaining[i]._id, { order: i + 1 });
+    }
+
+    if (project.status === "ready" || project.status === "generating") {
+      await ctx.db.patch(project._id, {
+        status: "script_ready",
+        finalVideoUrl: undefined,
+      });
+    }
+
+    return null;
+  },
+});
+
+/**
+ * File image et/ou voix pour une seule scène.
+ */
+export const queueSceneJobs = mutation({
+  args: {
+    sceneId: v.id("scenes"),
+    kinds: v.array(
+      v.union(v.literal("image"), v.literal("voiceover")),
+    ),
+  },
+  returns: v.object({ jobCount: v.number() }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const scene = await ctx.db.get(args.sceneId);
+    if (!scene) throw new Error("Scène introuvable");
+
+    const project = await ctx.db.get(scene.videoProjectId);
+    if (!project) throw new Error("Projet introuvable");
+
+    const studio = await ctx.db.get(project.studioId);
+    if (!studio || studio.userId !== userId) {
+      throw new Error("Non autorisé");
+    }
+
+    if (args.kinds.length === 0) {
+      throw new Error("Aucune génération demandée");
+    }
+
+    const now = Date.now();
+    let jobCount = 0;
+
+    // Annule jobs actifs de même type pour cette scène
+    const existing = await ctx.db
+      .query("generationJobs")
+      .withIndex("by_sceneId", (q) => q.eq("sceneId", args.sceneId))
+      .collect();
+
+    for (const job of existing) {
+      if (
+        args.kinds.includes(job.type as "image" | "voiceover") &&
+        (job.status === "pending" || job.status === "processing")
+      ) {
+        await ctx.db.patch(job._id, {
+          status: "failed",
+          errorMessage: "Remplacé par une nouvelle génération",
+          updatedAt: now,
+        });
+      }
+    }
+
+    if (args.kinds.includes("image")) {
+      const beat =
+        scene.visualBeat?.trim() || scene.narrationText;
+      const hasRef = Boolean(studio.referenceImageUrl);
+      // Avec référence dessin : toujours reconstruire (évite conflit avec vieux presets).
+      // Sinon : respecter un imagePrompt édité à la main.
+      const prompt = hasRef
+        ? buildImagePrompt({
+            visualBeat: beat,
+            visualStyle: studio.visualStyle,
+            narrationTone: studio.narrationTone,
+            topic: project.topic,
+            hasStyleReference: true,
+          })
+        : scene.imagePrompt?.trim() ||
+          buildImagePrompt({
+            visualBeat: beat,
+            visualStyle: studio.visualStyle,
+            narrationTone: studio.narrationTone,
+            topic: project.topic,
+            hasStyleReference: false,
+          });
+
+      await ctx.db.insert("generationJobs", {
+        type: "image",
+        sceneId: scene._id,
+        videoProjectId: project._id,
+        status: "pending",
+        provider: "local",
+        payload: {
+          prompt,
+          visualStyle: studio.visualStyle,
+          referenceImageUrl: studio.referenceImageUrl,
+        },
+        createdAt: now,
+        updatedAt: now,
+      });
+      jobCount += 1;
+      await bumpUsage(ctx, userId, { imagesGenerated: 1 });
+    }
+
+    if (args.kinds.includes("voiceover")) {
+      await ctx.db.insert("generationJobs", {
+        type: "voiceover",
+        sceneId: scene._id,
+        videoProjectId: project._id,
+        status: "pending",
+        provider: "local",
+        payload: {
+          text: scene.narrationText,
+          tone: studio.narrationTone,
+        },
+        createdAt: now,
+        updatedAt: now,
+      });
+      jobCount += 1;
+    }
+
+    await ctx.db.patch(project._id, {
+      status: "generating",
+      finalVideoUrl: undefined,
+    });
+
+    return { jobCount };
   },
 });
 
@@ -275,55 +644,11 @@ export const queueGenerationJobs = mutation({
       );
     }
 
-    const scenes = await ctx.db
-      .query("scenes")
-      .withIndex("by_videoProjectId", (q) =>
-        q.eq("videoProjectId", args.projectId),
-      )
-      .collect();
-
-    if (scenes.length === 0) {
-      throw new Error("Aucune scène — générez d'abord le script");
-    }
-
-    const now = Date.now();
-    let jobCount = 0;
-
-    for (const scene of scenes) {
-      await ctx.db.insert("generationJobs", {
-        type: "image",
-        sceneId: scene._id,
-        videoProjectId: args.projectId,
-        status: "pending",
-        provider: "local",
-        payload: {
-          prompt: scene.imagePrompt ?? scene.narrationText,
-          visualStyle: studio.visualStyle,
-          referenceImageUrl: studio.referenceImageUrl,
-        },
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      await ctx.db.insert("generationJobs", {
-        type: "voiceover",
-        sceneId: scene._id,
-        videoProjectId: args.projectId,
-        status: "pending",
-        provider: "local",
-        payload: {
-          text: scene.narrationText,
-          tone: studio.narrationTone,
-        },
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      jobCount += 2;
-    }
-
-    await ctx.db.patch(args.projectId, { status: "generating" });
-    await bumpUsage(ctx, userId, { imagesGenerated: scenes.length });
+    const jobCount = await enqueueAssetJobsForProject(ctx, {
+      project,
+      studio,
+      userId,
+    });
 
     return { jobCount };
   },

@@ -1,89 +1,62 @@
 import Link from "next/link";
 
 /**
- * Landing — une composition, brand hero, esthétique narrative sombre.
+ * Landing Opus Clip — brand + cadre 9:16. Un job : importer une source.
  */
 export default function HomePage() {
   return (
     <main className="relative overflow-hidden">
-      {/* Atmosphère : grain + dégradé cramoisi/charbon */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 -z-10"
-        style={{
-          background: `
-            radial-gradient(ellipse 80% 60% at 70% 20%, oklch(0.35 0.14 25 / 0.45), transparent 55%),
-            radial-gradient(ellipse 50% 40% at 10% 80%, oklch(0.25 0.06 40 / 0.35), transparent 50%),
-            linear-gradient(165deg, oklch(0.12 0.02 40) 0%, oklch(0.09 0.01 30) 45%, oklch(0.07 0.015 25) 100%)
-          `,
-        }}
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 -z-10 opacity-[0.07] mix-blend-overlay"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
-        }}
-      />
-
-      <section className="mx-auto flex min-h-[calc(100vh-4.5rem)] max-w-5xl flex-col justify-center px-6 pb-24 pt-10 md:px-10">
-        <p className="mb-6 text-xs font-medium uppercase tracking-[0.28em] text-[oklch(0.72_0.12_35)] animate-in fade-in duration-700">
-          Rehovision
-        </p>
-        <h1 className="max-w-3xl font-[family-name:var(--font-display)] text-5xl leading-[1.05] tracking-tight text-balance text-foreground sm:text-6xl md:text-7xl animate-in fade-in slide-in-from-bottom-3 duration-700">
-          Un sujet. Une vidéo narrative illustrée.
-        </h1>
-        <p className="mt-6 max-w-xl text-lg text-muted-foreground text-pretty animate-in fade-in slide-in-from-bottom-2 duration-1000 delay-150">
-          Script, illustrations cohérentes, voix off et montage — pour TikTok,
-          YouTube et Instagram. Style true crime, mystère, faceless.
-        </p>
-        <div className="mt-10 flex flex-wrap items-center gap-3 animate-in fade-in duration-1000 delay-300">
-          <Link
-            href="/sign-up"
-            className="inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80"
-          >
-            Créer un Studio
-          </Link>
-          <Link
-            href="/pricing"
-            className="inline-flex h-9 items-center rounded-lg border border-border bg-background/40 px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            Voir les tarifs
-          </Link>
+      <section className="mx-auto grid min-h-[calc(100vh-4.5rem)] max-w-6xl items-center gap-12 px-6 pb-20 pt-8 md:grid-cols-[1.1fr_0.9fr] md:px-10 md:pb-24">
+        <div className="relative z-10">
+          <p className="mb-5 font-display text-5xl tracking-tight text-foreground sm:text-6xl md:text-7xl">
+            Rehovision
+          </p>
+          <h1 className="max-w-xl text-xl leading-snug text-muted-foreground sm:text-2xl">
+            Colle un lien YouTube ou importe une vidéo. On sort des clips
+            verticaux prêts à poster.
+          </h1>
+          <div className="mt-10 flex flex-wrap gap-3">
+            <Link
+              href="/sign-up"
+              className="inline-flex h-10 cursor-pointer items-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              Ouvrir l’atelier
+            </Link>
+            <Link
+              href="/dashboard"
+              className="inline-flex h-10 cursor-pointer items-center rounded-md border border-border px-5 text-sm text-muted-foreground transition-colors hover:border-signal/40 hover:text-foreground"
+            >
+              Importer une source
+            </Link>
+          </div>
         </div>
-      </section>
 
-      <section className="border-t border-white/5 bg-black/20 px-6 py-20 md:px-10">
-        <div className="mx-auto grid max-w-5xl gap-12 md:grid-cols-3">
-          {[
-            {
-              step: "01",
-              title: "Le sujet",
-              body: "Tu entres un titre. Rehovision écrit le script narratif découpé en scènes.",
-            },
-            {
-              step: "02",
-              title: "L’univers",
-              body: "Chaque Studio garde son style d’illustration et son ton de narration.",
-            },
-            {
-              step: "03",
-              title: "La vidéo",
-              body: "Images, voix off, sous-titres et montage — assemblés pour le format vertical.",
-            },
-          ].map((item) => (
-            <div key={item.step} className="space-y-3">
-              <p className="font-mono text-xs tracking-widest text-[oklch(0.65_0.14_25)]">
-                {item.step}
+        <div
+          className="relative mx-auto flex h-[min(70vh,560px)] w-[min(100%,280px)] items-end justify-center"
+          aria-hidden
+        >
+          <div className="absolute inset-0 rounded-[2rem] border border-border bg-card/60 shadow-[inset_0_0_0_1px_rgb(61_214_198_/_0.12)]" />
+          <div className="absolute left-1/2 top-3 h-1.5 w-16 -translate-x-1/2 rounded-full bg-muted-foreground/25" />
+          <div className="absolute inset-x-4 bottom-8 top-10 overflow-hidden rounded-2xl bg-[#07090c]">
+            <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_0%,rgb(61_214_198_/_0.08)_50%,transparent_100%)]" />
+            <div className="absolute left-3 right-3 top-[18%] space-y-2">
+              <p className="timecode text-[10px] text-signal">
+                youtube.com/watch?v=…
               </p>
-              <h2 className="font-[family-name:var(--font-display)] text-2xl text-foreground">
-                {item.title}
-              </h2>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                {item.body}
+              <p className="font-display text-lg leading-tight text-foreground">
+                Hooks trouvés
+              </p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Transcription → sélection → coupe 9:16.
               </p>
             </div>
-          ))}
+            <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 to-transparent" />
+            <div className="absolute bottom-4 left-3 right-3">
+              <div className="h-1 overflow-hidden rounded-full bg-white/10">
+                <div className="h-full w-[38%] bg-signal" />
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </main>

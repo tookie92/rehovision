@@ -14,35 +14,31 @@ export function SiteHeader() {
     <header className="relative z-20 flex items-center justify-between px-6 py-5 md:px-10">
       <Link
         href="/"
-        className="font-[family-name:var(--font-display)] text-2xl tracking-tight text-foreground"
+        className="font-display text-2xl tracking-tight text-foreground"
       >
         Rehovision
       </Link>
-      <nav className="flex items-center gap-2 sm:gap-3">
-        <Link
-          href="/pricing"
-          className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
-        >
-          Tarifs
-        </Link>
+      <nav className="flex items-center gap-1 sm:gap-2">
+        <Show when="signed-in">
+          <Link
+            href="/dashboard"
+            className="rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Atelier
+          </Link>
+          <UserButton />
+        </Show>
         <Show when="signed-out">
           <SignInButton mode="modal">
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" className="cursor-pointer">
               Connexion
             </Button>
           </SignInButton>
           <SignUpButton mode="modal">
-            <Button size="sm">Commencer</Button>
+            <Button size="sm" className="cursor-pointer">
+              Commencer
+            </Button>
           </SignUpButton>
-        </Show>
-        <Show when="signed-in">
-          <Link
-            href="/dashboard"
-            className="rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Dashboard
-          </Link>
-          <UserButton />
         </Show>
       </nav>
     </header>

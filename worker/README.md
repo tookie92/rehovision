@@ -1,16 +1,16 @@
-# Worker Rehovision — GPU local (Ollama + Diffusers + Piper + ffmpeg)
+# Worker Rehovision — GPU local (Ollama + Flux + OmniVoice + ffmpeg)
 
 Pipeline traité par polling Convex :
 
 1. `script` → Ollama
-2. `image` → SDXL Turbo (diffusers)
-3. `voiceover` → Piper FR
+2. `image` → Flux Schnell (diffusers)
+3. `voiceover` → OmniVoice (clone / voice-design) — fallback Piper
 4. `video_assembly` → ffmpeg (1080×1920 + sous-titres)
 
 ## Prérequis système
 
-- Python 3.10+
-- NVIDIA driver + CUDA (RTX 3060 OK)
+- Python 3.11 ou 3.12 (pas 3.14 — wheels CUDA)
+- NVIDIA driver + CUDA (RTX 3060 12GB OK)
 - `ffmpeg` / `ffprobe` (`sudo apt install ffmpeg`)
 - Ollama (`ollama pull llama3.2`)
 
@@ -19,52 +19,72 @@ Pipeline traité par polling Convex :
 ```bash
 cd worker
 
-# Python 3.11 ou 3.12 (pas 3.14 — pas de wheel CUDA torch)
 python3.11 -m venv .venv
 source .venv/bin/activate
 
-# PyTorch CUDA 12.4 (adaptez sur https://pytorch.org si besoin)
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-
 pip install -r requirements.txt
 
-# Piper + voix FR
+# Piper optionnel (TTS_ENGINE=piper)
 chmod +x scripts/download_piper_fr.sh
 ./scripts/download_piper_fr.sh
 
 cp .env.example .env
 # Renseigner CONVEX_SITE_URL + WORKER_SECRET_KEY
 ```
-Variables utiles dans `.env` :
+
+Variables utiles :
 
 | Variable | Défaut | Rôle |
 |---|---|---|
-| `PIPER_BIN` | `./bin/piper` | Binaire Piper |
-| `PIPER_MODEL_PATH` | `./models/piper/fr_FR-siwis-medium.onnx` | Voix FR |
-| `SD_MODEL_ID` | `stabilityai/sdxl-turbo` | Modèle HF |
-| `SD_WIDTH` / `SD_HEIGHT` | `576` / `1024` | Format 9:16 |
-| `SD_STEPS` | `4` | Steps Turbo |
+| `TTS_ENGINE` | `omnivoice` | `omnivoice` ou `piper` |
+| `OMNIVOICE_INSTRUCT` | `male, low pitch` | Voice design si pas de clone |
+| `OMNIVOICE_REF_AUDIO` | — | Sample 3–10s pour clone |
+| `OMNIVOICE_REF_TEXT` | — | Transcription de la ref (sinon Whisper) |
+| `OMNIVOICE_NUM_STEP` | `32` | Steps diffusion (16 = plus rapide) |
+| `SD_MODEL_ID` | `black-forest-labs/FLUX.1-schnell` | Images |
+| `SD_CPU_OFFLOAD` | `1` | Offload CPU (12GB VRAM) |
+
+Tags non-verbaux supportés dans le texte de narration : `[laughter]`, `[sigh]`, etc.
 
 ## Lancer
 
 ```bash
 ./run.sh
-# ou
-source .venv/bin/activate && python main.py
+# ou systemd : sudo systemctl restart rehovision-worker
 ```
 
-Premier job image : téléchargement du modèle HF (~6 Go) dans `~/.cache/huggingface`.
+Premier job image : download Flux (~23 Go).  
+Premier job voix : download OmniVoice (HF `k2-fsa/OmniVoice`).
 
 ## Smoke test
 
-1. Worker + `npm run dev` + `npm run dev:convex`
-2. Créer un projet → **Générer le script** → attendre les scènes
-3. **Générer images + voix** → jobs `image` / `voiceover`
-4. Quand toutes les scènes sont complètes, un job `video_assembly` est créé auto
-5. Projet passe en `ready` avec `finalVideoUrl`
+1. Worker up
+2. Projet → script → **Générer images + voix**
+3. Montage auto quand toutes les scènes sont prêtes
+
+## Télécharger les modèles HF (connexion lente)
+
+Arrête le worker pour éviter les locks HF concurrents :
+
+```bash
+sudo systemctl stop rehovision-worker
+cd worker
+chmod +x scripts/download_models.sh
+
+./scripts/download_models.sh status
+./scripts/download_models.sh omnivoice    # ~1–2 Go
+./scripts/download_models.sh flux         # ~23 Go (long)
+./scripts/download_models.sh all --background   # nuit / connexion lente
+```
+
+Le script reprend les fichiers `.incomplete`, timeout par tentative (`HF_ATTEMPT_TIMEOUT=30m`), retries illimités.
+
+Quand OmniVoice est prêt : `TTS_ENGINE=omnivoice` dans `.env` + restart worker.  
+Quand Flux est prêt : `SD_MODEL_ID=black-forest-labs/FLUX.1-schnell` + `SD_CPU_OFFLOAD=1`.
 
 ## Dépannage
 
-- `PIPER_MODEL_PATH manquant` → relancer `scripts/download_piper_fr.sh`
-- OOM CUDA → baisser `SD_WIDTH`/`SD_HEIGHT` (ex. 512×896) ou fermer d'autres apps GPU
-- `ffmpeg subtitles échoué` → vérifier que `libass` est disponible (`ffmpeg -filters | grep subtitles`)
+- OmniVoice OOM → `OMNIVOICE_NUM_STEP=16` ou `TTS_ENGINE=piper` temporairement
+- Flux OOM → baisser `SD_WIDTH`/`SD_HEIGHT` (512×896)
+- Download bloqué → `./scripts/download_models.sh status` puis relancer le modèle concerné

@@ -2,21 +2,22 @@
  * Quotas par plan Clerk Billing (B2C).
  * Les slugs doivent correspondre aux plans configurés dans le Clerk Dashboard.
  *
- * Tant que le Billing n'est pas branché, le défaut `solo` reste permissif
- * pour le développement (évite de bloquer à 1 Studio).
+ * En dev / early access : QUOTAS_ENABLED=false → aucune limite appliquée.
  */
+export const QUOTAS_ENABLED = false;
+
 export const PLAN_LIMITS = {
   solo: {
-    maxStudios: 10,
-    maxVideosPerMonth: 50,
+    maxStudios: Number.MAX_SAFE_INTEGER,
+    maxVideosPerMonth: Number.MAX_SAFE_INTEGER,
   },
   studio: {
-    maxStudios: 5,
-    maxVideosPerMonth: 30,
+    maxStudios: Number.MAX_SAFE_INTEGER,
+    maxVideosPerMonth: Number.MAX_SAFE_INTEGER,
   },
   agence: {
-    maxStudios: 25,
-    maxVideosPerMonth: 150,
+    maxStudios: Number.MAX_SAFE_INTEGER,
+    maxVideosPerMonth: Number.MAX_SAFE_INTEGER,
   },
 } as const;
 

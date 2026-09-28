@@ -10,6 +10,9 @@ const TYPE_LABEL: Record<Job["type"], string> = {
   image: "Images",
   voiceover: "Voix",
   video_assembly: "Montage",
+  transcribe: "Transcription",
+  propose_clips: "Hooks",
+  render_clip: "Rendu clip",
 };
 
 const STATUS_LABEL: Record<Job["status"], string> = {
@@ -124,7 +127,11 @@ export function GenerationProgress({ jobs }: { jobs: Job[] | undefined }) {
         </p>
         {jobs.some((j) => j.status === "pending" || j.status === "processing") && (
           <p className="text-xs text-muted-foreground">
-            Worker GPU en écoute…
+            {images.processing + voices.processing > 0
+              ? `Scène en cours… ${images.done + voices.done}/${images.total + voices.total} assets`
+              : script?.status === "processing"
+                ? "Ollama écrit le script…"
+                : "Worker GPU en file…"}
           </p>
         )}
       </div>
@@ -135,10 +142,12 @@ export function GenerationProgress({ jobs }: { jobs: Job[] | undefined }) {
           status={script.status}
           detail={
             script.status === "processing"
-              ? "Ollama génère le script…"
+              ? "qwen / Ollama génère le script JSON…"
               : script.status === "pending"
-                ? "En attente du worker"
-                : undefined
+                ? "En attente du worker (file unique)"
+                : script.status === "done"
+                  ? "Prêt à réviser avant images + voix"
+                  : undefined
           }
           error={script.status === "failed" ? script.errorMessage : undefined}
         />
@@ -148,7 +157,13 @@ export function GenerationProgress({ jobs }: { jobs: Job[] | undefined }) {
         <Row
           label={TYPE_LABEL.image}
           status={aggregateStatus(images)}
-          detail={`${images.done}/${images.total} scènes`}
+          detail={
+            images.processing > 0
+              ? `${images.done}/${images.total} — génération image…`
+              : images.pending > 0
+                ? `${images.done}/${images.total} — ${images.pending} en file`
+                : `${images.done}/${images.total} scènes`
+          }
           error={
             images.failed > 0
               ? `${images.failed} échec${images.failed > 1 ? "s" : ""}`
@@ -161,7 +176,13 @@ export function GenerationProgress({ jobs }: { jobs: Job[] | undefined }) {
         <Row
           label={TYPE_LABEL.voiceover}
           status={aggregateStatus(voices)}
-          detail={`${voices.done}/${voices.total} scènes`}
+          detail={
+            voices.processing > 0
+              ? `${voices.done}/${voices.total} — synthèse voix…`
+              : voices.pending > 0
+                ? `${voices.done}/${voices.total} — ${voices.pending} en file`
+                : `${voices.done}/${voices.total} scènes`
+          }
           error={
             voices.failed > 0
               ? `${voices.failed} échec${voices.failed > 1 ? "s" : ""}`

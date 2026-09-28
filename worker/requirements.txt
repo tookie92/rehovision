@@ -5,4 +5,17 @@ transformers>=4.44.0
 accelerate>=0.33.0
 safetensors>=0.4.0
 Pillow>=10.0.0
+sentencepiece>=0.2.0
+protobuf>=4.0.0
+soundfile>=0.12.0
+omnivoice>=0.1.0
+faster-whisper>=1.0.0
+yt-dlp>=2024.1.0
+yt-dlp-ejs>=0.8.0
+# IMPORTANT: garder torchaudio aligné sur torch (ex. cu124) —
+# `pip install omnivoice` peut tirer un torchaudio CUDA trop récent.
+# Relancer si besoin :
+#   pip install --force-reinstall torchaudio --index-url https://download.pytorch.org/whl/cu124
 # torch + torchvision : installer séparément avec l'index CUDA (voir README)
+# Piper reste optionnel (TTS_ENGINE=piper)
+# ffmpeg requis sur le système pour render_clip / video_assembly

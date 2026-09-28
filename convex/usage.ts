@@ -5,6 +5,7 @@ import { requireUserId } from "./lib/auth";
 import {
   PLAN_LIMITS,
   PlanSlug,
+  QUOTAS_ENABLED,
   currentMonthKey,
   isPlanSlug,
 } from "./lib/plans";
@@ -91,13 +92,15 @@ export async function bumpUsage(
 
 /**
  * Vérifie le quota vidéo du plan avant createVideoProject.
- * `planSlug` sera fourni par le frontend après `auth.has({ plan })` (étape 5).
+ * Désactivé tant que QUOTAS_ENABLED est false.
  */
 export async function checkUsageLimit(
   ctx: MutationCtx,
   userId: string,
   planSlug: string = "solo",
 ): Promise<void> {
+  if (!QUOTAS_ENABLED) return;
+
   const plan: PlanSlug = isPlanSlug(planSlug) ? planSlug : "solo";
   const limits = PLAN_LIMITS[plan];
   const month = currentMonthKey();
@@ -119,12 +122,15 @@ export async function checkUsageLimit(
 
 /**
  * Vérifie le nombre de Studios autorisés pour le plan.
+ * Désactivé tant que QUOTAS_ENABLED est false.
  */
 export async function checkStudioLimit(
   ctx: MutationCtx,
   userId: string,
   planSlug: string = "solo",
 ): Promise<void> {
+  if (!QUOTAS_ENABLED) return;
+
   const plan: PlanSlug = isPlanSlug(planSlug) ? planSlug : "solo";
   const limits = PLAN_LIMITS[plan];
 

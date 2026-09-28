@@ -15,6 +15,8 @@ import {
   StylePresetPicker,
   matchPresetId,
 } from "@/components/StylePresetPicker";
+import { ReferenceImageUpload } from "@/components/ReferenceImageUpload";
+import { GENRE_PRESETS, type GenreId } from "@/lib/genrePresets";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Brouillon",
@@ -43,12 +45,14 @@ export default function StudioPage() {
   const [error, setError] = useState<string | null>(null);
   const [styleError, setStyleError] = useState<string | null>(null);
 
+  const [genreId, setGenreId] = useState<GenreId>("true_crime");
   const [presetId, setPresetId] = useState("custom");
   const [visualStyle, setVisualStyle] = useState("");
   const [narrationTone, setNarrationTone] = useState("");
 
   function openStyleEditor() {
     if (!studio) return;
+    setGenreId((studio.genre as GenreId | undefined) ?? "true_crime");
     setPresetId(matchPresetId(studio.visualStyle));
     setVisualStyle(studio.visualStyle);
     setNarrationTone(studio.narrationTone);
@@ -66,6 +70,7 @@ export default function StudioPage() {
         studioId,
         visualStyle: visualStyle.trim(),
         narrationTone: narrationTone.trim(),
+        genre: genreId,
       });
       setEditStyle(false);
     } catch (err) {
@@ -114,7 +119,7 @@ export default function StudioPage() {
     <div className="space-y-8">
       <div>
         <Link
-          href="/dashboard"
+          href="/dashboard/studios"
           className="text-xs text-muted-foreground hover:text-foreground"
         >
           ← Studios
@@ -125,7 +130,13 @@ export default function StudioPage() {
               {studio.name}
             </h1>
             <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-              {studio.visualStyle} · {studio.narrationTone}
+              {
+                GENRE_PRESETS.find(
+                  (g) => g.id === (studio.genre ?? "true_crime"),
+                )?.label
+              }{" "}
+              · {studio.visualStyle} · {studio.narrationTone}
+              {studio.referenceImageUrl ? " · réf. image" : ""}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -151,9 +162,11 @@ export default function StudioPage() {
           className="space-y-5 rounded-xl border border-border bg-card/40 p-5"
         >
           <StylePresetPicker
+            genreId={genreId}
             presetId={presetId}
             visualStyle={visualStyle}
             narrationTone={narrationTone}
+            onGenreId={setGenreId}
             onPresetId={setPresetId}
             onVisualStyle={setVisualStyle}
             onNarrationTone={setNarrationTone}
@@ -172,6 +185,19 @@ export default function StudioPage() {
         </form>
       )}
 
+      <section className="space-y-3 rounded-xl border border-border bg-card/40 p-5">
+        <ReferenceImageUpload
+          studioId={studioId}
+          referenceImageUrl={studio.referenceImageUrl}
+        />
+        {studio.referenceImageUrl && (
+          <p className="text-xs text-muted-foreground">
+            Référence active : le preset d’illustration ne guide plus que
+            l’ambiance ; le trait vient de cette image. Régénère le script /
+            les images pour appliquer.
+          </p>
+        )}
+      </section>
       {open && (
         <form
           onSubmit={onSubmit}

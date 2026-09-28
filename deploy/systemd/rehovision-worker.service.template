@@ -1,0 +1,20 @@
+[Unit]
+Description=Rehovision GPU worker (Ollama / SDXL / Piper / ffmpeg)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{USER}}
+Group={{USER}}
+WorkingDirectory={{REPO}}/worker
+Environment=PATH={{REPO}}/worker/.venv/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-{{REPO}}/worker/.env
+ExecStart={{REPO}}/worker/.venv/bin/python main.py
+Restart=always
+RestartSec=8
+# Premier chargement SDXL Turbo peut être long
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

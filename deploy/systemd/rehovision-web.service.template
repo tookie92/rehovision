@@ -1,0 +1,22 @@
+[Unit]
+Description=Rehovision Next.js (app.rehovision.com → :3000)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{USER}}
+Group={{USER}}
+WorkingDirectory={{REPO}}
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# Next charge aussi .env.local depuis WorkingDirectory
+EnvironmentFile=-{{REPO}}/.env.local
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=5
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

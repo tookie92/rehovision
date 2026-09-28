@@ -3,6 +3,8 @@ import {
   getNextJob,
   submitJobResult,
   submitScriptResult,
+  submitClipPipelineResult,
+  submitSourceVideo,
 } from "./generationJobs";
 
 /**
@@ -27,6 +29,18 @@ http.route({
   path: "/worker/submitScriptResult",
   method: "POST",
   handler: submitScriptResult,
+});
+
+http.route({
+  path: "/worker/submitClipPipelineResult",
+  method: "POST",
+  handler: submitClipPipelineResult,
+});
+
+http.route({
+  path: "/worker/submitSourceVideo",
+  method: "POST",
+  handler: submitSourceVideo,
 });
 
 export default http;
