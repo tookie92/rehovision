@@ -37,6 +37,7 @@ yarn-error.log*
 # Python worker
 worker/.venv/
 worker/bin/
+worker/.env
 worker/models/
 __pycache__/
 *.pyc

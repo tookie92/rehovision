@@ -13,6 +13,7 @@ import { assertWorkerSecret } from "./lib/workerAuth";
 import { buildImagePrompt } from "./lib/imagePrompt";
 import { parseGeneratedScript } from "./lib/scriptPrompt";
 import { enqueueAssetJobsForProject } from "./lib/enqueueAssets";
+import { sliceCaptionSegments } from "./lib/captionSegments";
 
 /** Jobs "processing" plus vieux que ça = worker probablement mort → requeue. */
 const STALE_PROCESSING_MS = 10 * 60 * 1000;
@@ -686,6 +687,7 @@ export const applyClipPipelineResult = internalMutation({
       const project = await ctx.db.get(projectId);
       const sourceVideoUrl = project?.sourceVideoUrl;
       const youtubeUrl = project?.sourceYoutubeUrl;
+      const transcript = project?.transcript;
 
       for (let i = 0; i < proposals.length; i++) {
         const p = proposals[i]!;
@@ -701,6 +703,12 @@ export const applyClipPipelineResult = internalMutation({
           createdAt: now,
         });
 
+        const captionSegments = sliceCaptionSegments(
+          transcript,
+          p.startSec,
+          p.endSec,
+        );
+
         await ctx.db.insert("generationJobs", {
           type: "render_clip",
           clipProjectId: projectId,
@@ -713,6 +721,7 @@ export const applyClipPipelineResult = internalMutation({
             startSec: p.startSec,
             endSec: p.endSec,
             captionText: p.captionText ?? "",
+            captionSegments,
             title: p.title,
           },
           createdAt: now,

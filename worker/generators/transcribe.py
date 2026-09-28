@@ -58,7 +58,7 @@ def transcribe_video(source_path: Path, language: str | None = None) -> dict[str
         str(source_path),
         language=lang,
         vad_filter=True,
-        word_timestamps=False,
+        word_timestamps=True,
     )
 
     segments: list[dict[str, Any]] = []
@@ -66,13 +66,26 @@ def transcribe_video(source_path: Path, language: str | None = None) -> dict[str
         text = (seg.text or "").strip()
         if not text:
             continue
-        segments.append(
-            {
-                "start": round(float(seg.start), 3),
-                "end": round(float(seg.end), 3),
-                "text": text,
-            }
-        )
+        words: list[dict[str, Any]] = []
+        for w in seg.words or []:
+            word = (w.word or "").strip()
+            if not word:
+                continue
+            words.append(
+                {
+                    "word": word,
+                    "start": round(float(w.start), 3),
+                    "end": round(float(w.end), 3),
+                }
+            )
+        entry: dict[str, Any] = {
+            "start": round(float(seg.start), 3),
+            "end": round(float(seg.end), 3),
+            "text": text,
+        }
+        if words:
+            entry["words"] = words
+        segments.append(entry)
 
     return {
         "language": info.language,

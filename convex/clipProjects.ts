@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireUserId } from "./lib/auth";
+import { sliceCaptionSegments } from "./lib/captionSegments";
 
 const clipProjectDoc = v.object({
   _id: v.id("clipProjects"),
@@ -162,9 +163,35 @@ export const createFromYoutube = mutation({
   },
 });
 
+const clipProjectSummary = v.object({
+  _id: v.id("clipProjects"),
+  _creationTime: v.number(),
+  userId: v.string(),
+  title: v.string(),
+  status: v.union(
+    v.literal("uploading"),
+    v.literal("downloading"),
+    v.literal("transcribing"),
+    v.literal("proposing"),
+    v.literal("rendering"),
+    v.literal("ready"),
+    v.literal("failed"),
+  ),
+  sourceStorageId: v.optional(v.id("_storage")),
+  sourceVideoUrl: v.optional(v.string()),
+  sourceYoutubeUrl: v.optional(v.string()),
+  durationSeconds: v.optional(v.number()),
+  transcript: v.optional(v.any()),
+  errorMessage: v.optional(v.string()),
+  createdAt: v.number(),
+  clipCount: v.number(),
+  readyClipCount: v.number(),
+  failedClipCount: v.number(),
+});
+
 export const listMine = query({
   args: { limit: v.optional(v.number()) },
-  returns: v.array(clipProjectDoc),
+  returns: v.array(clipProjectSummary),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
     const limit = Math.min(Math.max(args.limit ?? 20, 1), 50);
@@ -173,7 +200,24 @@ export const listMine = query({
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
     rows.sort((a, b) => b.createdAt - a.createdAt);
-    return rows.slice(0, limit);
+    const sliced = rows.slice(0, limit);
+
+    const out = [];
+    for (const project of sliced) {
+      const clips = await ctx.db
+        .query("clips")
+        .withIndex("by_clipProjectId", (q) =>
+          q.eq("clipProjectId", project._id),
+        )
+        .collect();
+      out.push({
+        ...project,
+        clipCount: clips.length,
+        readyClipCount: clips.filter((c) => c.status === "ready").length,
+        failedClipCount: clips.filter((c) => c.status === "failed").length,
+      });
+    }
+    return out;
   },
 });
 
@@ -272,5 +316,72 @@ export const retry = mutation({
     });
 
     return args.clipProjectId;
+  },
+});
+
+/**
+ * Relance uniquement les clips en échec (sans recommencer Whisper / hooks).
+ */
+export const retryFailedClips = mutation({
+  args: { clipProjectId: v.id("clipProjects") },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.clipProjectId);
+    if (!project || project.userId !== userId) {
+      throw new Error("Projet introuvable");
+    }
+    if (!project.sourceVideoUrl) {
+      throw new Error("Vidéo source absente — relance le pipeline complet");
+    }
+
+    const clips = await ctx.db
+      .query("clips")
+      .withIndex("by_clipProjectId", (q) =>
+        q.eq("clipProjectId", args.clipProjectId),
+      )
+      .collect();
+    const failed = clips.filter((c) => c.status === "failed");
+    if (failed.length === 0) {
+      return 0;
+    }
+
+    const now = Date.now();
+    const transcript = project.transcript;
+    for (const clip of failed) {
+      await ctx.db.patch(clip._id, {
+        status: "rendering",
+        errorMessage: undefined,
+        resultUrl: undefined,
+      });
+      await ctx.db.insert("generationJobs", {
+        type: "render_clip",
+        clipProjectId: args.clipProjectId,
+        clipId: clip._id,
+        status: "pending",
+        provider: "local",
+        payload: {
+          sourceVideoUrl: project.sourceVideoUrl,
+          startSec: clip.startSec,
+          endSec: clip.endSec,
+          captionText: clip.captionText ?? "",
+          captionSegments: sliceCaptionSegments(
+            transcript,
+            clip.startSec,
+            clip.endSec,
+          ),
+          title: clip.title,
+        },
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    await ctx.db.patch(args.clipProjectId, {
+      status: "rendering",
+      errorMessage: undefined,
+    });
+
+    return failed.length;
   },
 });

@@ -10,22 +10,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardNav } from "@/components/DashboardNav";
-
-const STATUS_LABEL: Record<string, string> = {
-  uploading: "Upload",
-  downloading: "YouTube…",
-  transcribing: "Whisper",
-  proposing: "Hooks",
-  rendering: "Rendu",
-  ready: "Prêt",
-  failed: "Échec",
-};
+import {
+  PROJECT_STATUS_LABEL,
+  isPipelineActive,
+  projectStatusTone,
+} from "@/lib/clipStatus";
 
 type Mode = "youtube" | "file";
 
 /**
  * Atelier Opus Clip : lien YouTube OU fichier → clips verticaux.
- * Le flux « reel généré » a été retiré de l’UI.
  */
 export default function DashboardPage() {
   const router = useRouter();
@@ -38,6 +32,7 @@ export default function DashboardPage() {
   const [mode, setMode] = useState<Mode>("youtube");
   const [title, setTitle] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [fileName, setFileName] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -98,30 +93,38 @@ export default function DashboardPage() {
           YouTube ou fichier → clips
         </h1>
         <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-          Comme Opus Clip : colle un lien YouTube, ou importe une vidéo. On
-          transcrit, on trouve les hooks, on coupe en 9:16.
+          Colle un lien ou importe une vidéo. Transcription → hooks → coupe
+          9:16 prête à poster.
         </p>
       </div>
 
-      <div className="mb-4 flex gap-1">
+      <div
+        className="mb-4 flex gap-1"
+        role="tablist"
+        aria-label="Source d’import"
+      >
         <button
           type="button"
+          role="tab"
+          aria-selected={mode === "youtube"}
           onClick={() => setMode("youtube")}
           className={
             mode === "youtube"
-              ? "rounded-md bg-secondary px-3 py-1.5 text-sm text-foreground"
-              : "rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+              ? "cursor-pointer rounded-md bg-secondary px-3 py-1.5 text-sm text-foreground"
+              : "cursor-pointer rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
           }
         >
           Lien YouTube
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={mode === "file"}
           onClick={() => setMode("file")}
           className={
             mode === "file"
-              ? "rounded-md bg-secondary px-3 py-1.5 text-sm text-foreground"
-              : "rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+              ? "cursor-pointer rounded-md bg-secondary px-3 py-1.5 text-sm text-foreground"
+              : "cursor-pointer rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
           }
         >
           Fichier vidéo
@@ -151,6 +154,7 @@ export default function DashboardPage() {
               placeholder="https://www.youtube.com/watch?v=…"
               disabled={pending}
               className="h-11"
+              autoComplete="off"
             />
           </div>
         ) : (
@@ -163,7 +167,14 @@ export default function DashboardPage() {
               accept="video/*,audio/*"
               disabled={pending}
               className="cursor-pointer"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                setFileName(f?.name ?? null);
+              }}
             />
+            {fileName && (
+              <p className="text-xs text-muted-foreground truncate">{fileName}</p>
+            )}
           </div>
         )}
 
@@ -175,52 +186,64 @@ export default function DashboardPage() {
         <Button type="submit" disabled={pending} className="cursor-pointer">
           {pending
             ? mode === "youtube"
-              ? "Téléchargement…"
-              : "Import…"
-            : "Lancer"}
+              ? "Création…"
+              : "Upload…"
+            : "Lancer le découpage"}
         </Button>
       </form>
 
       <section>
-        <h2 className="mb-4 font-display text-xl">Projets</h2>
+        <div className="mb-4 flex items-baseline justify-between gap-3">
+          <h2 className="font-display text-xl">Projets</h2>
+          {projects && projects.length > 0 && (
+            <p className="timecode text-xs text-muted-foreground">
+              {projects.length} récent{projects.length > 1 ? "s" : ""}
+            </p>
+          )}
+        </div>
         {projects === undefined && <Skeleton className="h-20 w-full" />}
         {projects && projects.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            Aucun projet. Importe une source ci-dessus.
+          <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+            Aucun projet. Importe une source ci-dessus pour générer des clips.
           </p>
         )}
         {projects && projects.length > 0 && (
           <ul className="divide-y divide-border border-y border-border">
-            {projects.map((p) => (
-              <li key={p._id}>
-                <Link
-                  href={`/dashboard/clips/${p._id}`}
-                  className="flex items-center justify-between gap-4 py-4 transition-colors hover:bg-secondary/40"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{p.title}</p>
-                    <p className="mt-1 truncate text-xs text-muted-foreground">
-                      {p.sourceYoutubeUrl
-                        ? p.sourceYoutubeUrl
-                        : p.durationSeconds
-                          ? `${Math.round(p.durationSeconds)}s`
-                          : "Fichier"}
-                    </p>
-                  </div>
-                  <span
-                    className={
-                      p.status === "failed"
-                        ? "timecode text-xs text-destructive"
-                        : p.status === "ready"
-                          ? "timecode text-xs text-signal"
-                          : "timecode text-xs text-muted-foreground"
-                    }
+            {projects.map((p) => {
+              const active = isPipelineActive(p.status);
+              return (
+                <li key={p._id}>
+                  <Link
+                    href={`/dashboard/clips/${p._id}`}
+                    className="flex items-center justify-between gap-4 py-4 transition-colors hover:bg-secondary/40"
                   >
-                    {STATUS_LABEL[p.status] ?? p.status}
-                  </span>
-                </Link>
-              </li>
-            ))}
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{p.title}</p>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {p.clipCount > 0
+                          ? `${p.readyClipCount}/${p.clipCount} clips prêts`
+                          : p.sourceYoutubeUrl
+                            ? p.sourceYoutubeUrl
+                            : p.durationSeconds
+                              ? `${Math.round(p.durationSeconds)}s source`
+                              : "Fichier"}
+                        {p.failedClipCount > 0
+                          ? ` · ${p.failedClipCount} échec${p.failedClipCount > 1 ? "s" : ""}`
+                          : ""}
+                      </p>
+                    </div>
+                    <span
+                      className={`timecode shrink-0 text-xs ${projectStatusTone(p.status)}`}
+                    >
+                      {active && (
+                        <span className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-amber-400 align-middle" />
+                      )}
+                      {PROJECT_STATUS_LABEL[p.status] ?? p.status}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

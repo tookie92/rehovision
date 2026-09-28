@@ -325,6 +325,7 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
                 start_sec=float(payload.get("startSec", 0)),
                 end_sec=float(payload.get("endSec", 30)),
                 caption_text=payload.get("captionText") or "",
+                caption_segments=payload.get("captionSegments") or None,
             )
             submit_file_result(site_url, job_id, path, "video/mp4")
             return
