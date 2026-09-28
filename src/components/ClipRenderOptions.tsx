@@ -14,7 +14,10 @@ type Props = {
   captionStyle: CaptionStyleId;
   layoutMode: LayoutModeId;
   voiceoverMode: VoiceoverModeId;
+  /** Grise captions / layout / voiceover (ex. pas encore de source). */
   disabled?: boolean;
+  /** Grise uniquement « Appliquer & re-rendre ». */
+  applyDisabled?: boolean;
   saving?: boolean;
   onCaptionStyle: (v: CaptionStyleId) => void;
   onLayoutMode: (v: LayoutModeId) => void;
@@ -73,6 +76,7 @@ export function ClipRenderOptions({
   layoutMode,
   voiceoverMode,
   disabled,
+  applyDisabled,
   saving,
   onCaptionStyle,
   onLayoutMode,
@@ -88,7 +92,7 @@ export function ClipRenderOptions({
         <Button
           type="button"
           size="sm"
-          disabled={disabled || saving}
+          disabled={applyDisabled || saving}
           onClick={onApplyRerender}
           className="cursor-pointer"
         >
@@ -100,26 +104,26 @@ export function ClipRenderOptions({
         label="Captions"
         options={CAPTION_STYLES}
         value={captionStyle}
-        disabled={disabled || saving}
+        disabled={disabled}
         onChange={onCaptionStyle}
       />
       <Segmented
         label="Layout"
         options={LAYOUT_MODES}
         value={layoutMode}
-        disabled={disabled || saving}
+        disabled={disabled}
         onChange={onLayoutMode}
       />
       <Segmented
         label="Voiceover"
         options={VOICEOVER_MODES}
         value={voiceoverMode}
-        disabled={disabled || saving}
+        disabled={disabled}
         onChange={onVoiceoverMode}
       />
       <p className="text-xs text-muted-foreground">
-        Split empile 2 visages. Mix/Replace utilise Piper/OmniVoice sur le texte
-        du clip. Le re-rendu repasse par le worker GPU.
+        Les options s’enregistrent au clic. « Appliquer & re-rendre » régénère
+        tous les clips. Split = 2 visages · Mix/Replace = TTS.
       </p>
     </div>
   );

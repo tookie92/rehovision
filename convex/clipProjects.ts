@@ -567,3 +567,111 @@ export const rerenderAll = mutation({
     return clips.length;
   },
 });
+
+const MIN_MANUAL_CLIP_SEC = 3;
+const MAX_MANUAL_CLIP_SEC = 90;
+
+/**
+ * Crée un clip manuel (In/Out) et enqueue le rendu 9:16.
+ */
+export const createManualClip = mutation({
+  args: {
+    clipProjectId: v.id("clipProjects"),
+    startSec: v.number(),
+    endSec: v.number(),
+    title: v.optional(v.string()),
+  },
+  returns: v.id("clips"),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.clipProjectId);
+    if (!project || project.userId !== userId) {
+      throw new Error("Projet introuvable");
+    }
+    if (!project.sourceVideoUrl) {
+      throw new Error("Vidéo source absente — attends la fin du téléchargement");
+    }
+
+    const startSec = Math.max(0, args.startSec);
+    const endSec = Math.max(startSec, args.endSec);
+    const duration = endSec - startSec;
+    if (duration < MIN_MANUAL_CLIP_SEC) {
+      throw new Error(`Séquence trop courte (min ${MIN_MANUAL_CLIP_SEC}s)`);
+    }
+    if (duration > MAX_MANUAL_CLIP_SEC) {
+      throw new Error(`Séquence trop longue (max ${MAX_MANUAL_CLIP_SEC}s)`);
+    }
+    if (
+      project.durationSeconds != null &&
+      startSec >= project.durationSeconds
+    ) {
+      throw new Error("Le début dépasse la durée de la source");
+    }
+
+    const existing = await ctx.db
+      .query("clips")
+      .withIndex("by_clipProjectId", (q) =>
+        q.eq("clipProjectId", args.clipProjectId),
+      )
+      .collect();
+    const order =
+      existing.reduce((max, c) => Math.max(max, c.order), 0) + 1;
+
+    const segments = sliceCaptionSegments(
+      project.transcript,
+      startSec,
+      endSec,
+    );
+    const captionText = segments
+      .map((s) => s.text)
+      .join(" ")
+      .trim();
+
+    const title =
+      args.title?.trim() ||
+      `Manuel ${Math.floor(startSec / 60)}:${String(Math.floor(startSec % 60)).padStart(2, "0")}`;
+
+    const now = Date.now();
+    const clipId = await ctx.db.insert("clips", {
+      clipProjectId: args.clipProjectId,
+      order,
+      title,
+      hookReason: "Sélection manuelle",
+      startSec,
+      endSec,
+      captionText: captionText || undefined,
+      status: "rendering",
+      createdAt: now,
+    });
+
+    await ctx.db.insert("generationJobs", {
+      type: "render_clip",
+      clipProjectId: args.clipProjectId,
+      clipId,
+      status: "pending",
+      provider: "local",
+      payload: {
+        sourceVideoUrl: project.sourceVideoUrl,
+        youtubeUrl: project.sourceYoutubeUrl,
+        startSec,
+        endSec,
+        captionText: captionText || "",
+        captionSegments: segments,
+        brollCues: [],
+        captionStyle: project.captionStyle ?? "viral",
+        layoutMode: project.layoutMode ?? "smart",
+        voiceoverMode: project.voiceoverMode ?? "off",
+        title,
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.db.patch(args.clipProjectId, {
+      status: "rendering",
+      errorMessage: undefined,
+    });
+
+    return clipId;
+  },
+});

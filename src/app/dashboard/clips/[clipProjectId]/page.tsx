@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardNav } from "@/components/DashboardNav";
 import { ClipPipelineProgress } from "@/components/ClipPipelineProgress";
 import { ClipRenderOptions } from "@/components/ClipRenderOptions";
+import { ClipManualTrim } from "@/components/ClipManualTrim";
 import {
   CLIP_STATUS_LABEL,
   formatClipDuration,
@@ -33,8 +34,10 @@ export default function ClipProjectPage() {
   const retryFailedClips = useMutation(api.clipProjects.retryFailedClips);
   const updateRenderOptions = useMutation(api.clipProjects.updateRenderOptions);
   const rerenderAll = useMutation(api.clipProjects.rerenderAll);
+  const createManualClip = useMutation(api.clipProjects.createManualClip);
   const [retrying, setRetrying] = useState(false);
   const [rerendering, setRerendering] = useState(false);
+  const [creatingManual, setCreatingManual] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
 
   async function onRetryPipeline() {
@@ -91,6 +94,23 @@ export default function ClipProjectPage() {
     }
   }
 
+  async function onCreateManual(args: {
+    startSec: number;
+    endSec: number;
+    title?: string;
+  }) {
+    setRetryError(null);
+    setCreatingManual(true);
+    try {
+      await createManualClip({ clipProjectId, ...args });
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : "Erreur");
+      throw err;
+    } finally {
+      setCreatingManual(false);
+    }
+  }
+
   if (data === undefined) {
     return (
       <div>
@@ -127,8 +147,10 @@ export default function ClipProjectPage() {
     failedCount > 0 &&
     Boolean(project.sourceVideoUrl) &&
     (project.status === "ready" || project.status === "failed");
-  const canRerender =
-    clips.length > 0 && Boolean(project.sourceVideoUrl);
+  const hasSource = Boolean(project.sourceVideoUrl);
+  const canRerender = clips.length > 0 && hasSource;
+  // Options cliquables dès qu’il y a une source — même si status = rendering
+  const optionsLocked = !hasSource;
 
   const captionStyle = (project.captionStyle ?? "viral") as CaptionStyleId;
   const layoutMode = (project.layoutMode ?? "smart") as LayoutModeId;
@@ -187,13 +209,24 @@ export default function ClipProjectPage() {
           captionStyle={captionStyle}
           layoutMode={layoutMode}
           voiceoverMode={voiceoverMode}
-          disabled={!canRerender}
-          saving={rerendering || isPipelineActive(project.status)}
+          disabled={optionsLocked}
+          applyDisabled={!canRerender}
+          saving={rerendering}
           onCaptionStyle={(v) => void persistOption({ captionStyle: v })}
           onLayoutMode={(v) => void persistOption({ layoutMode: v })}
           onVoiceoverMode={(v) => void persistOption({ voiceoverMode: v })}
           onApplyRerender={() => void onApplyRerender()}
         />
+
+        {project.sourceVideoUrl && (
+          <ClipManualTrim
+            sourceUrl={project.sourceVideoUrl}
+            durationSeconds={project.durationSeconds}
+            disabled={optionsLocked}
+            creating={creatingManual}
+            onCreate={onCreateManual}
+          />
+        )}
 
         {(canRetryPipeline || canRetryFailed) && (
           <div className="flex flex-wrap gap-3">
@@ -229,27 +262,16 @@ export default function ClipProjectPage() {
         )}
       </div>
 
-      {project.sourceVideoUrl && (
-        <div className="mb-10 overflow-hidden rounded-lg border border-border bg-black">
-          <video
-            src={project.sourceVideoUrl}
-            controls
-            preload="metadata"
-            className="max-h-64 w-full object-contain"
-          />
-        </div>
-      )}
-
       {clips.length === 0 && isPipelineActive(project.status) && (
         <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-          Les clips apparaîtront ici dès que les hooks sont proposés. Cette page
-          se met à jour toute seule.
+          Les clips IA apparaîtront ici dès que les hooks sont proposés. Tu
+          peux déjà créer un clip manuel via Trim.
         </p>
       )}
 
       {clips.length === 0 && project.status === "ready" && (
         <p className="text-sm text-muted-foreground">
-          Aucun clip généré pour cette source.
+          Aucun clip généré — utilise le trim manuel ci-dessus.
         </p>
       )}
 
