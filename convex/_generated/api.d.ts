@@ -13,6 +13,7 @@ import type * as generationJobs from "../generationJobs.js";
 import type * as health from "../health.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_captionSegments from "../lib/captionSegments.js";
 import type * as lib_enqueueAssets from "../lib/enqueueAssets.js";
 import type * as lib_genrePrompt from "../lib/genrePrompt.js";
 import type * as lib_imagePrompt from "../lib/imagePrompt.js";
@@ -36,6 +37,7 @@ declare const fullApi: ApiFromModules<{
   health: typeof health;
   http: typeof http;
   "lib/auth": typeof lib_auth;
+  "lib/captionSegments": typeof lib_captionSegments;
   "lib/enqueueAssets": typeof lib_enqueueAssets;
   "lib/genrePrompt": typeof lib_genrePrompt;
   "lib/imagePrompt": typeof lib_imagePrompt;

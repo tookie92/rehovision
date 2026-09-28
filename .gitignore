@@ -42,6 +42,11 @@ worker/models/
 __pycache__/
 *.pyc
 
+# YouTube cookies (secrets — never commit)
+worker/cookies/
+worker/cookies/*  
+!worker/cookies/README.md
+
 # vercel
 .vercel
 
@@ -50,3 +55,7 @@ __pycache__/
 next-env.d.ts
 .clerk/
 worker/logs/
+
+# YouTube cookies (secrets — never commit)
+worker/cookies/*
+!worker/cookies/README.md

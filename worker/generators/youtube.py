@@ -1,8 +1,9 @@
 """
 Téléchargement YouTube via yt-dlp (comme Opus Clip).
 
-YouTube bloque souvent sans client mobile / runtime JS (EJS).
-On privilégie player_client android/ios + fallback web+node/deno.
+YouTube exige souvent des cookies (anti-bot). Configure :
+  YT_COOKIES=/chemin/vers/youtube.txt          # fichier Netscape
+  YT_COOKIES_FROM_BROWSER=chrome               # ou firefox, chromium, brave, edge
 """
 
 from __future__ import annotations
@@ -14,6 +15,14 @@ import subprocess
 from pathlib import Path
 
 log = logging.getLogger("rehovision-worker.youtube")
+
+# Stratégies de clients (tv_embedded n'est plus supporté)
+_CLIENT_STRATEGIES = (
+    "android,ios,web",
+    "android,web",
+    "ios,web",
+    "web",
+)
 
 
 def _yt_dlp_bin() -> str:
@@ -60,6 +69,47 @@ def _js_runtime_args() -> list[str]:
     return args
 
 
+def _cookie_args() -> list[str]:
+    """
+    Auth YouTube pour passer le check « Sign in to confirm you're not a bot ».
+    Priorité : fichier cookies > cookies navigateur.
+    """
+    cookies_file = (os.getenv("YT_COOKIES") or "").strip()
+    if cookies_file:
+        path = Path(cookies_file).expanduser()
+        if not path.is_file():
+            # Relatif au dossier worker/
+            alt = Path(__file__).resolve().parents[1] / cookies_file
+            if alt.is_file():
+                path = alt
+        if path.is_file():
+            log.info("YouTube cookies fichier: %s", path)
+            return ["--cookies", str(path)]
+        log.warning("YT_COOKIES introuvable: %s", cookies_file)
+
+    browser = (os.getenv("YT_COOKIES_FROM_BROWSER") or "").strip()
+    if browser:
+        log.info("YouTube cookies navigateur: %s", browser)
+        return ["--cookies-from-browser", browser]
+
+    # Défauts locaux si un navigateur courant est présent
+    for candidate in ("chrome", "chromium", "firefox", "brave", "edge"):
+        # Ne force pas — trop fragile en headless/server. L'utilisateur configure.
+        break
+    return []
+
+
+def _bot_hint() -> str:
+    return (
+        "YouTube demande une connexion (anti-bot). "
+        "Exporte des cookies YouTube (extension « Get cookies.txt LOCALLY ») "
+        "vers worker/cookies/youtube.txt puis ajoute dans worker/.env : "
+        "YT_COOKIES=./cookies/youtube.txt "
+        "— ou YT_COOKIES_FROM_BROWSER=chrome. "
+        "Doc: https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies"
+    )
+
+
 def download_youtube(url: str, dest_dir: Path) -> Path:
     """
     Télécharge une vidéo YouTube en mp4 dans dest_dir (≤720p si possible).
@@ -79,37 +129,62 @@ def download_youtube(url: str, dest_dir: Path) -> Path:
 
     out_tmpl = str(dest_dir / "source.%(ext)s")
     bin_path = _yt_dlp_bin()
+    cookie_args = _cookie_args()
+    if not cookie_args:
+        log.warning(
+            "Aucun cookie YouTube configuré (YT_COOKIES / YT_COOKIES_FROM_BROWSER) "
+            "— risque de blocage anti-bot"
+        )
 
-    # android/ios évite beaucoup de 403 / SABR sans JS runtime
-    base = [
-        bin_path,
-        "--no-playlist",
-        "--no-progress",
-        "--retries",
-        "5",
-        "--fragment-retries",
-        "5",
-        "--extractor-args",
-        "youtube:player_client=android,ios,tv_embedded,web",
-        "-f",
-        # 18 = progressive 360p mp4 (fiable). Puis merges ≤720p.
-        "18/best[height<=720][ext=mp4]/bv*[height<=720]+ba/best[height<=720]/best",
-        "--merge-output-format",
-        "mp4",
-        "-o",
-        out_tmpl,
-        *(_js_runtime_args()),
-        url,
-    ]
+    last_err = ""
+    for clients in _CLIENT_STRATEGIES:
+        # Nettoyer les restes d'une tentative précédente
+        for leftover in dest_dir.glob("source.*"):
+            leftover.unlink(missing_ok=True)
 
-    log.info("yt-dlp %s", url)
-    proc = subprocess.run(base, capture_output=True, text=True, timeout=3600)
-    if proc.returncode != 0:
-        err = (proc.stderr or proc.stdout or "")[-1500:]
-        raise RuntimeError(f"yt-dlp failed ({proc.returncode}): {err}")
+        cmd = [
+            bin_path,
+            "--no-playlist",
+            "--no-progress",
+            "--retries",
+            "5",
+            "--fragment-retries",
+            "5",
+            "--extractor-args",
+            f"youtube:player_client={clients}",
+            "-f",
+            "18/best[height<=720][ext=mp4]/bv*[height<=720]+ba/best[height<=720]/best",
+            "--merge-output-format",
+            "mp4",
+            "-o",
+            out_tmpl,
+            *(_js_runtime_args()),
+            *cookie_args,
+            url,
+        ]
+
+        log.info("yt-dlp %s (clients=%s)", url, clients)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        if proc.returncode == 0:
+            break
+        last_err = (proc.stderr or proc.stdout or "")[-1500:]
+        log.warning("yt-dlp clients=%s échoué: %s", clients, last_err[-400:])
+        # Si bot check, inutile de tester tous les clients sans cookies
+        if "Sign in to confirm" in last_err or "not a bot" in last_err.lower():
+            if not cookie_args:
+                raise RuntimeError(f"yt-dlp failed (bot check): {_bot_hint()}\n{last_err}")
+            # Avec cookies, on continue les autres clients une fois
+            continue
+    else:
+        hint = f" {_bot_hint()}" if "bot" in last_err.lower() or "Sign in" in last_err else ""
+        raise RuntimeError(f"yt-dlp failed (1):{hint}\n{last_err}")
 
     candidates = sorted(
-        [p for p in dest_dir.glob("source.*") if p.is_file() and not p.name.endswith(".part")],
+        [
+            p
+            for p in dest_dir.glob("source.*")
+            if p.is_file() and not p.name.endswith(".part")
+        ],
         key=lambda p: p.stat().st_mtime,
     )
     if not candidates:
