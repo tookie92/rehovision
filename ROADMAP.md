@@ -60,16 +60,16 @@ Hors emprunt : templates ranking/commentary, VO ElevenLabs comme funnel principa
 
 ---
 
-## Étapes restantes (ordre strict)
+## Étapes (ordre)
 
-### Étape 0 — Ops (bloquant)
+### Étape 0 — Ops (bloquant) ✅
 
 Sans ça, le reste est inutile. Checklist détaillée : [`OPS.md`](./OPS.md).
 
-- [ ] Ubuntu : `git pull` + restart Next + worker
-- [ ] Cookies YouTube (`YT_COOKIES=./cookies/youtube.txt`) **ou** rester sur import **Fichier**
-- [ ] Valider 1 parcours complet : source → clips prêts → changer captions → trim manuel → re-rendu
-- [ ] Vérifier `WORKER_SECRET_KEY` aligné (Convex / worker / `.env.local`)
+- [x] Ubuntu : `git pull` + restart Next + worker
+- [x] Cookies YouTube (`YT_COOKIES=./cookies/youtube.txt`) **ou** rester sur import **Fichier**
+- [x] Valider 1 parcours complet : source → clips prêts → changer captions → trim manuel → re-rendu
+- [x] Vérifier `WORKER_SECRET_KEY` aligné (Convex / worker / `.env.local`)
 - [x] Doc ops + checklist (`OPS.md`)
 
 **Critère de done :** un vlog fichier (et idéalement YouTube) sort des clips téléchargeables à chaque essai.
@@ -142,9 +142,26 @@ Objectif : un clic = fichier prêt TikTok/Reels/Shorts.
 
 ---
 
-## Hors scope (pour l’instant)
+## Prochaine étape (ordre)
 
-Ne pas démarrer tant que les étapes 0–4 ne sont pas done :
+Étapes 0–6 livrées. Prochaine priorité produit (sans timeline) :
+
+### Étape 7 — Assembler 2–3 clips (stitch)
+
+Sans NLE : sélectionner 2–3 hooks → un seul reel 9:16 (hard cuts + captions/polish du projet).
+
+- [ ] Multi-select → CTA « Assembler »
+- [ ] Job worker : concat ffmpeg des segments (ordre choisi)
+- [ ] Soft preview de l’ordre + durée totale
+- [ ] Export 1 MP4 nommé plateforme
+
+**Critère de done :** 3 hooks → 1 reel postable, sans CapCut.
+
+Optionnels restants (plus bas priorité) : deep-link share (étape 4), packs LUT préchargés (étape 6).
+
+---
+
+## Hors scope (pour l’instant)
 
 - Timeline multitrack (Media / Music / VO / Text / Graphics / Filters / Overlays)
 - Packs stickers / collage film
@@ -160,14 +177,14 @@ Ne pas démarrer tant que les étapes 0–4 ne sont pas done :
 
 Pipeline séparé (script → images → voix → assemble).  
 Ne pas mélanger avec le funnel vlog/clips.  
-Y revenir seulement si le clipping Opus est stable en prod.
+Y revenir seulement si le clipping Opus est stable en prod (Étape 0 ✅).
 
 ---
 
 ## Comment avancer
 
-1. Cocher **Étape 0** en prod Ubuntu.  
-2. Dire en Agent mode : `go étape N`.  
+1. ~~Cocher **Étape 0** en prod Ubuntu.~~ ✅  
+2. Dire en Agent mode : `go étape 7` (ou optionnel share / LUT).  
 3. Une PR / un push par étape.  
 4. Pas de batch « tout Muse + tout Opus + tout Viblo ».
 
