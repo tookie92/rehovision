@@ -27,6 +27,8 @@ Voler la **forme**, garder le **job** Opus. Pas de timeline NLE, pas de ranking/
 
 - [x] Parcours mental **3 temps** : Import → Clips → Export (labels UI, pas un wizard forcé)
 - [x] Écran projet = **grille de clips + 1 bandeau Export** (polish replié)
+- [x] Stage master–detail + **aperçu soft** source In/Out avant rendu ffmpeg
+- [x] Multi-select + re-rendu / export ciblé
 - [x] Promesse **prêt à poster** (badge + CTA téléchargement clair)
 - [x] Vitesse perçue : message « mis en file » / progression simple
 - [x] Durée reel standard ~30s (déjà étape 4 partielle)

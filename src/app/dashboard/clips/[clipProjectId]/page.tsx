@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
@@ -14,11 +14,10 @@ import { ClipPipelineProgress } from "@/components/ClipPipelineProgress";
 import { ClipRenderOptions } from "@/components/ClipRenderOptions";
 import { ClipManualTrim } from "@/components/ClipManualTrim";
 import { ClipEditTrim } from "@/components/ClipEditTrim";
+import { ClipFilmstrip } from "@/components/ClipFilmstrip";
+import { ClipStagePreview } from "@/components/ClipStagePreview";
 import {
-  CLIP_STATUS_LABEL,
   downloadUrls,
-  formatClipDuration,
-  formatTimecode,
   isPipelineActive,
   projectStatusTone,
   safeDownloadName,
@@ -49,6 +48,7 @@ export default function ClipProjectPage() {
   const setMusicAsset = useMutation(api.clipProjects.setMusicAsset);
   const setLutAsset = useMutation(api.clipProjects.setLutAsset);
   const rerenderAll = useMutation(api.clipProjects.rerenderAll);
+  const rerenderClips = useMutation(api.clipProjects.rerenderClips);
   const createManualClip = useMutation(api.clipProjects.createManualClip);
   const updateClipTrim = useMutation(api.clipProjects.updateClipTrim);
   const [retrying, setRetrying] = useState(false);
@@ -61,6 +61,10 @@ export default function ClipProjectPage() {
   const [applyInfo, setApplyInfo] = useState<string | null>(null);
   const [exportPlatform, setExportPlatform] =
     useState<ExportPlatformId>("reels");
+  const [focusedClipId, setFocusedClipId] = useState<Id<"clips"> | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [sortMode, setSortMode] = useState<"order" | "score">("score");
+  const [preferSoft, setPreferSoft] = useState(true);
 
   async function onRetryPipeline() {
     setRetryError(null);
@@ -172,7 +176,15 @@ export default function ClipProjectPage() {
     setApplyInfo(null);
     setRerendering(true);
     try {
-      const n = await rerenderAll({ clipProjectId });
+      let n: number;
+      if (selectedIds.size > 0) {
+        n = await rerenderClips({
+          clipProjectId,
+          clipIds: [...selectedIds] as Id<"clips">[],
+        });
+      } else {
+        n = await rerenderAll({ clipProjectId });
+      }
       setApplyInfo(
         n > 0
           ? `${n} clip${n > 1 ? "s" : ""} mis en file — le worker les reprend.`
@@ -218,6 +230,23 @@ export default function ClipProjectPage() {
       setSavingTrim(false);
     }
   }
+
+  const clipsForFocus = data?.clips ?? [];
+  useEffect(() => {
+    if (clipsForFocus.length === 0) {
+      setFocusedClipId(null);
+      return;
+    }
+    if (
+      !focusedClipId ||
+      !clipsForFocus.some((c) => c._id === focusedClipId)
+    ) {
+      const best = [...clipsForFocus].sort(
+        (a, b) => (b.viralScore ?? 0) - (a.viralScore ?? 0),
+      )[0];
+      setFocusedClipId(best?._id ?? clipsForFocus[0]!._id);
+    }
+  }, [clipsForFocus, focusedClipId]);
 
   if (data === undefined) {
     return (
@@ -273,6 +302,22 @@ export default function ClipProjectPage() {
   const logoCorner = (project.logoCorner ?? "br") as LogoCornerId;
   const logoOpacity = project.logoOpacity ?? 0.85;
   const musicVolume = project.musicVolume ?? 0.18;
+
+  const focusedClip =
+    clips.find((c) => c._id === focusedClipId) ?? clips[0] ?? null;
+
+  const selectedReady = clips.filter(
+    (c) => selectedIds.has(c._id) && c.resultUrl && c.status === "ready",
+  );
+
+  function toggleSelect(id: Id<"clips">) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   return (
     <div>
@@ -364,7 +409,7 @@ export default function ClipProjectPage() {
         </p>
       )}
 
-      {/* Clips d’abord — cœur Opus + export Viblo */}
+      {/* Atelier : filmstrip + stage 9:16 (preview soft avant rendu) */}
       <section className="mb-10">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight">
@@ -374,11 +419,24 @@ export default function ClipProjectPage() {
                 ? "Clips en préparation"
                 : "Clips"}
           </h2>
-          {readyCount > 0 && (
-            <p className="text-xs font-medium text-signal">
-              {readyCount} prêt{readyCount > 1 ? "s" : ""} à poster
-            </p>
-          )}
+          <div className="flex flex-wrap items-center gap-3">
+            {readyCount > 0 && (
+              <p className="text-xs font-medium text-signal">
+                {readyCount} prêt{readyCount > 1 ? "s" : ""} à poster
+              </p>
+            )}
+            {clips.length > 0 && hasSource && (
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={preferSoft}
+                  onChange={(e) => setPreferSoft(e.target.checked)}
+                  className="size-3.5 accent-signal"
+                />
+                Préférer aperçu soft
+              </label>
+            )}
+          </div>
         </div>
 
         {readyCount > 0 && (
@@ -387,8 +445,9 @@ export default function ClipProjectPage() {
               <div>
                 <p className="text-sm font-semibold text-foreground">Export</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Choisis la plateforme — le fichier est nommé pour l’upload
-                  direct.
+                  {selectedReady.length > 0
+                    ? `${selectedReady.length} sélectionné${selectedReady.length > 1 ? "s" : ""} prêts`
+                    : "Choisis la plateforme — ou coche des clips dans la liste"}
                 </p>
               </div>
               <Button
@@ -399,17 +458,23 @@ export default function ClipProjectPage() {
                   const plat =
                     EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
                       ?.fileSlug ?? exportPlatform;
-                  const items = clips
-                    .filter((c) => c.resultUrl && c.status === "ready")
-                    .map((c) => ({
-                      url: c.resultUrl!,
-                      filename: safeDownloadName(c.title, c.order, plat),
-                    }));
+                  const pool =
+                    selectedReady.length > 0
+                      ? selectedReady
+                      : clips.filter(
+                          (c) => c.resultUrl && c.status === "ready",
+                        );
+                  const items = pool.map((c) => ({
+                    url: c.resultUrl!,
+                    filename: safeDownloadName(c.title, c.order, plat),
+                  }));
                   downloadUrls(items);
                 }}
               >
                 <DownloadSimple className="size-4" weight="bold" />
-                Tout télécharger ({readyCount})
+                {selectedReady.length > 0
+                  ? `Télécharger (${selectedReady.length})`
+                  : `Tout télécharger (${readyCount})`}
               </Button>
             </div>
             <div
@@ -473,125 +538,125 @@ export default function ClipProjectPage() {
           </div>
         )}
 
-        {clips.length > 0 && (
-          <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {clips.map((clip) => {
-              const duration = formatClipDuration(clip.startSec, clip.endSec);
-              return (
-                <li
-                  key={clip._id}
-                  className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card/40"
-                >
-                  {clip.resultUrl ? (
-                    <div className="aspect-[9/16] max-h-[420px] bg-black">
-                      <video
-                        src={clip.resultUrl}
-                        controls
-                        preload="metadata"
-                        className="h-full w-full object-contain"
-                      />
-                    </div>
-                  ) : clip.status === "rendering" ||
-                    clip.status === "proposed" ? (
-                    <div className="flex aspect-[9/16] max-h-[280px] items-center justify-center bg-secondary/30">
-                      <p className="text-xs text-muted-foreground">
-                        Rendu 9:16…
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="flex aspect-[9/16] max-h-[200px] items-center justify-center bg-secondary/20">
-                      <p className="text-xs text-muted-foreground">Pas encore</p>
-                    </div>
-                  )}
+        {clips.length > 0 && focusedClip && (
+          <div className="grid gap-6 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
+            <ClipFilmstrip
+              clips={clips}
+              focusedId={focusedClipId}
+              selectedIds={selectedIds}
+              sort={sortMode}
+              onSort={setSortMode}
+              onFocus={(id) => {
+                setFocusedClipId(id);
+                setEditingClipId(null);
+              }}
+              onToggleSelect={toggleSelect}
+              onSelectAll={() =>
+                setSelectedIds(new Set(clips.map((c) => c._id)))
+              }
+              onClearSelect={() => setSelectedIds(new Set())}
+            />
 
-                  <div className="flex flex-1 flex-col gap-2 p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium leading-snug">
-                        {clip.title}
-                      </p>
-                      <span
-                        className={
-                          clip.status === "failed"
-                            ? "shrink-0 text-[11px] font-medium text-destructive"
-                            : clip.status === "ready"
-                              ? "shrink-0 rounded-md bg-signal/15 px-1.5 py-0.5 text-[11px] font-medium text-signal"
-                              : "shrink-0 text-[11px] font-medium text-amber-400"
+            <div className="space-y-4 rounded-2xl border border-border bg-card/30 p-4 md:p-5">
+              <ClipStagePreview
+                clip={focusedClip}
+                sourceUrl={project.sourceVideoUrl}
+                softPreview={preferSoft}
+                captionStyle={captionStyle}
+                lookFilter={lookFilter}
+                punchEffect={punchEffect}
+                logoUrl={project.logoUrl}
+                logoCorner={logoCorner}
+                logoOpacity={logoOpacity}
+                editing={editingClipId === focusedClip._id}
+                editSlot={
+                  hasSource &&
+                  editingClipId === focusedClip._id &&
+                  project.sourceVideoUrl ? (
+                    <ClipEditTrim
+                      sourceUrl={project.sourceVideoUrl}
+                      initialStart={focusedClip.startSec}
+                      initialEnd={focusedClip.endSec}
+                      sourceDuration={project.durationSeconds}
+                      saving={savingTrim}
+                      onSave={(args) =>
+                        onSaveClipTrim(focusedClip._id, args)
+                      }
+                      onCancel={() => setEditingClipId(null)}
+                    />
+                  ) : null
+                }
+              />
+
+              <div className="flex flex-wrap gap-2 border-t border-border pt-4">
+                {focusedClip.resultUrl && (
+                  <a
+                    href={focusedClip.resultUrl}
+                    download={safeDownloadName(
+                      focusedClip.title,
+                      focusedClip.order,
+                      EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
+                        ?.fileSlug ?? exportPlatform,
+                    )}
+                    className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90"
+                  >
+                    <DownloadSimple className="size-4" weight="bold" />
+                    Télécharger
+                  </a>
+                )}
+                {hasSource && editingClipId !== focusedClip._id && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={focusedClip.status === "rendering"}
+                    onClick={() => setEditingClipId(focusedClip._id)}
+                    className="h-10 cursor-pointer"
+                  >
+                    Ajuster In/Out
+                  </Button>
+                )}
+                {hasSource && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={
+                      rerendering || focusedClip.status === "rendering"
+                    }
+                    onClick={() => {
+                      setSelectedIds(new Set([focusedClip._id]));
+                      void (async () => {
+                        setRetryError(null);
+                        setApplyInfo(null);
+                        setRerendering(true);
+                        try {
+                          const n = await rerenderClips({
+                            clipProjectId,
+                            clipIds: [focusedClip._id],
+                          });
+                          setApplyInfo(
+                            n > 0
+                              ? "1 clip mis en file — rendu ffmpeg."
+                              : "Rien à rendre",
+                          );
+                        } catch (err) {
+                          setRetryError(
+                            err instanceof Error ? err.message : "Erreur",
+                          );
+                        } finally {
+                          setRerendering(false);
                         }
-                      >
-                        {clip.status === "ready"
-                          ? "Prêt à poster"
-                          : (CLIP_STATUS_LABEL[clip.status] ?? clip.status)}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {formatTimecode(clip.startSec)}–
-                      {formatTimecode(clip.endSec)} · {duration}
-                      {typeof clip.viralScore === "number"
-                        ? ` · score ${Math.round(clip.viralScore)}`
-                        : ""}
-                    </p>
-                    {clip.hookReason && (
-                      <p className="line-clamp-3 text-xs text-muted-foreground">
-                        <span className="font-medium text-foreground/80">
-                          Pourquoi :{" "}
-                        </span>
-                        {clip.hookReason}
-                      </p>
-                    )}
-                    {clip.errorMessage && (
-                      <p className="text-xs text-destructive" role="alert">
-                        {clip.errorMessage}
-                      </p>
-                    )}
-
-                    {hasSource &&
-                      editingClipId === clip._id &&
-                      project.sourceVideoUrl && (
-                        <ClipEditTrim
-                          sourceUrl={project.sourceVideoUrl}
-                          initialStart={clip.startSec}
-                          initialEnd={clip.endSec}
-                          sourceDuration={project.durationSeconds}
-                          saving={savingTrim}
-                          onSave={(args) => onSaveClipTrim(clip._id, args)}
-                          onCancel={() => setEditingClipId(null)}
-                        />
-                      )}
-
-                    <div className="mt-auto flex flex-wrap gap-2 pt-1">
-                      {clip.resultUrl && (
-                        <a
-                          href={clip.resultUrl}
-                          download={safeDownloadName(
-                            clip.title,
-                            clip.order,
-                            EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
-                              ?.fileSlug ?? exportPlatform,
-                          )}
-                          className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90"
-                        >
-                          <DownloadSimple className="size-4" weight="bold" />
-                          Télécharger
-                        </a>
-                      )}
-                      {hasSource && editingClipId !== clip._id && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={clip.status === "rendering"}
-                          onClick={() => setEditingClipId(clip._id)}
-                          className="cursor-pointer"
-                        >
-                          Ajuster
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                      })();
+                    }}
+                    className="h-10 cursor-pointer"
+                  >
+                    Re-rendre ce clip
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
         )}
       </section>
 
@@ -604,8 +669,11 @@ export default function ClipProjectPage() {
                 Appliquer le polish
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Les réglages ci-dessous sont enregistrés tout de suite. Clique
-                ici pour mettre les clips en file de rendu.
+                Soft preview = immédiat. Ce bouton lance le vrai rendu ffmpeg
+                {selectedIds.size > 0
+                  ? ` (${selectedIds.size} sélectionné${selectedIds.size > 1 ? "s" : ""})`
+                  : " (tous les clips)"}
+                .
               </p>
             </div>
             <Button
@@ -616,9 +684,11 @@ export default function ClipProjectPage() {
             >
               {rerendering
                 ? "Mise en file…"
-                : canRerender
-                  ? `Re-rendre ${clips.length} clip${clips.length > 1 ? "s" : ""}`
-                  : "Pas de clip à rendre"}
+                : !canRerender
+                  ? "Pas de clip à rendre"
+                  : selectedIds.size > 0
+                    ? `Re-rendre ${selectedIds.size}`
+                    : `Re-rendre ${clips.length} clip${clips.length > 1 ? "s" : ""}`}
             </Button>
           </div>
           {applyInfo && (

@@ -727,74 +727,130 @@ export const rerenderAll = mutation({
       throw new Error("Aucun clip à re-rendre");
     }
 
-    const now = Date.now();
-    const transcript = project.transcript;
+    return await enqueueClipRenders(ctx, project, clips);
+  },
+});
 
-    // Annuler jobs render encore actifs
-    const jobs = await ctx.db
-      .query("generationJobs")
+/**
+ * Re-rend uniquement les clips sélectionnés (multi-select atelier).
+ */
+export const rerenderClips = mutation({
+  args: {
+    clipProjectId: v.id("clipProjects"),
+    clipIds: v.array(v.id("clips")),
+  },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.clipProjectId);
+    if (!project || project.userId !== userId) {
+      throw new Error("Projet introuvable");
+    }
+    if (!project.sourceVideoUrl) {
+      throw new Error("Vidéo source absente");
+    }
+    if (args.clipIds.length === 0) {
+      throw new Error("Aucun clip sélectionné");
+    }
+
+    const all = await ctx.db
+      .query("clips")
       .withIndex("by_clipProjectId", (q) =>
         q.eq("clipProjectId", args.clipProjectId),
       )
       .collect();
-    for (const job of jobs) {
-      if (
-        job.type === "render_clip" &&
-        (job.status === "pending" || job.status === "processing")
-      ) {
-        await ctx.db.patch(job._id, {
-          status: "failed",
-          errorMessage: "Annulé pour re-rendu",
-          updatedAt: now,
-        });
-      }
+    const idSet = new Set(args.clipIds);
+    const clips = all.filter((c) => idSet.has(c._id));
+    if (clips.length === 0) {
+      throw new Error("Clips introuvables");
     }
 
-    for (const clip of clips) {
-      await ctx.db.patch(clip._id, {
-        status: "rendering",
-        errorMessage: undefined,
-        resultUrl: undefined,
-      });
-      await ctx.db.insert("generationJobs", {
-        type: "render_clip",
-        clipProjectId: args.clipProjectId,
-        clipId: clip._id,
-        status: "pending",
-        provider: "local",
-        payload: {
-          sourceVideoUrl: project.sourceVideoUrl,
-          youtubeUrl: project.sourceYoutubeUrl,
-          localFileId: project.sourceLocalFileId,
-          startSec: clip.startSec,
-          endSec: clip.endSec,
-          captionText: clip.captionText ?? "",
-          captionSegments: sliceCaptionSegments(
-            transcript,
-            clip.startSec,
-            clip.endSec,
-          ),
-          brollCues: [],
-          captionStyle: project.captionStyle ?? "viral",
-          layoutMode: project.layoutMode ?? "smart",
-          voiceoverMode: project.voiceoverMode ?? "off",
-          audioEnhance: project.audioEnhance ?? "off",
-          ...viralPayload(project),
-          title: clip.title,
-        },
-        createdAt: now,
+    return await enqueueClipRenders(ctx, project, clips, {
+      cancelOnlySelected: true,
+    });
+  },
+});
+
+async function enqueueClipRenders(
+  ctx: import("./_generated/server").MutationCtx,
+  project: Doc<"clipProjects">,
+  clips: Doc<"clips">[],
+  opts?: { cancelOnlySelected?: boolean },
+): Promise<number> {
+  const now = Date.now();
+  const transcript = project.transcript;
+  const selectedIds = new Set(clips.map((c) => c._id));
+
+  const jobs = await ctx.db
+    .query("generationJobs")
+    .withIndex("by_clipProjectId", (q) =>
+      q.eq("clipProjectId", project._id),
+    )
+    .collect();
+  for (const job of jobs) {
+    if (
+      job.type === "render_clip" &&
+      (job.status === "pending" || job.status === "processing")
+    ) {
+      if (
+        opts?.cancelOnlySelected &&
+        job.clipId &&
+        !selectedIds.has(job.clipId)
+      ) {
+        continue;
+      }
+      await ctx.db.patch(job._id, {
+        status: "failed",
+        errorMessage: "Annulé pour re-rendu",
         updatedAt: now,
       });
     }
+  }
 
-    await ctx.db.patch(args.clipProjectId, {
+  for (const clip of clips) {
+    await ctx.db.patch(clip._id, {
       status: "rendering",
       errorMessage: undefined,
+      resultUrl: undefined,
     });
+    await ctx.db.insert("generationJobs", {
+      type: "render_clip",
+      clipProjectId: project._id,
+      clipId: clip._id,
+      status: "pending",
+      provider: "local",
+      payload: {
+        sourceVideoUrl: project.sourceVideoUrl,
+        youtubeUrl: project.sourceYoutubeUrl,
+        localFileId: project.sourceLocalFileId,
+        startSec: clip.startSec,
+        endSec: clip.endSec,
+        captionText: clip.captionText ?? "",
+        captionSegments: sliceCaptionSegments(
+          transcript,
+          clip.startSec,
+          clip.endSec,
+        ),
+        brollCues: [],
+        captionStyle: project.captionStyle ?? "viral",
+        layoutMode: project.layoutMode ?? "smart",
+        voiceoverMode: project.voiceoverMode ?? "off",
+        audioEnhance: project.audioEnhance ?? "off",
+        ...viralPayload(project),
+        title: clip.title,
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
 
-    return clips.length;
-  },
-});
+  await ctx.db.patch(project._id, {
+    status: "rendering",
+    errorMessage: undefined,
+  });
+
+  return clips.length;
+}
 
 const MIN_MANUAL_CLIP_SEC = 3;
 const MAX_MANUAL_CLIP_SEC = 90;
