@@ -4,6 +4,11 @@ import { useRef, useState } from "react";
 import { CaretDown } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import {
+  buildCubeLut,
+  downloadCubeFile,
+  isExportableLook,
+} from "@/lib/lutCubes";
+import {
   AUDIO_ENHANCE_MODES,
   CAPTION_STYLES,
   LAYOUT_MODES,
@@ -27,6 +32,7 @@ type Props = {
   audioEnhance: AudioEnhanceId;
   punchEffect: PunchEffectId;
   lookFilter: LookFilterId;
+  lutUrl?: string | null;
   logoUrl?: string | null;
   logoCorner: LogoCornerId;
   logoOpacity: number;
@@ -51,6 +57,8 @@ type Props = {
   onClearLogo: () => void;
   onUploadMusic: (file: File) => Promise<void>;
   onClearMusic: () => void;
+  onUploadLut: (file: File) => Promise<void>;
+  onClearLut: () => void;
   onApplyRerender: () => void;
 };
 
@@ -105,6 +113,7 @@ export function ClipRenderOptions({
   audioEnhance,
   punchEffect,
   lookFilter,
+  lutUrl,
   logoUrl,
   logoCorner,
   logoOpacity,
@@ -128,12 +137,16 @@ export function ClipRenderOptions({
   onClearLogo,
   onUploadMusic,
   onClearMusic,
+  onUploadLut,
+  onClearLut,
   onApplyRerender,
 }: Props) {
   const logoRef = useRef<HTMLInputElement>(null);
   const musicRef = useRef<HTMLInputElement>(null);
+  const lutRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(defaultOpen);
   const [assetBusy, setAssetBusy] = useState(false);
+  const [lutHint, setLutHint] = useState<string | null>(null);
 
   async function handleLogo(file: File | undefined) {
     if (!file) return;
@@ -152,6 +165,49 @@ export function ClipRenderOptions({
       await onUploadMusic(file);
     } finally {
       setAssetBusy(false);
+    }
+  }
+
+  async function handleLut(file: File | undefined) {
+    if (!file) return;
+    setAssetBusy(true);
+    try {
+      await onUploadLut(file);
+    } finally {
+      setAssetBusy(false);
+    }
+  }
+
+  async function exportLut() {
+    setLutHint(null);
+    try {
+      if (lutUrl) {
+        const res = await fetch(lutUrl);
+        if (!res.ok) throw new Error(`Export LUT (${res.status})`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "rehovision-custom.cube";
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        return;
+      }
+      if (isExportableLook(lookFilter)) {
+        downloadCubeFile(
+          `rehovision-${lookFilter}.cube`,
+          buildCubeLut(lookFilter),
+        );
+        return;
+      }
+      setLutHint(
+        "Choisis Warm / Cool / Contrast, ou importe une .cube",
+      );
+    } catch (err) {
+      setLutHint(err instanceof Error ? err.message : "Export LUT échoué");
     }
   }
 
@@ -214,6 +270,68 @@ export function ClipRenderOptions({
             disabled={disabled}
             onChange={onLookFilter}
           />
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-foreground">LUT (.cube)</p>
+            <p className="text-xs text-muted-foreground">
+              Upload DaVinci / Resolve, ou exporte Warm / Cool / Contrast en
+              .cube. Soft grain n’est pas exportable (bruit).
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={lutRef}
+                type="file"
+                accept=".cube,application/octet-stream,text/plain"
+                className="hidden"
+                onChange={(e) => void handleLut(e.target.files?.[0])}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={disabled || assetBusy}
+                onClick={() => lutRef.current?.click()}
+                className="cursor-pointer"
+              >
+                {lutUrl ? "Changer la LUT" : "Importer .cube"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={
+                  disabled ||
+                  assetBusy ||
+                  (!lutUrl && !isExportableLook(lookFilter))
+                }
+                onClick={() => void exportLut()}
+                className="cursor-pointer"
+              >
+                Exporter .cube
+              </Button>
+              {lutUrl && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={disabled || assetBusy}
+                  onClick={onClearLut}
+                  className="cursor-pointer"
+                >
+                  Retirer
+                </Button>
+              )}
+            </div>
+            {lutHint && (
+              <p className="text-xs text-destructive" role="alert">
+                {lutHint}
+              </p>
+            )}
+            {lutUrl && (
+              <p className="text-xs text-signal">
+                LUT custom active — reclique Re-rendre pour appliquer
+              </p>
+            )}
+          </div>
           <ChipGroup
             label="Voiceover"
             options={VOICEOVER_MODES}

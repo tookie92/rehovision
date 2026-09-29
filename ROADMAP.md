@@ -129,7 +129,8 @@ Objectif : un clic = fichier prêt TikTok/Reels/Shorts.
 
 - [x] Styles captions : Viral, Bold green, Yellow pop, Minimal, **Neon pink**, **Impact**
 - [x] 4 looks ffmpeg : Warm / Cool / Contrast / Soft grain (+ Off)
-- [ ] (Optionnel plus tard) fichiers LUT `.cube` pro
+- [x] LUT `.cube` : upload + apply (`lut3d`) + export preset / custom
+- [ ] (Optionnel) packs LUT pro préchargés
 
 **Critère de done :** looks distincts au clic, pas une UI filtre CapCut.
 

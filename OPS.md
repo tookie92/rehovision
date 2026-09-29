@@ -82,17 +82,12 @@ Si tout ça passe : coche **Étape 0** dans `ROADMAP.md`.
 
 ## Dépannage
 
-### `moov atom not found` / Invalid data on `source.mp4`
+### `média local trop petit (341 o)`
 
-Le fichier est **tronqué** (upload coupé, download Convex incomplet, ou cache YouTube corrompu).
+Souvent **pas** une vidéo tronquée : le worker prenait le sidecar `{fileId}.json`
+(métadonnées upload) au lieu du `.mp4`. Corrigé dans `resolve_local_file`.
 
 ```bash
-# Vérifier le fichier uploadé
-ffprobe worker/data/media/uploads/<fileId>.mp4
-
-# Cache YouTube corrompu
-rm -rf /tmp/reho-yt-cache
-
-# Puis : réuploade le vlog (Fichier) et relance le projet / retry
-sudo systemctl restart rehovision-worker   # après git pull
+git pull && # restart worker
+# Relancer le même projet (retry) — le .mp4 est déjà sur disque
 ```

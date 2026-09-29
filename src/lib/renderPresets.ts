@@ -39,6 +39,7 @@ export const LOOK_FILTERS = [
   { id: "cool", label: "Cool", hint: "Tons froids" },
   { id: "contrast", label: "Contrast", hint: "Punch contrasté" },
   { id: "soft_grain", label: "Soft grain", hint: "Grain léger cinéma" },
+  { id: "lut", label: "LUT", hint: "Fichier .cube custom" },
 ] as const;
 
 export const LAYOUT_MODES = [

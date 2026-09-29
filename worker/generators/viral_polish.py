@@ -234,18 +234,46 @@ def apply_music_bed(
     return ok and output_path.is_file()
 
 
+def _escape_lut_path(path: Path) -> str:
+    """Échappement chemin pour filtre ffmpeg (:, \\)."""
+    s = str(path.resolve()).replace("\\", "/")
+    return s.replace(":", "\\:").replace("'", "\\'")
+
+
 def apply_look_filter(
     video_path: Path,
     output_path: Path,
     *,
     look: str,
+    lut_url: str | None = None,
+    work_dir: Path | None = None,
 ) -> bool:
-    """warm | cool | contrast | soft_grain — presets eq/noise, pas de .cube."""
+    """
+    warm | cool | contrast | soft_grain → eq/noise.
+    look=lut + lut_url → ffmpeg lut3d (.cube).
+    """
     look = (look or "off").strip().lower()
-    if look in ("", "off", "none"):
+    if look in ("", "off", "none") and not (lut_url and lut_url.strip()):
         return False
 
-    if look == "warm":
+    vf: str | None = None
+    use_lut = look == "lut" or (
+        lut_url and lut_url.strip() and look in ("", "off", "lut")
+    )
+
+    if use_lut and lut_url and lut_url.strip():
+        wd = work_dir or output_path.parent
+        cube = _download(lut_url.strip(), wd / "look.cube")
+        if not cube:
+            log.warning("LUT download KO")
+            return False
+        # Accepter .cube même si Content-Type a changé l’extension
+        if cube.suffix.lower() not in {".cube", ".3dl"}:
+            renamed = wd / "look.cube"
+            cube.replace(renamed)
+            cube = renamed
+        vf = f"lut3d='{_escape_lut_path(cube)}'"
+    elif look == "warm":
         vf = "eq=contrast=1.05:saturation=1.12:gamma_r=1.06:gamma_b=0.94"
     elif look == "cool":
         vf = "eq=contrast=1.04:saturation=1.05:gamma_r=0.94:gamma_b=1.08"
@@ -253,6 +281,9 @@ def apply_look_filter(
         vf = "eq=contrast=1.18:brightness=0.02:saturation=1.08"
     elif look == "soft_grain":
         vf = "noise=alls=8:allf=t+u,eq=contrast=1.04:saturation=0.98"
+    elif look == "lut":
+        log.warning("lookFilter=lut sans lutUrl")
+        return False
     else:
         log.warning("lookFilter inconnu: %s", look)
         return False
@@ -286,13 +317,14 @@ def apply_viral_polish(
     *,
     punch_effect: str | None = None,
     look_filter: str | None = None,
+    lut_url: str | None = None,
     logo_url: str | None = None,
     logo_corner: str | None = None,
     logo_opacity: float | None = None,
     music_url: str | None = None,
     music_volume: float | None = None,
 ) -> Path:
-    """Enchaîne punch → look → logo → musique. Retourne le path courant."""
+    """Enchaîne punch → look/LUT → logo → musique. Retourne le path courant."""
     current = video_path
 
     pe = (punch_effect or "off").strip().lower()
@@ -303,11 +335,17 @@ def apply_viral_polish(
             log.info("Punch effect=%s", pe)
 
     lf = (look_filter or "off").strip().lower()
-    if lf not in ("", "off", "none"):
+    if lf not in ("", "off", "none") or (lut_url and lut_url.strip()):
         out = work_dir / "clip_look.mp4"
-        if apply_look_filter(current, out, look=lf):
+        if apply_look_filter(
+            current,
+            out,
+            look=lf if lf not in ("", "off", "none") else "lut",
+            lut_url=lut_url,
+            work_dir=work_dir,
+        ):
             current = out
-            log.info("Look filter=%s", lf)
+            log.info("Look filter=%s lut=%s", lf, bool(lut_url))
 
     if logo_url and logo_url.strip():
         out = work_dir / "clip_logo.mp4"

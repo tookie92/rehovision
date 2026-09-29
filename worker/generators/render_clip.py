@@ -230,6 +230,7 @@ def render_clip(
     audio_enhance: str | None = None,
     punch_effect: str | None = None,
     look_filter: str | None = None,
+    lut_url: str | None = None,
     logo_url: str | None = None,
     logo_corner: str | None = None,
     logo_opacity: float | None = None,
@@ -303,6 +304,7 @@ def render_clip(
                 audio_enhance=audio_enhance,
                 punch_effect=punch_effect,
                 look_filter=look_filter,
+                lut_url=lut_url,
                 logo_url=logo_url,
                 logo_corner=logo_corner,
                 logo_opacity=logo_opacity,
@@ -341,12 +343,13 @@ def render_clip(
         except Exception as e:
             log.warning("B-roll ignoré (%s)", e)
 
-    # Pack viral : punch → logo → (après VO) musique
+    # Pack viral : punch → look/LUT → logo → (après VO) musique
     current = apply_viral_polish(
         current,
         work,
         punch_effect=punch_effect,
         look_filter=look_filter,
+        lut_url=lut_url,
         logo_url=logo_url,
         logo_corner=logo_corner,
         logo_opacity=logo_opacity,

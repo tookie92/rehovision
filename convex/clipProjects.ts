@@ -19,6 +19,7 @@ const lookFilterValidator = v.optional(
     v.literal("cool"),
     v.literal("contrast"),
     v.literal("soft_grain"),
+    v.literal("lut"),
   ),
 );
 const captionStyleValidator = v.optional(
@@ -42,6 +43,8 @@ const logoCornerValidator = v.optional(
 
 const viralProjectFields = {
   lookFilter: lookFilterValidator,
+  lutStorageId: v.optional(v.id("_storage")),
+  lutUrl: v.optional(v.string()),
   punchEffect: punchEffectValidator,
   logoStorageId: v.optional(v.id("_storage")),
   logoUrl: v.optional(v.string()),
@@ -55,6 +58,7 @@ const viralProjectFields = {
 function viralPayload(project: Doc<"clipProjects">) {
   return {
     lookFilter: project.lookFilter ?? "off",
+    lutUrl: project.lutUrl,
     punchEffect: project.punchEffect ?? "off",
     logoUrl: project.logoUrl,
     logoCorner: project.logoCorner ?? "br",
@@ -568,6 +572,7 @@ export const updateRenderOptions = mutation({
     musicVolume: v.optional(v.number()),
     clearLogo: v.optional(v.boolean()),
     clearMusic: v.optional(v.boolean()),
+    clearLut: v.optional(v.boolean()),
   },
   returns: v.id("clipProjects"),
   handler: async (ctx, args) => {
@@ -585,7 +590,14 @@ export const updateRenderOptions = mutation({
     if (args.audioEnhance !== undefined) {
       patch.audioEnhance = args.audioEnhance;
     }
-    if (args.lookFilter !== undefined) patch.lookFilter = args.lookFilter;
+    if (args.lookFilter !== undefined) {
+      patch.lookFilter = args.lookFilter;
+      // Preset ≠ LUT custom : on retire la .cube pour éviter un double look
+      if (args.lookFilter !== "lut") {
+        patch.lutUrl = undefined;
+        patch.lutStorageId = undefined;
+      }
+    }
     if (args.punchEffect !== undefined) patch.punchEffect = args.punchEffect;
     if (args.logoCorner !== undefined) patch.logoCorner = args.logoCorner;
     if (args.logoOpacity !== undefined) patch.logoOpacity = args.logoOpacity;
@@ -597,6 +609,13 @@ export const updateRenderOptions = mutation({
     if (args.clearMusic) {
       patch.musicUrl = undefined;
       patch.musicStorageId = undefined;
+    }
+    if (args.clearLut) {
+      patch.lutUrl = undefined;
+      patch.lutStorageId = undefined;
+      if (project.lookFilter === "lut") {
+        patch.lookFilter = "off";
+      }
     }
     await ctx.db.patch(args.clipProjectId, patch);
     return args.clipProjectId;
@@ -651,6 +670,32 @@ export const setMusicAsset = mutation({
       musicStorageId: args.storageId,
       musicUrl: url,
       musicVolume: project.musicVolume ?? 0.18,
+    });
+    return args.clipProjectId;
+  },
+});
+
+/**
+ * Attache une LUT .cube (DaVinci / Resolve) — appliquée au re-rendu via lut3d.
+ */
+export const setLutAsset = mutation({
+  args: {
+    clipProjectId: v.id("clipProjects"),
+    storageId: v.id("_storage"),
+  },
+  returns: v.id("clipProjects"),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.clipProjectId);
+    if (!project || project.userId !== userId) {
+      throw new Error("Projet introuvable");
+    }
+    const url = await ctx.storage.getUrl(args.storageId);
+    if (!url) throw new Error("LUT introuvable");
+    await ctx.db.patch(args.clipProjectId, {
+      lutStorageId: args.storageId,
+      lutUrl: url,
+      lookFilter: "lut",
     });
     return args.clipProjectId;
   },

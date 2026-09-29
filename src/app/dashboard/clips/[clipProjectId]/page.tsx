@@ -47,6 +47,7 @@ export default function ClipProjectPage() {
   const generateUploadUrl = useMutation(api.clipProjects.generateUploadUrl);
   const setLogoAsset = useMutation(api.clipProjects.setLogoAsset);
   const setMusicAsset = useMutation(api.clipProjects.setMusicAsset);
+  const setLutAsset = useMutation(api.clipProjects.setLutAsset);
   const rerenderAll = useMutation(api.clipProjects.rerenderAll);
   const createManualClip = useMutation(api.clipProjects.createManualClip);
   const updateClipTrim = useMutation(api.clipProjects.updateClipTrim);
@@ -101,6 +102,7 @@ export default function ClipProjectPage() {
       musicVolume: number;
       clearLogo: boolean;
       clearMusic: boolean;
+      clearLut: boolean;
     }>,
   ) {
     setRetryError(null);
@@ -142,6 +144,24 @@ export default function ClipProjectPage() {
     if (!res.ok) throw new Error(`Upload musique (${res.status})`);
     const { storageId } = (await res.json()) as { storageId: string };
     await setMusicAsset({
+      clipProjectId,
+      storageId: storageId as never,
+    });
+  }
+
+  async function uploadLut(file: File) {
+    if (!/\.cube$/i.test(file.name)) {
+      throw new Error("LUT : fichier .cube (DaVinci / Resolve)");
+    }
+    const uploadUrl = await generateUploadUrl({});
+    const res = await fetch(uploadUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: file,
+    });
+    if (!res.ok) throw new Error(`Upload LUT (${res.status})`);
+    const { storageId } = (await res.json()) as { storageId: string };
+    await setLutAsset({
       clipProjectId,
       storageId: storageId as never,
     });
@@ -614,6 +634,7 @@ export default function ClipProjectPage() {
             audioEnhance={audioEnhance}
             punchEffect={punchEffect}
             lookFilter={lookFilter}
+            lutUrl={project.lutUrl}
             logoUrl={project.logoUrl}
             logoCorner={logoCorner}
             logoOpacity={logoOpacity}
@@ -649,6 +670,14 @@ export default function ClipProjectPage() {
               }
             }}
             onClearMusic={() => void persistOption({ clearMusic: true })}
+            onUploadLut={async (f) => {
+              try {
+                await uploadLut(f);
+              } catch (err) {
+                setRetryError(err instanceof Error ? err.message : "Erreur");
+              }
+            }}
+            onClearLut={() => void persistOption({ clearLut: true })}
             onApplyRerender={() => void onApplyRerender()}
           />
 

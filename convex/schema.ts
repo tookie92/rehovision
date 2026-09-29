@@ -104,7 +104,7 @@ export default defineSchema({
     audioEnhance: v.optional(
       v.union(v.literal("off"), v.literal("light")),
     ),
-    // Look / filtre couleur (étape 6) — presets ffmpeg, pas LUT .cube
+    // Look / filtre couleur (étape 6) — presets ffmpeg + LUT .cube custom
     lookFilter: v.optional(
       v.union(
         v.literal("off"),
@@ -112,8 +112,11 @@ export default defineSchema({
         v.literal("cool"),
         v.literal("contrast"),
         v.literal("soft_grain"),
+        v.literal("lut"),
       ),
     ),
+    lutStorageId: v.optional(v.id("_storage")),
+    lutUrl: v.optional(v.string()),
     // Pack viral (étape 3)
     punchEffect: v.optional(
       v.union(

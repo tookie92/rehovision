@@ -741,6 +741,7 @@ export const applyClipPipelineResult = internalMutation({
             voiceoverMode: project?.voiceoverMode ?? "off",
             audioEnhance: project?.audioEnhance ?? "off",
             lookFilter: project?.lookFilter ?? "off",
+            lutUrl: project?.lutUrl,
             punchEffect: project?.punchEffect ?? "off",
             logoUrl: project?.logoUrl,
             logoCorner: project?.logoCorner ?? "br",

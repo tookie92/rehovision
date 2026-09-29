@@ -45,13 +45,36 @@ def media_root() -> Path:
     return root
 
 
+_MEDIA_EXTS = {
+    ".mp4",
+    ".mov",
+    ".webm",
+    ".mkv",
+    ".m4v",
+    ".avi",
+    ".mp3",
+    ".wav",
+    ".m4a",
+}
+
+
 def resolve_local_file(file_id: str) -> Path | None:
+    """
+    Résout l'upload média. Ignore le sidecar {fileId}.json (méta ~quelques centaines d'octets)
+    — sinon Whisper reçoit le JSON et échoue « trop petit (341 o) ».
+    """
     if not _UUID_RE.match(file_id):
         return None
     uploads = media_root() / "uploads"
-    for p in uploads.glob(f"{file_id}.*"):
-        if p.is_file():
-            return p
+    candidates = [
+        p
+        for p in uploads.glob(f"{file_id}.*")
+        if p.is_file() and p.suffix.lower() in _MEDIA_EXTS
+    ]
+    if candidates:
+        # Préférer mp4 si plusieurs
+        candidates.sort(key=lambda p: (0 if p.suffix.lower() == ".mp4" else 1, p.name))
+        return candidates[0]
     # sans extension
     bare = uploads / file_id
     return bare if bare.is_file() else None
