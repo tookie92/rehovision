@@ -58,12 +58,13 @@ Hors emprunt : templates ranking/commentary, VO ElevenLabs comme funnel principa
 
 ### Étape 0 — Ops (bloquant)
 
-Sans ça, le reste est inutile.
+Sans ça, le reste est inutile. Checklist détaillée : [`OPS.md`](./OPS.md).
 
 - [ ] Ubuntu : `git pull` + restart Next + worker
 - [ ] Cookies YouTube (`YT_COOKIES=./cookies/youtube.txt`) **ou** rester sur import **Fichier**
 - [ ] Valider 1 parcours complet : source → clips prêts → changer captions → trim manuel → re-rendu
 - [ ] Vérifier `WORKER_SECRET_KEY` aligné (Convex / worker / `.env.local`)
+- [x] Doc ops + checklist (`OPS.md`)
 
 **Critère de done :** un vlog fichier (et idéalement YouTube) sort des clips téléchargeables à chaque essai.
 
@@ -116,20 +117,21 @@ Objectif : un clic = fichier prêt TikTok/Reels/Shorts.
 
 ### Étape 5 — Qualité des coupes IA
 
-- [ ] Meilleurs prompts / scoring des hooks
-- [ ] Afficher « pourquoi ce cut » (hookReason déjà là — le rendre utile)
-- [ ] Filtrer clips trop courts / trop longs / doublons
+- [x] Meilleurs prompts + `viralScore` 0–100
+- [x] Afficher « pourquoi ce cut » + score dans la grille
+- [x] Filtrer clips trop courts / trop longs / doublons (IoU) + ranking par score
 
 **Critère de done :** sur un vlog type, ≥50 % des propositions sont postables sans trim.
 
 ---
 
-### Étape 6 — Style captions + LUT (optionnel)
+### Étape 6 — Style captions + looks
 
-- [ ] Plus de fonts / couleurs (inspiré Muse « Aesthetic Fonts », sans éditeur mot-à-mot)
-- [ ] 3–4 LUT / filtres d’intensité (grain, warm, contrast) via ffmpeg
+- [x] Styles captions : Viral, Bold green, Yellow pop, Minimal, **Neon pink**, **Impact**
+- [x] 4 looks ffmpeg : Warm / Cool / Contrast / Soft grain (+ Off)
+- [ ] (Optionnel plus tard) fichiers LUT `.cube` pro
 
-**Critère de done :** 4 looks distincts au clic, pas une UI filtre CapCut.
+**Critère de done :** looks distincts au clic, pas une UI filtre CapCut.
 
 ---
 

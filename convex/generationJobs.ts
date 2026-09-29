@@ -603,6 +603,7 @@ export const applyClipPipelineResult = internalMutation({
         v.object({
           title: v.string(),
           hookReason: v.optional(v.string()),
+          viralScore: v.optional(v.number()),
           startSec: v.number(),
           endSec: v.number(),
           captionText: v.optional(v.string()),
@@ -705,6 +706,8 @@ export const applyClipPipelineResult = internalMutation({
           order: i + 1,
           title: p.title,
           hookReason: p.hookReason,
+          viralScore:
+            typeof p.viralScore === "number" ? p.viralScore : undefined,
           startSec: p.startSec,
           endSec: p.endSec,
           captionText: p.captionText,
@@ -737,6 +740,7 @@ export const applyClipPipelineResult = internalMutation({
             layoutMode: project?.layoutMode ?? "smart",
             voiceoverMode: project?.voiceoverMode ?? "off",
             audioEnhance: project?.audioEnhance ?? "off",
+            lookFilter: project?.lookFilter ?? "off",
             punchEffect: project?.punchEffect ?? "off",
             logoUrl: project?.logoUrl,
             logoCorner: project?.logoCorner ?? "br",

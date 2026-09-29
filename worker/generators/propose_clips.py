@@ -1,7 +1,7 @@
 """
 Propose des clips viraux (hooks) à partir d'un transcript via Ollama.
 
-Cible Reels/TikTok : ~30s (pas des micro-cuts de 8s).
+Cible Reels/TikTok : ~30s, scorés, sans doublons.
 """
 
 from __future__ import annotations
@@ -13,20 +13,24 @@ from typing import Any
 
 import requests
 
-# Durée standard Reels / Shorts
 TARGET_CLIP_SEC = 30.0
 MIN_CLIP_SEC = 20.0
 MAX_CLIP_SEC = 45.0
+# Chevauchement max (IoU) avant dédoublonnage
+MAX_IOU = 0.42
+MIN_SCORE = 45
 
 SYSTEM_PROMPT = """Tu es un monteur viral type Opus Clip / TikTok Reels.
-À partir d'un transcript horodaté, propose 3 à 6 clips prêts à poster.
-Durée STANDARD = 30 secondes (plage acceptée 25–35s, jamais sous 20s).
+À partir d'un transcript horodaté, propose 4 à 6 clips prêts à poster.
+Durée STANDARD = 30 secondes (plage 25–35s, jamais sous 20s).
+
 Réponds UNIQUEMENT en JSON valide:
 {
   "clips": [
     {
       "title": "titre accrocheur court",
-      "hookReason": "pourquoi ce passage marche",
+      "hookReason": "pourquoi ce passage marche (1 phrase concrète)",
+      "viralScore": 78,
       "startSec": 12.5,
       "endSec": 42.5,
       "captionText": "texte principal du clip pour sous-titres",
@@ -41,12 +45,13 @@ Réponds UNIQUEMENT en JSON valide:
   ]
 }
 Règles:
-- startSec/endSec dans les bornes du transcript
-- endSec - startSec ≈ 30s (idéal). Min 25s, max 35s. JAMAIS sous 20s.
+- viralScore 0–100 : tension / émotion / clarté du hook / quotabilité
 - Le hook (phrase forte) dans les 3 premières secondes du clip
-- clips non chevauchants autant que possible
-- captionText = paraphrase claire du passage (FR si transcript FR)
-- broll optionnel : 0–2 cutaways, relStartSec relatif au début du clip, prompt EN sans texte dans l'image
+- endSec - startSec ≈ 30s (idéal 25–35). JAMAIS sous 20s
+- Clips NON chevauchants (fenêtres disjointes)
+- Évite les intros « euh / bonjour » sans payoff
+- captionText = paraphrase claire (FR si transcript FR)
+- broll optionnel : 0–2 cutaways
 """
 
 
@@ -63,7 +68,7 @@ def _ollama_chat(system: str, user: str) -> str:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "options": {"temperature": 0.4},
+            "options": {"temperature": 0.35},
         },
         timeout=300,
     )
@@ -91,7 +96,6 @@ def _normalize_window(
     end: float,
     video_duration: float,
 ) -> tuple[float, float] | None:
-    """Force une fenêtre proche de TARGET_CLIP_SEC dans les bornes vidéo."""
     if end <= start:
         return None
 
@@ -102,14 +106,12 @@ def _normalize_window(
     if span <= 0:
         return None
 
-    # Trop long → garder le début (hook) et couper à ~30s
     if span > MAX_CLIP_SEC:
         end = start + TARGET_CLIP_SEC
         if video_duration > 0:
             end = min(end, video_duration)
         span = end - start
 
-    # Trop court → étendre autour du milieu / vers l'avant puis l'arrière
     if span < MIN_CLIP_SEC:
         need = TARGET_CLIP_SEC - span
         half = need / 2.0
@@ -122,12 +124,10 @@ def _normalize_window(
         start, end = new_start, new_end
         span = end - start
 
-    # Vidéo source trop courte pour un reel 30s
     if video_duration > 0 and video_duration < MIN_CLIP_SEC:
         return (0.0, video_duration) if video_duration >= 8 else None
 
     if span < MIN_CLIP_SEC:
-        # Impossible d'atteindre 20s (fin de vidéo) — garder si ≥15s, sinon drop
         if span < 15.0:
             return None
         return (round(start, 2), round(end, 2))
@@ -135,8 +135,58 @@ def _normalize_window(
     return (round(start, 2), round(end, 2))
 
 
+def _iou(a0: float, a1: float, b0: float, b1: float) -> float:
+    inter = max(0.0, min(a1, b1) - max(a0, b0))
+    if inter <= 0:
+        return 0.0
+    union = max(a1, b1) - min(a0, b0)
+    return inter / union if union > 0 else 0.0
+
+
+def _heuristic_score(caption: str, span: float) -> int:
+    score = 55
+    # Proche de 30s
+    score -= int(abs(span - TARGET_CLIP_SEC) * 1.2)
+    words = len(caption.split())
+    if words >= 25:
+        score += 8
+    if words < 8:
+        score -= 15
+    low = caption.lower()
+    if any(w in low for w in ("secret", "jamais", "pourquoi", "erreur", "astuce", "choquant")):
+        score += 6
+    if low.startswith(("euh", "bonjour", "salut", "hey")):
+        score -= 10
+    return max(0, min(100, score))
+
+
+def _dedupe_and_rank(clips: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Garde les meilleurs scores, drop doublons (IoU) et scores trop bas."""
+    ranked = sorted(
+        clips,
+        key=lambda c: float(c.get("viralScore") or 0),
+        reverse=True,
+    )
+    kept: list[dict[str, Any]] = []
+    for c in ranked:
+        score = float(c.get("viralScore") or 0)
+        if score < MIN_SCORE and len(ranked) > 3:
+            continue
+        s0, s1 = float(c["startSec"]), float(c["endSec"])
+        if any(
+            _iou(s0, s1, float(k["startSec"]), float(k["endSec"])) > MAX_IOU
+            for k in kept
+        ):
+            continue
+        kept.append(c)
+        if len(kept) >= 6:
+            break
+    # Re-numérote l’ordre chronologique pour l’UI
+    kept.sort(key=lambda c: float(c["startSec"]))
+    return kept
+
+
 def _heuristic_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
-    """Fallback si le LLM échoue : fenêtres ~30s sur segments denses."""
     segments = list(transcript.get("segments") or [])
     if not segments:
         return []
@@ -146,7 +196,7 @@ def _heuristic_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
     window = TARGET_CLIP_SEC
     start = float(segments[0].get("start", 0))
     order = 1
-    while start < duration - 10 and order <= 5:
+    while start < duration - 10 and order <= 8:
         end = min(start + window, duration)
         texts = [
             str(s.get("text", "")).strip()
@@ -157,10 +207,12 @@ def _heuristic_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
         normalized = _normalize_window(start, end, duration)
         if caption and normalized:
             ns, ne = normalized
+            span = ne - ns
             clips.append(
                 {
                     "title": f"Clip {order}",
                     "hookReason": "Passage dense (fallback ~30s)",
+                    "viralScore": _heuristic_score(caption, span),
                     "startSec": ns,
                     "endSec": ne,
                     "captionText": caption,
@@ -168,7 +220,7 @@ def _heuristic_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
             )
             order += 1
         start = end + 5.0
-    return clips
+    return _dedupe_and_rank(clips)
 
 
 def _parse_broll(item: dict[str, Any]) -> list[dict[str, Any]]:
@@ -217,18 +269,27 @@ def _parse_clips(raw: str, duration: float) -> list[dict[str, Any]]:
         if not normalized:
             continue
         start, end = normalized
+        caption = str(item.get("captionText") or "")[:500]
+        try:
+            score = int(item.get("viralScore", 0))
+        except (TypeError, ValueError):
+            score = 0
+        if score <= 0:
+            score = _heuristic_score(caption, end - start)
+        score = max(0, min(100, score))
         entry: dict[str, Any] = {
             "title": str(item.get("title") or "Clip")[:120],
             "hookReason": str(item.get("hookReason") or "")[:300],
+            "viralScore": score,
             "startSec": start,
             "endSec": end,
-            "captionText": str(item.get("captionText") or "")[:500],
+            "captionText": caption,
         }
         broll = _parse_broll(item)
         if broll:
             entry["broll"] = broll
         out.append(entry)
-    return out[:8]
+    return _dedupe_and_rank(out)
 
 
 def propose_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
@@ -240,6 +301,7 @@ def propose_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
     user = (
         f"Durée totale: {duration:.1f}s\n"
         f"Cible par clip: {TARGET_CLIP_SEC:.0f}s (min {MIN_CLIP_SEC:.0f}s)\n"
+        f"Score chaque clip (viralScore). Évite les doublons.\n"
         f"Langue: {transcript.get('language', 'unknown')}\n\n"
         f"Transcript:\n{body}"
     )

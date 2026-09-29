@@ -12,6 +12,25 @@ const punchEffectValidator = v.optional(
     v.literal("grain"),
   ),
 );
+const lookFilterValidator = v.optional(
+  v.union(
+    v.literal("off"),
+    v.literal("warm"),
+    v.literal("cool"),
+    v.literal("contrast"),
+    v.literal("soft_grain"),
+  ),
+);
+const captionStyleValidator = v.optional(
+  v.union(
+    v.literal("viral"),
+    v.literal("bold_green"),
+    v.literal("yellow_pop"),
+    v.literal("minimal"),
+    v.literal("neon_pink"),
+    v.literal("impact"),
+  ),
+);
 const logoCornerValidator = v.optional(
   v.union(
     v.literal("tl"),
@@ -22,6 +41,7 @@ const logoCornerValidator = v.optional(
 );
 
 const viralProjectFields = {
+  lookFilter: lookFilterValidator,
   punchEffect: punchEffectValidator,
   logoStorageId: v.optional(v.id("_storage")),
   logoUrl: v.optional(v.string()),
@@ -34,6 +54,7 @@ const viralProjectFields = {
 
 function viralPayload(project: Doc<"clipProjects">) {
   return {
+    lookFilter: project.lookFilter ?? "off",
     punchEffect: project.punchEffect ?? "off",
     logoUrl: project.logoUrl,
     logoCorner: project.logoCorner ?? "br",
@@ -63,14 +84,7 @@ const clipProjectDoc = v.object({
   sourceYoutubeUrl: v.optional(v.string()),
   durationSeconds: v.optional(v.number()),
   transcript: v.optional(v.any()),
-  captionStyle: v.optional(
-    v.union(
-      v.literal("viral"),
-      v.literal("bold_green"),
-      v.literal("yellow_pop"),
-      v.literal("minimal"),
-    ),
-  ),
+  captionStyle: captionStyleValidator,
   layoutMode: v.optional(
     v.union(
       v.literal("smart"),
@@ -97,6 +111,7 @@ const clipDoc = v.object({
   order: v.number(),
   title: v.string(),
   hookReason: v.optional(v.string()),
+  viralScore: v.optional(v.number()),
   startSec: v.number(),
   endSec: v.number(),
   captionText: v.optional(v.string()),
@@ -297,14 +312,7 @@ const clipProjectSummary = v.object({
   sourceYoutubeUrl: v.optional(v.string()),
   durationSeconds: v.optional(v.number()),
   transcript: v.optional(v.any()),
-  captionStyle: v.optional(
-    v.union(
-      v.literal("viral"),
-      v.literal("bold_green"),
-      v.literal("yellow_pop"),
-      v.literal("minimal"),
-    ),
-  ),
+  captionStyle: captionStyleValidator,
   layoutMode: v.optional(
     v.union(
       v.literal("smart"),
@@ -538,14 +546,7 @@ export const retryFailedClips = mutation({
 export const updateRenderOptions = mutation({
   args: {
     clipProjectId: v.id("clipProjects"),
-    captionStyle: v.optional(
-      v.union(
-        v.literal("viral"),
-        v.literal("bold_green"),
-        v.literal("yellow_pop"),
-        v.literal("minimal"),
-      ),
-    ),
+    captionStyle: captionStyleValidator,
     layoutMode: v.optional(
       v.union(
         v.literal("smart"),
@@ -560,6 +561,7 @@ export const updateRenderOptions = mutation({
     audioEnhance: v.optional(
       v.union(v.literal("off"), v.literal("light")),
     ),
+    lookFilter: lookFilterValidator,
     punchEffect: punchEffectValidator,
     logoCorner: logoCornerValidator,
     logoOpacity: v.optional(v.number()),
@@ -583,6 +585,7 @@ export const updateRenderOptions = mutation({
     if (args.audioEnhance !== undefined) {
       patch.audioEnhance = args.audioEnhance;
     }
+    if (args.lookFilter !== undefined) patch.lookFilter = args.lookFilter;
     if (args.punchEffect !== undefined) patch.punchEffect = args.punchEffect;
     if (args.logoCorner !== undefined) patch.logoCorner = args.logoCorner;
     if (args.logoOpacity !== undefined) patch.logoOpacity = args.logoOpacity;

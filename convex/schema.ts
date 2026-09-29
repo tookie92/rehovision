@@ -82,6 +82,8 @@ export default defineSchema({
         v.literal("bold_green"),
         v.literal("yellow_pop"),
         v.literal("minimal"),
+        v.literal("neon_pink"),
+        v.literal("impact"),
       ),
     ),
     layoutMode: v.optional(
@@ -101,6 +103,16 @@ export default defineSchema({
     ),
     audioEnhance: v.optional(
       v.union(v.literal("off"), v.literal("light")),
+    ),
+    // Look / filtre couleur (étape 6) — presets ffmpeg, pas LUT .cube
+    lookFilter: v.optional(
+      v.union(
+        v.literal("off"),
+        v.literal("warm"),
+        v.literal("cool"),
+        v.literal("contrast"),
+        v.literal("soft_grain"),
+      ),
     ),
     // Pack viral (étape 3)
     punchEffect: v.optional(
@@ -134,6 +146,8 @@ export default defineSchema({
     order: v.number(),
     title: v.string(),
     hookReason: v.optional(v.string()),
+    /** Score 0–100 proposé par le worker (qualité / viralité). */
+    viralScore: v.optional(v.number()),
     startSec: v.number(),
     endSec: v.number(),
     // Texte pour captions (souvent extrait du transcript)

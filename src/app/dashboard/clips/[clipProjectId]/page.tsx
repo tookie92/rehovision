@@ -31,6 +31,7 @@ import type {
   AudioEnhanceId,
   CaptionStyleId,
   LayoutModeId,
+  LookFilterId,
   LogoCornerId,
   PunchEffectId,
   VoiceoverModeId,
@@ -94,6 +95,7 @@ export default function ClipProjectPage() {
       voiceoverMode: VoiceoverModeId;
       audioEnhance: AudioEnhanceId;
       punchEffect: PunchEffectId;
+      lookFilter: LookFilterId;
       logoCorner: LogoCornerId;
       logoOpacity: number;
       musicVolume: number;
@@ -247,6 +249,7 @@ export default function ClipProjectPage() {
   const voiceoverMode = (project.voiceoverMode ?? "off") as VoiceoverModeId;
   const audioEnhance = (project.audioEnhance ?? "off") as AudioEnhanceId;
   const punchEffect = (project.punchEffect ?? "off") as PunchEffectId;
+  const lookFilter = (project.lookFilter ?? "off") as LookFilterId;
   const logoCorner = (project.logoCorner ?? "br") as LogoCornerId;
   const logoOpacity = project.logoOpacity ?? 0.85;
   const musicVolume = project.musicVolume ?? 0.18;
@@ -503,9 +506,15 @@ export default function ClipProjectPage() {
                     <p className="text-xs text-muted-foreground">
                       {formatTimecode(clip.startSec)}–
                       {formatTimecode(clip.endSec)} · {duration}
+                      {typeof clip.viralScore === "number"
+                        ? ` · score ${Math.round(clip.viralScore)}`
+                        : ""}
                     </p>
                     {clip.hookReason && (
-                      <p className="line-clamp-2 text-xs text-muted-foreground">
+                      <p className="line-clamp-3 text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground/80">
+                          Pourquoi :{" "}
+                        </span>
                         {clip.hookReason}
                       </p>
                     )}
@@ -604,6 +613,7 @@ export default function ClipProjectPage() {
             voiceoverMode={voiceoverMode}
             audioEnhance={audioEnhance}
             punchEffect={punchEffect}
+            lookFilter={lookFilter}
             logoUrl={project.logoUrl}
             logoCorner={logoCorner}
             logoOpacity={logoOpacity}
@@ -619,6 +629,7 @@ export default function ClipProjectPage() {
             onVoiceoverMode={(v) => void persistOption({ voiceoverMode: v })}
             onAudioEnhance={(v) => void persistOption({ audioEnhance: v })}
             onPunchEffect={(v) => void persistOption({ punchEffect: v })}
+            onLookFilter={(v) => void persistOption({ lookFilter: v })}
             onLogoCorner={(v) => void persistOption({ logoCorner: v })}
             onLogoOpacity={(v) => void persistOption({ logoOpacity: v })}
             onMusicVolume={(v) => void persistOption({ musicVolume: v })}

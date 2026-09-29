@@ -21,6 +21,24 @@ export const CAPTION_STYLES = [
     label: "Minimal",
     hint: "Plus petit, bas d’écran",
   },
+  {
+    id: "neon_pink",
+    label: "Neon pink",
+    hint: "Rose fluo karaoke",
+  },
+  {
+    id: "impact",
+    label: "Impact",
+    hint: "Gros blanc outline épais",
+  },
+] as const;
+
+export const LOOK_FILTERS = [
+  { id: "off", label: "Off", hint: "Couleurs natives" },
+  { id: "warm", label: "Warm", hint: "Tons chauds" },
+  { id: "cool", label: "Cool", hint: "Tons froids" },
+  { id: "contrast", label: "Contrast", hint: "Punch contrasté" },
+  { id: "soft_grain", label: "Soft grain", hint: "Grain léger cinéma" },
 ] as const;
 
 export const LAYOUT_MODES = [
@@ -92,6 +110,7 @@ export const LOGO_CORNERS = [
 ] as const;
 
 export type CaptionStyleId = (typeof CAPTION_STYLES)[number]["id"];
+export type LookFilterId = (typeof LOOK_FILTERS)[number]["id"];
 export type LayoutModeId = (typeof LAYOUT_MODES)[number]["id"];
 export type VoiceoverModeId = (typeof VOICEOVER_MODES)[number]["id"];
 export type AudioEnhanceId = (typeof AUDIO_ENHANCE_MODES)[number]["id"];
@@ -100,6 +119,10 @@ export type LogoCornerId = (typeof LOGO_CORNERS)[number]["id"];
 
 export function isCaptionStyle(v: string): v is CaptionStyleId {
   return CAPTION_STYLES.some((s) => s.id === v);
+}
+
+export function isLookFilter(v: string): v is LookFilterId {
+  return LOOK_FILTERS.some((s) => s.id === v);
 }
 
 export function isLayoutMode(v: string): v is LayoutModeId {

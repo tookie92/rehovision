@@ -7,12 +7,14 @@ import {
   AUDIO_ENHANCE_MODES,
   CAPTION_STYLES,
   LAYOUT_MODES,
+  LOOK_FILTERS,
   LOGO_CORNERS,
   PUNCH_EFFECTS,
   VOICEOVER_MODES,
   type AudioEnhanceId,
   type CaptionStyleId,
   type LayoutModeId,
+  type LookFilterId,
   type LogoCornerId,
   type PunchEffectId,
   type VoiceoverModeId,
@@ -24,6 +26,7 @@ type Props = {
   voiceoverMode: VoiceoverModeId;
   audioEnhance: AudioEnhanceId;
   punchEffect: PunchEffectId;
+  lookFilter: LookFilterId;
   logoUrl?: string | null;
   logoCorner: LogoCornerId;
   logoOpacity: number;
@@ -40,6 +43,7 @@ type Props = {
   onVoiceoverMode: (v: VoiceoverModeId) => void;
   onAudioEnhance: (v: AudioEnhanceId) => void;
   onPunchEffect: (v: PunchEffectId) => void;
+  onLookFilter: (v: LookFilterId) => void;
   onLogoCorner: (v: LogoCornerId) => void;
   onLogoOpacity: (v: number) => void;
   onMusicVolume: (v: number) => void;
@@ -100,6 +104,7 @@ export function ClipRenderOptions({
   voiceoverMode,
   audioEnhance,
   punchEffect,
+  lookFilter,
   logoUrl,
   logoCorner,
   logoOpacity,
@@ -115,6 +120,7 @@ export function ClipRenderOptions({
   onVoiceoverMode,
   onAudioEnhance,
   onPunchEffect,
+  onLookFilter,
   onLogoCorner,
   onLogoOpacity,
   onMusicVolume,
@@ -200,6 +206,13 @@ export function ClipRenderOptions({
             value={punchEffect}
             disabled={disabled}
             onChange={onPunchEffect}
+          />
+          <ChipGroup
+            label="Look"
+            options={LOOK_FILTERS}
+            value={lookFilter}
+            disabled={disabled}
+            onChange={onLookFilter}
           />
           <ChipGroup
             label="Voiceover"

@@ -355,6 +355,7 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
                 voiceover_mode=payload.get("voiceoverMode") or None,
                 audio_enhance=payload.get("audioEnhance") or None,
                 punch_effect=payload.get("punchEffect") or None,
+                look_filter=payload.get("lookFilter") or None,
                 logo_url=payload.get("logoUrl") or None,
                 logo_corner=payload.get("logoCorner") or None,
                 logo_opacity=(

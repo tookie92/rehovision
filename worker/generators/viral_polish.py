@@ -234,18 +234,65 @@ def apply_music_bed(
     return ok and output_path.is_file()
 
 
+def apply_look_filter(
+    video_path: Path,
+    output_path: Path,
+    *,
+    look: str,
+) -> bool:
+    """warm | cool | contrast | soft_grain — presets eq/noise, pas de .cube."""
+    look = (look or "off").strip().lower()
+    if look in ("", "off", "none"):
+        return False
+
+    if look == "warm":
+        vf = "eq=contrast=1.05:saturation=1.12:gamma_r=1.06:gamma_b=0.94"
+    elif look == "cool":
+        vf = "eq=contrast=1.04:saturation=1.05:gamma_r=0.94:gamma_b=1.08"
+    elif look == "contrast":
+        vf = "eq=contrast=1.18:brightness=0.02:saturation=1.08"
+    elif look == "soft_grain":
+        vf = "noise=alls=8:allf=t+u,eq=contrast=1.04:saturation=0.98"
+    else:
+        log.warning("lookFilter inconnu: %s", look)
+        return False
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
+        "-vf",
+        vf,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-c:a",
+        "copy",
+        "-movflags",
+        "+faststart",
+        str(output_path),
+    ]
+    ok = _run(cmd, f"look:{look}")
+    return ok and output_path.is_file()
+
+
 def apply_viral_polish(
     video_path: Path,
     work_dir: Path,
     *,
     punch_effect: str | None = None,
+    look_filter: str | None = None,
     logo_url: str | None = None,
     logo_corner: str | None = None,
     logo_opacity: float | None = None,
     music_url: str | None = None,
     music_volume: float | None = None,
 ) -> Path:
-    """Enchaîne punch → logo → musique. Retourne le path courant."""
+    """Enchaîne punch → look → logo → musique. Retourne le path courant."""
     current = video_path
 
     pe = (punch_effect or "off").strip().lower()
@@ -254,6 +301,13 @@ def apply_viral_polish(
         if apply_punch_effect(current, out, effect=pe):
             current = out
             log.info("Punch effect=%s", pe)
+
+    lf = (look_filter or "off").strip().lower()
+    if lf not in ("", "off", "none"):
+        out = work_dir / "clip_look.mp4"
+        if apply_look_filter(current, out, look=lf):
+            current = out
+            log.info("Look filter=%s", lf)
 
     if logo_url and logo_url.strip():
         out = work_dir / "clip_logo.mp4"

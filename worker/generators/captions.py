@@ -202,6 +202,22 @@ def write_viral_ass(
             "outline_w": 3,
             "margin_v": 160,
         },
+        "neon_pink": {
+            "fontsize": 70,
+            "primary": "&H00FF66FF",  # pink BGR-ish
+            "secondary": "&H00FFFFFF",
+            "outline": "&H00000000",
+            "outline_w": 5,
+            "margin_v": 270,
+        },
+        "impact": {
+            "fontsize": 78,
+            "primary": "&H00FFFFFF",
+            "secondary": "&H0000D7FF",
+            "outline": "&H00000000",
+            "outline_w": 8,
+            "margin_v": 300,
+        },
     }
     preset = presets.get(style_key, presets["viral"])
     font = os.getenv("CAPTION_FONT", _find_font_name())
