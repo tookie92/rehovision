@@ -2,9 +2,11 @@
 
 import { Button } from "@/components/ui/button";
 import {
+  AUDIO_ENHANCE_MODES,
   CAPTION_STYLES,
   LAYOUT_MODES,
   VOICEOVER_MODES,
+  type AudioEnhanceId,
   type CaptionStyleId,
   type LayoutModeId,
   type VoiceoverModeId,
@@ -14,6 +16,7 @@ type Props = {
   captionStyle: CaptionStyleId;
   layoutMode: LayoutModeId;
   voiceoverMode: VoiceoverModeId;
+  audioEnhance: AudioEnhanceId;
   /** Grise captions / layout / voiceover (ex. pas encore de source). */
   disabled?: boolean;
   /** Grise uniquement « Appliquer & re-rendre ». */
@@ -22,6 +25,7 @@ type Props = {
   onCaptionStyle: (v: CaptionStyleId) => void;
   onLayoutMode: (v: LayoutModeId) => void;
   onVoiceoverMode: (v: VoiceoverModeId) => void;
+  onAudioEnhance: (v: AudioEnhanceId) => void;
   onApplyRerender: () => void;
 };
 
@@ -69,18 +73,20 @@ function Segmented<T extends string>({
 }
 
 /**
- * Panneau Opus-like : captions / layout / voiceover + re-rendu.
+ * Panneau Opus-like : captions / layout / voiceover / audio + re-rendu.
  */
 export function ClipRenderOptions({
   captionStyle,
   layoutMode,
   voiceoverMode,
+  audioEnhance,
   disabled,
   applyDisabled,
   saving,
   onCaptionStyle,
   onLayoutMode,
   onVoiceoverMode,
+  onAudioEnhance,
   onApplyRerender,
 }: Props) {
   return (
@@ -115,6 +121,13 @@ export function ClipRenderOptions({
         onChange={onLayoutMode}
       />
       <Segmented
+        label="Audio"
+        options={AUDIO_ENHANCE_MODES}
+        value={audioEnhance}
+        disabled={disabled}
+        onChange={onAudioEnhance}
+      />
+      <Segmented
         label="Voiceover"
         options={VOICEOVER_MODES}
         value={voiceoverMode}
@@ -123,7 +136,7 @@ export function ClipRenderOptions({
       />
       <p className="text-xs text-muted-foreground">
         Les options s’enregistrent au clic. « Appliquer & re-rendre » régénère
-        tous les clips. Split = 2 visages · Mix/Replace = TTS.
+        tous les clips. Audio Light = denoise + loudnorm.
       </p>
     </div>
   );

@@ -19,6 +19,7 @@ const clipProjectDoc = v.object({
   ),
   sourceStorageId: v.optional(v.id("_storage")),
   sourceVideoUrl: v.optional(v.string()),
+  sourceLocalFileId: v.optional(v.string()),
   sourceYoutubeUrl: v.optional(v.string()),
   durationSeconds: v.optional(v.number()),
   transcript: v.optional(v.any()),
@@ -40,6 +41,9 @@ const clipProjectDoc = v.object({
   ),
   voiceoverMode: v.optional(
     v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
+  ),
+  audioEnhance: v.optional(
+    v.union(v.literal("off"), v.literal("light")),
   ),
   errorMessage: v.optional(v.string()),
   createdAt: v.number(),
@@ -95,6 +99,56 @@ export const generateUploadUrl = mutation({
   handler: async (ctx) => {
     await requireUserId(ctx);
     return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * Import fichier déjà uploadé sur le disque worker (évite Convex pour gros vlogs).
+ */
+export const createFromLocalUpload = mutation({
+  args: {
+    title: v.string(),
+    localFileId: v.string(),
+    /** URL HTTP worker /media/{id} pour preview navigateur. */
+    mediaUrl: v.string(),
+    durationSeconds: v.optional(v.number()),
+  },
+  returns: v.id("clipProjects"),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const title = args.title.trim() || "Sans titre";
+    const localFileId = args.localFileId.trim();
+    const mediaUrl = args.mediaUrl.trim();
+    if (!localFileId || !mediaUrl) {
+      throw new Error("Fichier local invalide");
+    }
+
+    const now = Date.now();
+    const projectId = await ctx.db.insert("clipProjects", {
+      userId,
+      title,
+      status: "transcribing",
+      sourceLocalFileId: localFileId,
+      sourceVideoUrl: mediaUrl,
+      durationSeconds: args.durationSeconds,
+      createdAt: now,
+    });
+
+    await ctx.db.insert("generationJobs", {
+      type: "transcribe",
+      clipProjectId: projectId,
+      status: "pending",
+      provider: "local",
+      payload: {
+        localFileId,
+        sourceVideoUrl: mediaUrl,
+        language: "auto",
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return projectId;
   },
 });
 
@@ -198,6 +252,7 @@ const clipProjectSummary = v.object({
   ),
   sourceStorageId: v.optional(v.id("_storage")),
   sourceVideoUrl: v.optional(v.string()),
+  sourceLocalFileId: v.optional(v.string()),
   sourceYoutubeUrl: v.optional(v.string()),
   durationSeconds: v.optional(v.number()),
   transcript: v.optional(v.any()),
@@ -219,6 +274,9 @@ const clipProjectSummary = v.object({
   ),
   voiceoverMode: v.optional(
     v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
+  ),
+  audioEnhance: v.optional(
+    v.union(v.literal("off"), v.literal("light")),
   ),
   errorMessage: v.optional(v.string()),
   createdAt: v.number(),
@@ -400,6 +458,8 @@ export const retryFailedClips = mutation({
         provider: "local",
         payload: {
           sourceVideoUrl: project.sourceVideoUrl,
+          youtubeUrl: project.sourceYoutubeUrl,
+          localFileId: project.sourceLocalFileId,
           startSec: clip.startSec,
           endSec: clip.endSec,
           captionText: clip.captionText ?? "",
@@ -412,6 +472,7 @@ export const retryFailedClips = mutation({
           captionStyle: project.captionStyle ?? "viral",
           layoutMode: project.layoutMode ?? "smart",
           voiceoverMode: project.voiceoverMode ?? "off",
+          audioEnhance: project.audioEnhance ?? "off",
           title: clip.title,
         },
         createdAt: now,
@@ -429,7 +490,7 @@ export const retryFailedClips = mutation({
 });
 
 /**
- * Met à jour les options de rendu (captions / layout / voiceover).
+ * Met à jour les options de rendu (captions / layout / voiceover / audio).
  */
 export const updateRenderOptions = mutation({
   args: {
@@ -453,6 +514,9 @@ export const updateRenderOptions = mutation({
     voiceoverMode: v.optional(
       v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
     ),
+    audioEnhance: v.optional(
+      v.union(v.literal("off"), v.literal("light")),
+    ),
   },
   returns: v.id("clipProjects"),
   handler: async (ctx, args) => {
@@ -465,11 +529,15 @@ export const updateRenderOptions = mutation({
       captionStyle?: typeof args.captionStyle;
       layoutMode?: typeof args.layoutMode;
       voiceoverMode?: typeof args.voiceoverMode;
+      audioEnhance?: typeof args.audioEnhance;
     } = {};
     if (args.captionStyle !== undefined) patch.captionStyle = args.captionStyle;
     if (args.layoutMode !== undefined) patch.layoutMode = args.layoutMode;
     if (args.voiceoverMode !== undefined) {
       patch.voiceoverMode = args.voiceoverMode;
+    }
+    if (args.audioEnhance !== undefined) {
+      patch.audioEnhance = args.audioEnhance;
     }
     await ctx.db.patch(args.clipProjectId, patch);
     return args.clipProjectId;
@@ -540,6 +608,7 @@ export const rerenderAll = mutation({
         payload: {
           sourceVideoUrl: project.sourceVideoUrl,
           youtubeUrl: project.sourceYoutubeUrl,
+          localFileId: project.sourceLocalFileId,
           startSec: clip.startSec,
           endSec: clip.endSec,
           captionText: clip.captionText ?? "",
@@ -552,6 +621,7 @@ export const rerenderAll = mutation({
           captionStyle: project.captionStyle ?? "viral",
           layoutMode: project.layoutMode ?? "smart",
           voiceoverMode: project.voiceoverMode ?? "off",
+          audioEnhance: project.audioEnhance ?? "off",
           title: clip.title,
         },
         createdAt: now,
@@ -653,6 +723,7 @@ export const createManualClip = mutation({
       payload: {
         sourceVideoUrl: project.sourceVideoUrl,
         youtubeUrl: project.sourceYoutubeUrl,
+        localFileId: project.sourceLocalFileId,
         startSec,
         endSec,
         captionText: captionText || "",
@@ -661,6 +732,7 @@ export const createManualClip = mutation({
         captionStyle: project.captionStyle ?? "viral",
         layoutMode: project.layoutMode ?? "smart",
         voiceoverMode: project.voiceoverMode ?? "off",
+        audioEnhance: project.audioEnhance ?? "off",
         title,
       },
       createdAt: now,
@@ -673,5 +745,115 @@ export const createManualClip = mutation({
     });
 
     return clipId;
+  },
+});
+
+const MIN_CLIP_SEC = 3;
+const MAX_CLIP_SEC = 90;
+
+/**
+ * Ajuste In/Out d’un clip existant et re-rend uniquement celui-ci.
+ */
+export const updateClipTrim = mutation({
+  args: {
+    clipId: v.id("clips"),
+    startSec: v.number(),
+    endSec: v.number(),
+  },
+  returns: v.id("clips"),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const clip = await ctx.db.get(args.clipId);
+    if (!clip) throw new Error("Clip introuvable");
+    const project = await ctx.db.get(clip.clipProjectId);
+    if (!project || project.userId !== userId) {
+      throw new Error("Clip introuvable");
+    }
+    if (!project.sourceVideoUrl && !project.sourceLocalFileId) {
+      throw new Error("Vidéo source absente");
+    }
+
+    const startSec = Math.max(0, args.startSec);
+    const endSec = Math.max(startSec, args.endSec);
+    const duration = endSec - startSec;
+    if (duration < MIN_CLIP_SEC) {
+      throw new Error(`Séquence trop courte (min ${MIN_CLIP_SEC}s)`);
+    }
+    if (duration > MAX_CLIP_SEC) {
+      throw new Error(`Séquence trop longue (max ${MAX_CLIP_SEC}s)`);
+    }
+
+    const segments = sliceCaptionSegments(
+      project.transcript,
+      startSec,
+      endSec,
+    );
+    const captionText = segments
+      .map((s) => s.text)
+      .join(" ")
+      .trim();
+
+    const now = Date.now();
+    await ctx.db.patch(args.clipId, {
+      startSec,
+      endSec,
+      captionText: captionText || clip.captionText,
+      status: "rendering",
+      errorMessage: undefined,
+      resultUrl: undefined,
+    });
+
+    // Annuler jobs render actifs pour ce clip
+    const jobs = await ctx.db
+      .query("generationJobs")
+      .withIndex("by_clipProjectId", (q) =>
+        q.eq("clipProjectId", clip.clipProjectId),
+      )
+      .collect();
+    for (const job of jobs) {
+      if (
+        job.clipId === args.clipId &&
+        job.type === "render_clip" &&
+        (job.status === "pending" || job.status === "processing")
+      ) {
+        await ctx.db.patch(job._id, {
+          status: "failed",
+          errorMessage: "Annulé pour trim",
+          updatedAt: now,
+        });
+      }
+    }
+
+    await ctx.db.insert("generationJobs", {
+      type: "render_clip",
+      clipProjectId: clip.clipProjectId,
+      clipId: args.clipId,
+      status: "pending",
+      provider: "local",
+      payload: {
+        sourceVideoUrl: project.sourceVideoUrl,
+        youtubeUrl: project.sourceYoutubeUrl,
+        localFileId: project.sourceLocalFileId,
+        startSec,
+        endSec,
+        captionText: captionText || clip.captionText || "",
+        captionSegments: segments,
+        brollCues: [],
+        captionStyle: project.captionStyle ?? "viral",
+        layoutMode: project.layoutMode ?? "smart",
+        voiceoverMode: project.voiceoverMode ?? "off",
+        audioEnhance: project.audioEnhance ?? "off",
+        title: clip.title,
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.db.patch(clip.clipProjectId, {
+      status: "rendering",
+      errorMessage: undefined,
+    });
+
+    return args.clipId;
   },
 });

@@ -727,6 +727,7 @@ export const applyClipPipelineResult = internalMutation({
           payload: {
             sourceVideoUrl,
             youtubeUrl,
+            localFileId: project?.sourceLocalFileId,
             startSec: p.startSec,
             endSec: p.endSec,
             captionText: p.captionText ?? "",
@@ -735,6 +736,7 @@ export const applyClipPipelineResult = internalMutation({
             captionStyle: project?.captionStyle ?? "viral",
             layoutMode: project?.layoutMode ?? "smart",
             voiceoverMode: project?.voiceoverMode ?? "off",
+            audioEnhance: project?.audioEnhance ?? "off",
             title: p.title,
           },
           createdAt: now,

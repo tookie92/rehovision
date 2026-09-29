@@ -31,6 +31,7 @@ from generators.transcribe import download_source, transcribe_video
 from generators.video import assemble_video
 from generators.voiceover import generate_voiceover
 from generators.youtube import download_youtube
+from upload_server import resolve_local_file, start_upload_server
 
 load_dotenv()
 
@@ -196,9 +197,28 @@ def resolve_media_source(
     *,
     youtube_url: str | None = None,
     source_url: str | None = None,
+    local_file_id: str | None = None,
 ) -> Path:
-    """Résout une source locale : YouTube (cache) ou URL Convex storage."""
+    """Résout une source : fichier local worker, YouTube, ou URL (Convex)."""
     src = work_dir / "source.mp4"
+
+    if local_file_id:
+        local = resolve_local_file(str(local_file_id))
+        if not local:
+            raise RuntimeError(f"Fichier local introuvable: {local_file_id}")
+        if local != src:
+            shutil.copy2(local, src)
+        return src
+
+    # mediaUrl worker → fileId
+    if source_url and "/media/" in source_url:
+        file_id = source_url.rstrip("/").rsplit("/media/", 1)[-1].split("?")[0]
+        local = resolve_local_file(file_id)
+        if local:
+            if local != src:
+                shutil.copy2(local, src)
+            return src
+
     if youtube_url:
         downloaded = download_youtube(youtube_url, work_dir)
         if downloaded != src:
@@ -207,7 +227,7 @@ def resolve_media_source(
     if source_url:
         download_source(source_url, src)
         return src
-    raise RuntimeError("sourceVideoUrl ou youtubeUrl requis")
+    raise RuntimeError("sourceVideoUrl, localFileId ou youtubeUrl requis")
 
 
 def submit_job_error(site_url: str, job_id: str, error: str, job_type: str) -> None:
@@ -285,11 +305,12 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
         if job_type == "transcribe":
             youtube_url = payload.get("youtubeUrl")
             source_url = payload.get("sourceVideoUrl")
-            # YouTube : rester local (pas d'upload Convex — OOM httpAction 64MB)
+            local_file_id = payload.get("localFileId")
             src = resolve_media_source(
                 work_dir,
                 youtube_url=youtube_url,
                 source_url=source_url,
+                local_file_id=local_file_id,
             )
             lang = payload.get("language") or "auto"
             transcript = transcribe_video(src, language=lang)
@@ -313,10 +334,12 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
         if job_type == "render_clip":
             youtube_url = payload.get("youtubeUrl")
             source_url = payload.get("sourceVideoUrl")
+            local_file_id = payload.get("localFileId")
             src = resolve_media_source(
                 work_dir,
                 youtube_url=youtube_url,
                 source_url=source_url,
+                local_file_id=local_file_id,
             )
             out = work_dir / "clip.mp4"
             path = render_clip(
@@ -330,6 +353,7 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
                 caption_style=payload.get("captionStyle") or None,
                 layout_mode=payload.get("layoutMode") or None,
                 voiceover_mode=payload.get("voiceoverMode") or None,
+                audio_enhance=payload.get("audioEnhance") or None,
             )
             submit_file_result(site_url, job_id, path, "video/mp4")
             return
@@ -351,6 +375,8 @@ def main() -> None:
     site_url = _env("CONVEX_SITE_URL").rstrip("/")
     _env("WORKER_SECRET_KEY")
     interval = float(os.getenv("POLL_INTERVAL_SECONDS", "3"))
+
+    start_upload_server()
 
     log.info("Worker démarré — poll %ss sur %s", interval, site_url)
     log.info(

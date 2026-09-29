@@ -12,6 +12,7 @@ import { DashboardNav } from "@/components/DashboardNav";
 import { ClipPipelineProgress } from "@/components/ClipPipelineProgress";
 import { ClipRenderOptions } from "@/components/ClipRenderOptions";
 import { ClipManualTrim } from "@/components/ClipManualTrim";
+import { ClipEditTrim } from "@/components/ClipEditTrim";
 import {
   CLIP_STATUS_LABEL,
   formatClipDuration,
@@ -21,6 +22,7 @@ import {
   safeDownloadName,
 } from "@/lib/clipStatus";
 import type {
+  AudioEnhanceId,
   CaptionStyleId,
   LayoutModeId,
   VoiceoverModeId,
@@ -35,9 +37,12 @@ export default function ClipProjectPage() {
   const updateRenderOptions = useMutation(api.clipProjects.updateRenderOptions);
   const rerenderAll = useMutation(api.clipProjects.rerenderAll);
   const createManualClip = useMutation(api.clipProjects.createManualClip);
+  const updateClipTrim = useMutation(api.clipProjects.updateClipTrim);
   const [retrying, setRetrying] = useState(false);
   const [rerendering, setRerendering] = useState(false);
   const [creatingManual, setCreatingManual] = useState(false);
+  const [editingClipId, setEditingClipId] = useState<Id<"clips"> | null>(null);
+  const [savingTrim, setSavingTrim] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
 
   async function onRetryPipeline() {
@@ -72,6 +77,7 @@ export default function ClipProjectPage() {
       captionStyle: CaptionStyleId;
       layoutMode: LayoutModeId;
       voiceoverMode: VoiceoverModeId;
+      audioEnhance: AudioEnhanceId;
     }>,
   ) {
     setRetryError(null);
@@ -108,6 +114,23 @@ export default function ClipProjectPage() {
       throw err;
     } finally {
       setCreatingManual(false);
+    }
+  }
+
+  async function onSaveClipTrim(
+    clipId: Id<"clips">,
+    args: { startSec: number; endSec: number },
+  ) {
+    setRetryError(null);
+    setSavingTrim(true);
+    try {
+      await updateClipTrim({ clipId, ...args });
+      setEditingClipId(null);
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : "Erreur");
+      throw err;
+    } finally {
+      setSavingTrim(false);
     }
   }
 
@@ -153,6 +176,7 @@ export default function ClipProjectPage() {
   const captionStyle = (project.captionStyle ?? "viral") as CaptionStyleId;
   const layoutMode = (project.layoutMode ?? "smart") as LayoutModeId;
   const voiceoverMode = (project.voiceoverMode ?? "off") as VoiceoverModeId;
+  const audioEnhance = (project.audioEnhance ?? "off") as AudioEnhanceId;
 
   return (
     <div>
@@ -236,12 +260,14 @@ export default function ClipProjectPage() {
               captionStyle={captionStyle}
               layoutMode={layoutMode}
               voiceoverMode={voiceoverMode}
+              audioEnhance={audioEnhance}
               disabled={false}
               applyDisabled={!canRerender}
               saving={rerendering}
               onCaptionStyle={(v) => void persistOption({ captionStyle: v })}
               onLayoutMode={(v) => void persistOption({ layoutMode: v })}
               onVoiceoverMode={(v) => void persistOption({ voiceoverMode: v })}
+              onAudioEnhance={(v) => void persistOption({ audioEnhance: v })}
               onApplyRerender={() => void onApplyRerender()}
             />
             <ClipManualTrim
@@ -337,6 +363,31 @@ export default function ClipProjectPage() {
                     <p className="text-sm text-muted-foreground">
                       {clip.hookReason}
                     </p>
+                  )}
+                  {hasSource &&
+                    editingClipId === clip._id &&
+                    project.sourceVideoUrl && (
+                      <ClipEditTrim
+                        sourceUrl={project.sourceVideoUrl}
+                        initialStart={clip.startSec}
+                        initialEnd={clip.endSec}
+                        sourceDuration={project.durationSeconds}
+                        saving={savingTrim}
+                        onSave={(args) => onSaveClipTrim(clip._id, args)}
+                        onCancel={() => setEditingClipId(null)}
+                      />
+                    )}
+                  {hasSource && editingClipId !== clip._id && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={clip.status === "rendering"}
+                      onClick={() => setEditingClipId(clip._id)}
+                      className="cursor-pointer"
+                    >
+                      Ajuster trim
+                    </Button>
                   )}
                   {clip.errorMessage && (
                     <p className="text-sm text-destructive" role="alert">

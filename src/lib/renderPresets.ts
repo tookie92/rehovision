@@ -64,9 +64,23 @@ export const VOICEOVER_MODES = [
   },
 ] as const;
 
+export const AUDIO_ENHANCE_MODES = [
+  {
+    id: "off",
+    label: "Off",
+    hint: "Audio brut de la source",
+  },
+  {
+    id: "light",
+    label: "Light",
+    hint: "Denoise léger + loudnorm (−16 LUFS)",
+  },
+] as const;
+
 export type CaptionStyleId = (typeof CAPTION_STYLES)[number]["id"];
 export type LayoutModeId = (typeof LAYOUT_MODES)[number]["id"];
 export type VoiceoverModeId = (typeof VOICEOVER_MODES)[number]["id"];
+export type AudioEnhanceId = (typeof AUDIO_ENHANCE_MODES)[number]["id"];
 
 export function isCaptionStyle(v: string): v is CaptionStyleId {
   return CAPTION_STYLES.some((s) => s.id === v);
@@ -78,4 +92,8 @@ export function isLayoutMode(v: string): v is LayoutModeId {
 
 export function isVoiceoverMode(v: string): v is VoiceoverModeId {
   return VOICEOVER_MODES.some((s) => s.id === v);
+}
+
+export function isAudioEnhance(v: string): v is AudioEnhanceId {
+  return AUDIO_ENHANCE_MODES.some((s) => s.id === v);
 }

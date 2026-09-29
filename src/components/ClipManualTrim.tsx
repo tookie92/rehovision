@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ClipTrimSlider } from "@/components/ClipTrimSlider";
 import { formatTimecode } from "@/lib/clipStatus";
 
 type Props = {
@@ -20,7 +21,7 @@ const MIN_SEC = 3;
 const MAX_SEC = 90;
 
 /**
- * Marqueurs In/Out sur la vidéo source → crée un clip manuel.
+ * Trim manuel : preview + drag In/Out → créer un clip.
  */
 export function ClipManualTrim({
   sourceUrl,
@@ -30,33 +31,14 @@ export function ClipManualTrim({
   onCreate,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [duration, setDuration] = useState(durationSeconds ?? 0);
   const [inSec, setInSec] = useState(0);
-  const [outSec, setOutSec] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [outSec, setOutSec] = useState(30);
   const [current, setCurrent] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
-  const duration = durationSeconds ?? videoRef.current?.duration ?? 0;
-  const end = outSec ?? Math.min(inSec + 30, duration || inSec + 30);
-  const span = Math.max(0, end - inSec);
-
-  function markIn() {
-    const t = videoRef.current?.currentTime ?? 0;
-    setInSec(t);
-    setError(null);
-    if (outSec != null && outSec <= t) {
-      setOutSec(null);
-    }
-  }
-
-  function markOut() {
-    const t = videoRef.current?.currentTime ?? 0;
-    if (t <= inSec) {
-      setError("Out doit être après In");
-      return;
-    }
-    setOutSec(t);
-    setError(null);
-  }
+  const span = Math.max(0, outSec - inSec);
+  const valid = span >= MIN_SEC && span <= MAX_SEC;
 
   function seek(sec: number) {
     const el = videoRef.current;
@@ -66,21 +48,16 @@ export function ClipManualTrim({
 
   async function submit() {
     setError(null);
-    if (span < MIN_SEC) {
-      setError(`Min ${MIN_SEC}s — marque Out plus loin`);
-      return;
-    }
-    if (span > MAX_SEC) {
-      setError(`Max ${MAX_SEC}s — raccourcis la sélection`);
+    if (!valid) {
+      setError(`Sélection ${MIN_SEC}–${MAX_SEC}s requise`);
       return;
     }
     try {
       await onCreate({
         startSec: inSec,
-        endSec: end,
+        endSec: outSec,
         title: `Manuel ${formatTimecode(inSec)}`,
       });
-      setOutSec(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     }
@@ -102,42 +79,30 @@ export function ClipManualTrim({
           onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
           onLoadedMetadata={(e) => {
             const d = e.currentTarget.duration;
-            if (Number.isFinite(d) && outSec == null) {
-              setOutSec(Math.min(inSec + 30, d));
-            }
+            if (!Number.isFinite(d) || d <= 0) return;
+            setDuration(d);
+            setOutSec(Math.min(30, d));
           }}
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 timecode text-xs text-muted-foreground">
-        <span>
-          In{" "}
-          <button
-            type="button"
-            className="cursor-pointer text-signal underline-offset-2 hover:underline"
-            onClick={() => seek(inSec)}
-          >
-            {formatTimecode(inSec)}
-          </button>
-        </span>
-        <span>
-          Out{" "}
-          <button
-            type="button"
-            className="cursor-pointer text-signal underline-offset-2 hover:underline"
-            onClick={() => seek(end)}
-          >
-            {formatTimecode(end)}
-          </button>
-        </span>
-        <span>
-          {Math.round(span)}s
-          {span < MIN_SEC || span > MAX_SEC ? " · hors limites" : ""}
-        </span>
-        <span className="text-muted-foreground/70">
-          lecture {formatTimecode(current)}
-        </span>
-      </div>
+      {duration > 0 && (
+        <ClipTrimSlider
+          duration={duration}
+          inSec={inSec}
+          outSec={outSec}
+          currentSec={current}
+          minSpan={MIN_SEC}
+          maxSpan={MAX_SEC}
+          disabled={disabled || creating}
+          onChange={(a, b) => {
+            setInSec(a);
+            setOutSec(b);
+            setError(null);
+          }}
+          onSeek={seek}
+        />
+      )}
 
       <div className="flex flex-wrap gap-2">
         <Button
@@ -145,25 +110,25 @@ export function ClipManualTrim({
           variant="outline"
           size="sm"
           disabled={disabled || creating}
-          onClick={markIn}
+          onClick={() => seek(inSec)}
           className="cursor-pointer"
         >
-          Marquer In
+          Aller In
         </Button>
         <Button
           type="button"
           variant="outline"
           size="sm"
           disabled={disabled || creating}
-          onClick={markOut}
+          onClick={() => seek(outSec)}
           className="cursor-pointer"
         >
-          Marquer Out
+          Aller Out
         </Button>
         <Button
           type="button"
           size="sm"
-          disabled={disabled || creating || span < MIN_SEC || span > MAX_SEC}
+          disabled={disabled || creating || !valid}
           onClick={() => void submit()}
           className="cursor-pointer"
         >
@@ -177,8 +142,8 @@ export function ClipManualTrim({
         </p>
       )}
       <p className="text-xs text-muted-foreground">
-        Place la tête de lecture, marque In puis Out ({MIN_SEC}–{MAX_SEC}s),
-        puis crée le clip vertical avec les options Rendu actuelles.
+        Glisse les poignées ({MIN_SEC}–{MAX_SEC}s). Le rendu utilise les options
+        Rendu actuelles.
       </p>
     </div>
   );

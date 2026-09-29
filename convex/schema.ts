@@ -69,6 +69,8 @@ export default defineSchema({
     ),
     sourceStorageId: v.optional(v.id("_storage")),
     sourceVideoUrl: v.optional(v.string()),
+    /** Fichier stocké sur le disque worker (upload local). */
+    sourceLocalFileId: v.optional(v.string()),
     sourceYoutubeUrl: v.optional(v.string()),
     durationSeconds: v.optional(v.number()),
     // Transcript JSON : { language, segments: [{ start, end, text }] }
@@ -96,6 +98,9 @@ export default defineSchema({
         v.literal("mix"),
         v.literal("replace"),
       ),
+    ),
+    audioEnhance: v.optional(
+      v.union(v.literal("off"), v.literal("light")),
     ),
     errorMessage: v.optional(v.string()),
     createdAt: v.number(),

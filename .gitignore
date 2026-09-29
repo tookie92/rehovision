@@ -39,6 +39,7 @@ worker/.venv/
 worker/bin/
 worker/.env
 worker/models/
+worker/data/
 __pycache__/
 *.pyc
 

@@ -170,6 +170,50 @@ def _apply_voiceover(
     return output_path.is_file() and output_path.stat().st_size > 0
 
 
+def _apply_audio_enhance(
+    video_path: Path,
+    output_path: Path,
+    *,
+    mode: str,
+) -> bool:
+    """Denoise léger + loudnorm pour shorts (−16 LUFS)."""
+    mode = (mode or "off").strip().lower()
+    if mode in ("", "off", "0", "false"):
+        return False
+    if mode != "light":
+        log.warning("audioEnhance inconnu: %s — ignoré", mode)
+        return False
+
+    # highpass + denoise FFT + loudnorm single-pass (assez pour mobile)
+    af = (
+        "highpass=f=80,"
+        "afftdn=nr=10:nf=-25,"
+        "loudnorm=I=-16:TP=-1.5:LRA=11"
+    )
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
+        "-af",
+        af,
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-movflags",
+        "+faststart",
+        str(output_path),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        log.warning("Audio enhance échoué: %s", proc.stderr[-400:])
+        return False
+    return output_path.is_file() and output_path.stat().st_size > 0
+
+
 def render_clip(
     source_path: Path,
     output_path: Path,
@@ -182,6 +226,7 @@ def render_clip(
     caption_style: str | None = None,
     layout_mode: str | None = None,
     voiceover_mode: str | None = None,
+    audio_enhance: str | None = None,
 ) -> Path:
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg introuvable dans le PATH")
@@ -247,6 +292,7 @@ def render_clip(
                 caption_style=caption_style,
                 layout_mode=layout_mode,
                 voiceover_mode=voiceover_mode,
+                audio_enhance=audio_enhance,
             )
         log.warning("reframe échoué — letterbox")
         _ffmpeg_cut(
@@ -293,6 +339,14 @@ def render_clip(
         if ok:
             current = vo_out
             log.info("Voiceover mode=%s appliqué", vo_mode)
+
+    ae_mode = (audio_enhance or "off").strip().lower()
+    if ae_mode not in ("", "off"):
+        ae_out = work / "clip_audio.mp4"
+        ok = _apply_audio_enhance(current, ae_out, mode=ae_mode)
+        if ok:
+            current = ae_out
+            log.info("Audio enhance mode=%s appliqué", ae_mode)
 
     shutil.copy2(current, output_path)
     return output_path

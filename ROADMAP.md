@@ -31,6 +31,9 @@ Règle : **une priorité à la fois**. Cocher avant de passer à la suivante.
 - [x] Voiceover clip optionnel (off / mix / replace)
 - [x] Trim manuel In/Out → créer un clip
 - [x] Panneau Rendu (options après source disponible)
+- [x] Audio enhance Light (denoise + loudnorm)
+- [x] Upload local worker (gros vlogs, hors Convex)
+- [x] Trim drag In/Out + ajuster clip existant
 - [x] Doc cookies YouTube (`worker/cookies/README.md`)
 
 ---
@@ -52,8 +55,8 @@ Sans ça, le reste est inutile.
 
 ### Étape 1 — Audio enhance
 
-- [ ] Loudnorm / denoise léger sur le rendu clip (ffmpeg)
-- [ ] Toggle dans le panneau Rendu (`audioEnhance: off | light`)
+- [x] Loudnorm / denoise léger sur le rendu clip (ffmpeg)
+- [x] Toggle dans le panneau Rendu (`audioEnhance: off | light`)
 
 **Critère de done :** un clip « avant / après » clairement plus audible sur téléphone.
 
@@ -61,8 +64,9 @@ Sans ça, le reste est inutile.
 
 ### Étape 2 — Trim d’un clip existant
 
-- [ ] Reprendre In/Out sur un clip déjà proposé (pas seulement « créer »)
-- [ ] Re-rendre ce clip seul (pas tout le projet)
+- [x] Reprendre In/Out sur un clip déjà proposé (pas seulement « créer »)
+- [x] Re-rendre ce clip seul (pas tout le projet)
+- [x] Poignées drag In/Out + fenêtre déplaçable
 
 **Critère de done :** modifier 2 s de début/fin sur un hook IA et re-télécharger.
 

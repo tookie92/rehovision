@@ -18,6 +18,48 @@ import {
 
 type Mode = "youtube" | "file";
 
+function uploadWithProgress(
+  uploadUrl: string,
+  file: File,
+  onProgress: (pct: number) => void,
+  headers?: Record<string, string>,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", uploadUrl);
+    xhr.responseType = "json";
+    const hdrs = {
+      "Content-Type": file.type || "video/mp4",
+      ...headers,
+    };
+    for (const [k, v] of Object.entries(hdrs)) {
+      xhr.setRequestHeader(k, v);
+    }
+    xhr.upload.onprogress = (ev) => {
+      if (!ev.lengthComputable) return;
+      onProgress(Math.min(99, Math.round((ev.loaded / ev.total) * 100)));
+    };
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error(`Upload échoué (${xhr.status})`));
+        return;
+      }
+      const body =
+        typeof xhr.response === "object" && xhr.response !== null
+          ? (xhr.response as Record<string, unknown>)
+          : (JSON.parse(String(xhr.responseText || "{}")) as Record<
+              string,
+              unknown
+            >);
+      onProgress(100);
+      resolve(body);
+    };
+    xhr.onerror = () => reject(new Error("Upload réseau échoué"));
+    xhr.onabort = () => reject(new Error("Upload annulé"));
+    xhr.send(file);
+  });
+}
+
 /**
  * Atelier Opus Clip : lien YouTube OU fichier → clips verticaux.
  */
@@ -26,20 +68,33 @@ export default function DashboardPage() {
   const projects = useQuery(api.clipProjects.listMine, { limit: 30 });
   const generateUploadUrl = useMutation(api.clipProjects.generateUploadUrl);
   const createFromUpload = useMutation(api.clipProjects.createFromUpload);
+  const createFromLocalUpload = useMutation(
+    api.clipProjects.createFromLocalUpload,
+  );
   const createFromYoutube = useMutation(api.clipProjects.createFromYoutube);
+
+  /** Si true, POST /api/worker-upload → disque Ubuntu (voir .env.local). */
+  const useWorkerUpload =
+    process.env.NEXT_PUBLIC_WORKER_UPLOAD === "1" ||
+    process.env.NEXT_PUBLIC_WORKER_UPLOAD === "true";
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<Mode>("youtube");
   const [title, setTitle] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
+  const [fileSizeMb, setFileSizeMb] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [phase, setPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setPending(true);
+    setUploadPct(null);
+    setPhase(null);
     try {
       if (mode === "youtube") {
         const url = youtubeUrl.trim();
@@ -48,6 +103,7 @@ export default function DashboardPage() {
           setPending(false);
           return;
         }
+        setPhase("Création du projet…");
         const projectId = await createFromYoutube({
           youtubeUrl: url,
           title: title.trim() || undefined,
@@ -62,26 +118,76 @@ export default function DashboardPage() {
         setPending(false);
         return;
       }
-      const uploadUrl = await generateUploadUrl({});
-      const res = await fetch(uploadUrl, {
-        method: "POST",
-        headers: { "Content-Type": file.type || "video/mp4" },
-        body: file,
-      });
-      if (!res.ok) {
-        throw new Error(`Upload échoué (${res.status})`);
+      if (file.size > 2 * 1024 * 1024 * 1024) {
+        setError("Fichier trop lourd (max 2 Go).");
+        setPending(false);
+        return;
       }
-      const { storageId } = (await res.json()) as { storageId: string };
+      if (!useWorkerUpload && file.size > 500 * 1024 * 1024) {
+        setError(
+          "Sans upload worker local, max ~500 Mo via Convex. Configure NEXT_PUBLIC_WORKER_UPLOAD_URL.",
+        );
+        setPending(false);
+        return;
+      }
+
+      const clipTitle = title.trim() || file.name.replace(/\.[^.]+$/, "");
+
+      if (useWorkerUpload) {
+        setPhase("Envoi vers le worker (disque local)…");
+        setUploadPct(0);
+        const body = await uploadWithProgress(
+          "/api/worker-upload",
+          file,
+          setUploadPct,
+          { "x-filename": file.name },
+        );
+        const fileId = String(body.fileId || "");
+        const mediaUrl = String(body.mediaUrl || "");
+        if (!fileId || !mediaUrl) {
+          throw new Error(
+            String(body.error || "Réponse worker incomplete (fileId/mediaUrl)"),
+          );
+        }
+        setPhase("Lancement Whisper…");
+        setUploadPct(null);
+        const projectId = await createFromLocalUpload({
+          title: clipTitle,
+          localFileId: fileId,
+          mediaUrl,
+        });
+        router.push(`/dashboard/clips/${projectId}`);
+        return;
+      }
+
+      setPhase("Préparation upload Convex…");
+      const uploadUrl = await generateUploadUrl({});
+      setPhase("Envoi vers Convex…");
+      setUploadPct(0);
+      const body = await uploadWithProgress(uploadUrl, file, setUploadPct);
+      const storageId = String(body.storageId || "");
+      if (!storageId) throw new Error("Réponse upload sans storageId");
+      setPhase("Lancement Whisper…");
+      setUploadPct(null);
       const projectId = await createFromUpload({
-        title: title.trim() || file.name.replace(/\.[^.]+$/, ""),
+        title: clipTitle,
         storageId: storageId as never,
       });
       router.push(`/dashboard/clips/${projectId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
       setPending(false);
+      setUploadPct(null);
+      setPhase(null);
     }
   }
+
+  const submitLabel = (() => {
+    if (!pending) return "Lancer le découpage";
+    if (mode === "youtube") return phase ?? "Création…";
+    if (uploadPct != null) return `Upload ${uploadPct}%…`;
+    return phase ?? "Upload…";
+  })();
 
   return (
     <div>
@@ -107,7 +213,7 @@ export default function DashboardPage() {
           type="button"
           role="tab"
           aria-selected={mode === "youtube"}
-          onClick={() => setMode("youtube")}
+          onClick={() => !pending && setMode("youtube")}
           className={
             mode === "youtube"
               ? "cursor-pointer rounded-md bg-secondary px-3 py-1.5 text-sm text-foreground"
@@ -120,7 +226,7 @@ export default function DashboardPage() {
           type="button"
           role="tab"
           aria-selected={mode === "file"}
-          onClick={() => setMode("file")}
+          onClick={() => !pending && setMode("file")}
           className={
             mode === "file"
               ? "cursor-pointer rounded-md bg-secondary px-3 py-1.5 text-sm text-foreground"
@@ -170,11 +276,22 @@ export default function DashboardPage() {
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 setFileName(f?.name ?? null);
+                setFileSizeMb(
+                  f ? Math.round((f.size / (1024 * 1024)) * 10) / 10 : null,
+                );
               }}
             />
             {fileName && (
-              <p className="text-xs text-muted-foreground truncate">{fileName}</p>
+              <p className="text-xs text-muted-foreground truncate">
+                {fileName}
+                {fileSizeMb != null ? ` · ${fileSizeMb} Mo` : ""}
+              </p>
             )}
+            <p className="text-xs text-muted-foreground">
+              {useWorkerUpload
+                ? "Upload via worker Ubuntu (gros vlogs OK)."
+                : "Gros vlogs : mets NEXT_PUBLIC_WORKER_UPLOAD=1 + WORKER_UPLOAD_URL dans .env.local."}
+            </p>
           </div>
         )}
 
@@ -184,12 +301,16 @@ export default function DashboardPage() {
           </p>
         )}
         <Button type="submit" disabled={pending} className="cursor-pointer">
-          {pending
-            ? mode === "youtube"
-              ? "Création…"
-              : "Upload…"
-            : "Lancer le découpage"}
+          {submitLabel}
         </Button>
+        {pending && mode === "file" && uploadPct != null && (
+          <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+            <div
+              className="h-full bg-signal transition-[width] duration-200"
+              style={{ width: `${uploadPct}%` }}
+            />
+          </div>
+        )}
       </form>
 
       <section>
