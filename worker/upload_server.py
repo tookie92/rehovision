@@ -56,6 +56,10 @@ _MEDIA_EXTS = {
     ".mp3",
     ".wav",
     ".m4a",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
 }
 
 

@@ -74,59 +74,46 @@ def submit_file_result(
     duration_seconds: float | None = None,
 ) -> None:
     """
-    Soumet un fichier résultat.
-    Vidéos / gros fichiers → disque worker + JSON { resultUrl } (évite OOM Convex 64 Mo).
-    Petits fichiers (image/voix) → body binaire Convex storage.
+    Toujours : disque worker + JSON { resultUrl }.
+    Jamais de body binaire vers Convex (OOM 64 Mo / 413 Payload Too Large).
     """
     if not file_path.is_file() or file_path.stat().st_size == 0:
         raise RuntimeError(f"Fichier vide: {file_path}")
 
-    size = file_path.stat().st_size
-    ctype = (content_type or "application/octet-stream").lower()
-    # Seuil bas : httpAction bufferise tout en RAM (limite ~64 Mo)
-    use_local_url = ctype.startswith("video/") or size > 5 * 1024 * 1024
+    ctype = (content_type or "").lower()
+    if file_path.suffix:
+        ext = file_path.suffix
+    elif "png" in ctype:
+        ext = ".png"
+    elif "jpeg" in ctype or "jpg" in ctype:
+        ext = ".jpg"
+    elif "wav" in ctype:
+        ext = ".wav"
+    elif "video" in ctype:
+        ext = ".mp4"
+    else:
+        ext = ".bin"
 
-    if use_local_url:
-        ext = file_path.suffix or (".mp4" if "video" in ctype else ".bin")
-        media_url = store_result_file(file_path, preferred_ext=ext)
-        body: dict[str, Any] = {"resultUrl": media_url}
-        if duration_seconds is not None:
-            body["durationSeconds"] = round(float(duration_seconds), 3)
-        res = requests.post(
-            f"{site_url}/worker/submitJobResult",
-            params={"jobId": job_id},
-            headers={**_headers(), "Content-Type": "application/json"},
-            json=body,
-            timeout=120,
-        )
-        if not res.ok:
-            log.error(
-                "submitJobResult(url) %s: %s %s",
-                res.status_code,
-                res.reason,
-                res.text[:800],
-            )
-        res.raise_for_status()
-        return
-
-    params: dict[str, str] = {"jobId": job_id}
+    media_url = store_result_file(file_path, preferred_ext=ext)
+    body: dict[str, Any] = {"resultUrl": media_url}
     if duration_seconds is not None:
-        params["durationSeconds"] = f"{float(duration_seconds):.3f}"
+        body["durationSeconds"] = round(float(duration_seconds), 3)
 
-    payload = file_path.read_bytes()
+    log.info(
+        "submitJobResult via URL (%.1f Mo) → %s",
+        file_path.stat().st_size / 1e6,
+        media_url,
+    )
     res = requests.post(
         f"{site_url}/worker/submitJobResult",
-        params=params,
-        headers={
-            **_headers(),
-            "Content-Type": content_type or "application/octet-stream",
-        },
-        data=payload,
-        timeout=300,
+        params={"jobId": job_id},
+        headers={**_headers(), "Content-Type": "application/json"},
+        json=body,
+        timeout=120,
     )
     if not res.ok:
         log.error(
-            "submitJobResult %s: %s %s",
+            "submitJobResult(url) %s: %s %s",
             res.status_code,
             res.reason,
             res.text[:800],

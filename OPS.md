@@ -92,15 +92,14 @@ git pull && # restart worker
 # Relancer le même projet (retry) — le .mp4 est déjà sur disque
 ```
 
-### `500 submitJobResult` / OOM 64 Mo
+### `500 submitJobResult` / `413 Payload Too Large` / OOM 64 Mo
 
-Les clips MP4 ne passent **plus** dans le body httpAction Convex.
-Le worker les stocke sous `/media/{id}` (`WORKER_PUBLIC_URL` obligatoire)
-et poste seulement `{ "resultUrl": "…" }`.
+Les résultats (clips MP4, images, voix) ne passent **jamais** en body httpAction.
+Le worker les stocke sous `/media/{id}` et poste `{ "resultUrl": "…" }`.
 
-Vérifie dans `worker/.env` :
+**Obligatoire** dans `worker/.env` (joignable depuis le navigateur) :
 ```
 WORKER_PUBLIC_URL=http://IP_LAN:8787
 UPLOAD_HTTP_PORT=8787
 ```
-Puis restart worker + `npm run convex:deploy:self-hosted` après pull.
+Puis `git pull` + **restart worker** (sinon l’ancien code poste encore le MP4 → 413).
