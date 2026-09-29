@@ -127,6 +127,18 @@ class UploadHandler(BaseHTTPRequestHandler):
                             break
                         f.write(chunk)
                         remaining -= len(chunk)
+                    if remaining > 0:
+                        dest.unlink(missing_ok=True)
+                        self._send_json(
+                            400,
+                            {
+                                "error": (
+                                    f"upload tronqué ({length - remaining}/{length} o) "
+                                    "— connexion coupée avant la fin (moov manquant sinon)"
+                                ),
+                            },
+                        )
+                        return
                 else:
                     # Chunked / pas de Content-Length (proxy Next) — lire jusqu'à EOF
                     # Limite soft 2 Go
@@ -157,6 +169,18 @@ class UploadHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+
+        # Détecter MP4 tronqué avant d'accepter (évite Whisper « moov atom not found »)
+        try:
+            from generators.media_validate import assert_readable_media
+
+            assert_readable_media(dest, label="upload")
+        except RuntimeError as e:
+            dest.unlink(missing_ok=True)
+            self._send_json(400, {"error": str(e)})
+            return
+        except Exception as e:
+            log.warning("ffprobe upload skip (%s) — fichier accepté sans check", e)
 
         base = public_base_url()
         media_url = f"{base}/media/{file_id}" if base else f"/media/{file_id}"

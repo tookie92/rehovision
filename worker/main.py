@@ -200,6 +200,8 @@ def resolve_media_source(
     local_file_id: str | None = None,
 ) -> Path:
     """Résout une source : fichier local worker, YouTube, ou URL (Convex)."""
+    from generators.media_validate import assert_readable_media
+
     src = work_dir / "source.mp4"
 
     if local_file_id:
@@ -208,6 +210,7 @@ def resolve_media_source(
             raise RuntimeError(f"Fichier local introuvable: {local_file_id}")
         if local != src:
             shutil.copy2(local, src)
+        assert_readable_media(src, label="fichier local")
         return src
 
     # mediaUrl worker → fileId
@@ -217,12 +220,14 @@ def resolve_media_source(
         if local:
             if local != src:
                 shutil.copy2(local, src)
+            assert_readable_media(src, label="média local")
             return src
 
     if youtube_url:
         downloaded = download_youtube(youtube_url, work_dir)
         if downloaded != src:
             shutil.copy2(downloaded, src)
+        assert_readable_media(src, label="YouTube")
         return src
     if source_url:
         download_source(source_url, src)

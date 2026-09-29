@@ -38,12 +38,25 @@ def _get_model():
 def download_source(url: str, dest: Path) -> Path:
     res = requests.get(url, timeout=600, stream=True)
     res.raise_for_status()
+    expected = res.headers.get("Content-Length")
+    expected_n = int(expected) if expected and expected.isdigit() else None
+    written = 0
     with dest.open("wb") as f:
         for chunk in res.iter_content(chunk_size=1024 * 1024):
             if chunk:
                 f.write(chunk)
-    if dest.stat().st_size == 0:
+                written += len(chunk)
+    if written == 0:
         raise RuntimeError("Vidéo source vide")
+    if expected_n is not None and written < expected_n:
+        dest.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Téléchargement tronqué ({written}/{expected_n} o) — "
+            "réessaie ; sinon file MP4 sans moov"
+        )
+    from generators.media_validate import assert_readable_media
+
+    assert_readable_media(dest, label="source téléchargée")
     return dest
 
 
@@ -51,6 +64,9 @@ def transcribe_video(source_path: Path, language: str | None = None) -> dict[str
     """
     Retourne { language, duration, segments: [{start, end, text}] }.
     """
+    from generators.media_validate import assert_readable_media
+
+    assert_readable_media(source_path, label="source")
     model = _get_model()
     lang = None if not language or language == "auto" else language
 

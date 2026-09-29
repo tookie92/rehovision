@@ -121,11 +121,19 @@ def download_youtube(url: str, dest_dir: Path) -> Path:
     if video_id:
         cached = cache_root / video_id / "source.mp4"
         if cached.is_file() and cached.stat().st_size > 0:
-            log.info("YouTube cache hit %s", video_id)
-            final = dest_dir / "source.mp4"
-            if cached.resolve() != final.resolve():
-                shutil.copy2(cached, final)
-            return final
+            try:
+                from generators.media_validate import assert_readable_media
+
+                assert_readable_media(cached, label="YouTube cache")
+            except RuntimeError as e:
+                log.warning("Cache YouTube invalide %s — re-téléchargement (%s)", video_id, e)
+                cached.unlink(missing_ok=True)
+            else:
+                log.info("YouTube cache hit %s", video_id)
+                final = dest_dir / "source.mp4"
+                if cached.resolve() != final.resolve():
+                    shutil.copy2(cached, final)
+                return final
 
     out_tmpl = str(dest_dir / "source.%(ext)s")
     bin_path = _yt_dlp_bin()
@@ -207,6 +215,10 @@ def download_youtube(url: str, dest_dir: Path) -> Path:
             path.unlink(missing_ok=True)
     elif path != final:
         path.replace(final)
+
+    from generators.media_validate import assert_readable_media
+
+    assert_readable_media(final, label="YouTube download")
 
     if video_id:
         cache_dir = cache_root / video_id

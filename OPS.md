@@ -79,3 +79,20 @@ Soit **Import → Fichier** (recommandé pour valider le parcours).
 6. Export TikTok/Reels/Shorts → fichier nommé `01-reels-….mp4`
 
 Si tout ça passe : coche **Étape 0** dans `ROADMAP.md`.
+
+## Dépannage
+
+### `moov atom not found` / Invalid data on `source.mp4`
+
+Le fichier est **tronqué** (upload coupé, download Convex incomplet, ou cache YouTube corrompu).
+
+```bash
+# Vérifier le fichier uploadé
+ffprobe worker/data/media/uploads/<fileId>.mp4
+
+# Cache YouTube corrompu
+rm -rf /tmp/reho-yt-cache
+
+# Puis : réuploade le vlog (Fichier) et relance le projet / retry
+sudo systemctl restart rehovision-worker   # après git pull
+```
