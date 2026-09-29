@@ -1,0 +1,14 @@
+# À fusionner dans ~/.cloudflared/config.yml (tunnel sienna-api)
+# DNS one-shot :
+#   cloudflared tunnel route dns sienna-api convex-clips.rehovision.com
+#   cloudflared tunnel route dns sienna-api convex-clips-site.rehovision.com
+#   cloudflared tunnel route dns sienna-api convex-clips-dash.rehovision.com
+# Puis : sudo systemctl restart cloudflared-sienna
+
+ingress:
+  - hostname: convex-clips.rehovision.com
+    service: http://localhost:3220
+  - hostname: convex-clips-site.rehovision.com
+    service: http://localhost:3221
+  - hostname: convex-clips-dash.rehovision.com
+    service: http://localhost:6792

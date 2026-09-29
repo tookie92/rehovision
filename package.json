@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "dev:convex": "convex dev",
+    "convex:deploy:self-hosted": "node scripts/convex-deploy-self-hosted.mjs",
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint"

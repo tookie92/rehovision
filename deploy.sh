@@ -130,8 +130,14 @@ cmd_deploy() {
     npm install
   fi
 
-  log "npx convex dev --once (pousse les fonctions vers le déploiement .env.local)"
-  npx convex dev --once
+  if grep -qE '^CONVEX_SELF_HOSTED_URL=' .env.local 2>/dev/null && \
+     grep -qE '^CONVEX_SELF_HOSTED_ADMIN_KEY=' .env.local 2>/dev/null; then
+    log "npm run convex:deploy:self-hosted"
+    npm run convex:deploy:self-hosted
+  else
+    log "npx convex dev --once (Convex Cloud via .env.local)"
+    npx convex dev --once
+  fi
 
   log "npm run build"
   npm run build
