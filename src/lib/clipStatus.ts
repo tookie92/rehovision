@@ -122,20 +122,44 @@ export function safeDownloadName(
   return `${prefix}-${plat}-${slug || "clip"}.mp4`;
 }
 
-/** Déclenche N téléchargements séquentiels (navigateur). */
-export function downloadUrls(
+/** Télécharge une URL (même cross-origin worker /media) via fetch → blob. */
+export async function downloadUrl(
+  url: string,
+  filename: string,
+): Promise<void> {
+  const res = await fetch(url, { mode: "cors", credentials: "omit" });
+  if (!res.ok) {
+    throw new Error(`Téléchargement échoué (${res.status})`);
+  }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    // Laisse le navigateur démarrer le save avant revoke
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2_000);
+  }
+}
+
+/**
+ * Déclenche N téléchargements séquentiels.
+ * Cross-origin : fetch blob (l’attribut download HTML est ignoré hors same-origin).
+ */
+export async function downloadUrls(
   items: ReadonlyArray<{ url: string; filename: string }>,
-  delayMs = 400,
-): void {
-  items.forEach((item, i) => {
-    window.setTimeout(() => {
-      const a = document.createElement("a");
-      a.href = item.url;
-      a.download = item.filename;
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    }, i * delayMs);
-  });
+  delayMs = 450,
+): Promise<void> {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    await downloadUrl(item.url, item.filename);
+    if (i < items.length - 1) {
+      await new Promise((r) => window.setTimeout(r, delayMs));
+    }
+  }
 }

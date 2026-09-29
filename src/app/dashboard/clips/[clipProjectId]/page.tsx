@@ -16,6 +16,7 @@ import { ClipEditTrim } from "@/components/ClipEditTrim";
 import { ClipFilmstrip } from "@/components/ClipFilmstrip";
 import { ClipStagePreview } from "@/components/ClipStagePreview";
 import {
+  downloadUrl,
   downloadUrls,
   isPipelineActive,
   projectStatusTone,
@@ -68,6 +69,7 @@ export default function ClipProjectPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sortMode, setSortMode] = useState<"order" | "score">("score");
   const [preferSoft, setPreferSoft] = useState(true);
+  const [downloading, setDownloading] = useState(false);
 
   async function onRetryPipeline() {
     setRetryError(null);
@@ -199,6 +201,37 @@ export default function ClipProjectPage() {
       setRetryError(err instanceof Error ? err.message : "Erreur");
     } finally {
       setRerendering(false);
+    }
+  }
+
+  async function onExportReady(
+    pool: Array<{ resultUrl: string; title: string; order: number }>,
+  ) {
+    if (pool.length === 0) return;
+    const plat =
+      EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)?.fileSlug ??
+      exportPlatform;
+    setRetryError(null);
+    setApplyInfo(null);
+    setDownloading(true);
+    try {
+      await downloadUrls(
+        pool.map((c) => ({
+          url: c.resultUrl,
+          filename: safeDownloadName(c.title, c.order, plat),
+        })),
+      );
+      setApplyInfo(
+        pool.length === 1
+          ? "Téléchargement lancé"
+          : `${pool.length} fichiers téléchargés`,
+      );
+    } catch (err) {
+      setRetryError(
+        err instanceof Error ? err.message : "Téléchargement échoué",
+      );
+    } finally {
+      setDownloading(false);
     }
   }
 
@@ -475,27 +508,28 @@ export default function ClipProjectPage() {
             type="button"
             size="sm"
             variant="outline"
+            disabled={downloading}
             className="hidden h-8 cursor-pointer sm:inline-flex"
             onClick={() => {
-              const plat =
-                EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
-                  ?.fileSlug ?? exportPlatform;
               const pool =
                 selectedReady.length > 0
                   ? selectedReady
                   : clips.filter((c) => c.resultUrl && c.status === "ready");
-              downloadUrls(
+              void onExportReady(
                 pool.map((c) => ({
-                  url: c.resultUrl!,
-                  filename: safeDownloadName(c.title, c.order, plat),
+                  resultUrl: c.resultUrl!,
+                  title: c.title,
+                  order: c.order,
                 })),
               );
             }}
           >
             <DownloadSimple className="size-3.5" weight="bold" />
-            {selectedReady.length > 0
-              ? `Export (${selectedReady.length})`
-              : `Export (${readyCount})`}
+            {downloading
+              ? "…"
+              : selectedReady.length > 0
+                ? `Export (${selectedReady.length})`
+                : `Export (${readyCount})`}
           </Button>
         )}
         <Button
@@ -605,19 +639,39 @@ export default function ClipProjectPage() {
             </Button>
           )}
           {focusedClip?.resultUrl && (
-            <a
-              href={focusedClip.resultUrl}
-              download={safeDownloadName(
-                focusedClip.title,
-                focusedClip.order,
-                EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
-                  ?.fileSlug ?? exportPlatform,
-              )}
-              className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-lg bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:opacity-90"
+            <Button
+              type="button"
+              size="sm"
+              disabled={downloading}
+              className="h-8 cursor-pointer"
+              onClick={() => {
+                const plat =
+                  EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
+                    ?.fileSlug ?? exportPlatform;
+                setRetryError(null);
+                setDownloading(true);
+                void downloadUrl(
+                  focusedClip.resultUrl!,
+                  safeDownloadName(
+                    focusedClip.title,
+                    focusedClip.order,
+                    plat,
+                  ),
+                )
+                  .then(() => setApplyInfo("Téléchargement lancé"))
+                  .catch((err) =>
+                    setRetryError(
+                      err instanceof Error
+                        ? err.message
+                        : "Téléchargement échoué",
+                    ),
+                  )
+                  .finally(() => setDownloading(false));
+              }}
             >
               <DownloadSimple className="size-3.5" weight="bold" />
-              Ce clip
-            </a>
+              {downloading ? "…" : "Ce clip"}
+            </Button>
           )}
           <div
             className="flex flex-wrap gap-1"
