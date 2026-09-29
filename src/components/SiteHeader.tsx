@@ -15,11 +15,11 @@ export function SiteHeader() {
   const inAtelier = pathname.startsWith("/dashboard");
 
   return (
-    <header className="sticky top-0 z-20 border-b border-border/60 bg-background/85 backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-5 md:px-8">
+    <header className="sticky top-0 z-20 border-b border-border/50 bg-background/80 backdrop-blur-md">
+      <div className="mx-auto flex h-14 max-w-[1400px] items-center justify-between px-4 md:px-6 lg:px-8">
         <Link
           href={inAtelier ? "/dashboard" : "/"}
-          className="text-lg font-semibold tracking-tight text-foreground"
+          className="font-display text-xl tracking-tight text-foreground"
         >
           Rehovision
         </Link>

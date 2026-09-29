@@ -494,14 +494,17 @@ export default function ClipProjectPage() {
         <span className={`shrink-0 text-xs ${projectStatusTone(project.status)}`}>
           {readyCount}/{clips.length} prêts
         </span>
-        <label className="hidden cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
+        <label
+          className="hidden cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground sm:flex"
+          title="Aperçu navigateur immédiat (looks, captions, Split). Le MP4 final = Re-rendre."
+        >
           <input
             type="checkbox"
             checked={preferSoft}
             onChange={(e) => setPreferSoft(e.target.checked)}
             className="size-3 accent-signal"
           />
-          Soft
+          Soft preview
         </label>
         {readyCount > 0 && (
           <Button
