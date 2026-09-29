@@ -553,8 +553,8 @@ export function ClipStagePreview({
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
           Soft ≈ navigateur ; export = Re-rendre.
           {lutHint ? " LUT : approx. soft, vrai grade au re-rendu." : ""}
-          {softSplit && onSplitFocusChange
-            ? " Glisse les cadres Haut/Bas, +/− pour zoomer."
+          {softSplit
+            ? " Cadre via « Cadrer les visages… » (dialog landscape)."
             : ""}
         </p>
       )}

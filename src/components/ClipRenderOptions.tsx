@@ -48,6 +48,7 @@ type Props = {
   variant?: "default" | "drawer";
   splitSwap?: boolean;
   onSplitSwap?: (v: boolean) => void;
+  onOpenSplitFrame?: () => void;
   onClearSplitFocus?: () => void;
   hasManualSplitFocus?: boolean;
   onCaptionStyle: (v: CaptionStyleId) => void;
@@ -135,6 +136,7 @@ export function ClipRenderOptions({
   variant = "default",
   splitSwap = false,
   onSplitSwap,
+  onOpenSplitFrame,
   onClearSplitFocus,
   hasManualSplitFocus = false,
   onCaptionStyle,
@@ -251,22 +253,37 @@ export function ClipRenderOptions({
             disabled={disabled}
             onChange={withPreview(onLayoutMode)}
           />
-          {layoutMode === "split" && onSplitSwap && (
+          {layoutMode === "split" && (
             <div className="space-y-2">
               <p className="text-sm font-medium text-foreground">Split — visages</p>
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => {
-                  onPreviewIntent?.();
-                  onSplitSwap(!splitSwap);
-                }}
-                className="cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-sm text-foreground hover:bg-secondary disabled:opacity-50"
-              >
-                {splitSwap
-                  ? "Échanger haut ↔ bas (actif)"
-                  : "Échanger haut ↔ bas"}
-              </button>
+              {onOpenSplitFrame && (
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => {
+                    onPreviewIntent?.();
+                    onOpenSplitFrame();
+                  }}
+                  className="w-full cursor-pointer rounded-lg bg-signal/15 px-3 py-2.5 text-sm font-semibold text-signal ring-1 ring-signal/40 hover:bg-signal/25 disabled:opacity-50"
+                >
+                  Cadrer les visages…
+                </button>
+              )}
+              {onSplitSwap && (
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => {
+                    onPreviewIntent?.();
+                    onSplitSwap(!splitSwap);
+                  }}
+                  className="w-full cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-sm text-foreground hover:bg-secondary disabled:opacity-50"
+                >
+                  {splitSwap
+                    ? "Échanger haut ↔ bas (actif)"
+                    : "Échanger haut ↔ bas"}
+                </button>
+              )}
               {onClearSplitFocus && (
                 <button
                   type="button"
@@ -275,13 +292,13 @@ export function ClipRenderOptions({
                     onPreviewIntent?.();
                     onClearSplitFocus();
                   }}
-                  className="cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-sm text-foreground hover:bg-secondary disabled:opacity-50"
+                  className="w-full cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-sm text-foreground hover:bg-secondary disabled:opacity-50"
                 >
                   Reset auto (faces IA)
                 </button>
               )}
               <p className="text-[11px] text-muted-foreground">
-                Sur le stage Soft : glisse Haut/Bas + zoom. Re-rendre pour
+                Dialog landscape pour placer Haut & Bas. Re-rendre pour
                 l’export.
               </p>
             </div>

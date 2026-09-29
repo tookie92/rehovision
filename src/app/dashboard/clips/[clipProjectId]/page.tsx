@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
@@ -15,6 +15,7 @@ import { ClipManualTrim } from "@/components/ClipManualTrim";
 import { ClipEditTrim } from "@/components/ClipEditTrim";
 import { ClipFilmstrip } from "@/components/ClipFilmstrip";
 import { ClipStagePreview } from "@/components/ClipStagePreview";
+import { SplitFrameDialog } from "@/components/SplitFrameDialog";
 import {
   downloadUrl,
   downloadUrls,
@@ -81,7 +82,7 @@ export default function ClipProjectPage() {
   const [localFocusBot, setLocalFocusBot] = useState<SplitFocusPane | null>(
     null,
   );
-  const focusSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [splitFrameOpen, setSplitFrameOpen] = useState(false);
 
   async function onRetryPipeline() {
     setRetryError(null);
@@ -395,6 +396,11 @@ export default function ClipProjectPage() {
     onCaptionStyle: (v: CaptionStyleId) => void persistOption({ captionStyle: v }),
     onLayoutMode: (v: LayoutModeId) => void persistOption({ layoutMode: v }),
     onSplitSwap: (v: boolean) => void persistOption({ splitSwap: v }),
+    onOpenSplitFrame: () => {
+      if (!project.sourceVideoUrl) return;
+      setPreferSoft(true);
+      setSplitFrameOpen(true);
+    },
     onClearSplitFocus: () => {
       setLocalFocusTop(null);
       setLocalFocusBot(null);
@@ -633,30 +639,6 @@ export default function ClipProjectPage() {
               splitSwap={splitSwap}
               splitFocusTop={splitFocusTop ?? DEFAULT_SPLIT_FOCUS_TOP}
               splitFocusBot={splitFocusBot ?? DEFAULT_SPLIT_FOCUS_BOT}
-              onSplitFocusChange={(pane, focus) => {
-                setPreferSoft(true);
-                const top =
-                  pane === "top"
-                    ? focus
-                    : (localFocusTop ??
-                      (project.splitFocusTop as SplitFocusPane | undefined) ??
-                      DEFAULT_SPLIT_FOCUS_TOP);
-                const bot =
-                  pane === "bot"
-                    ? focus
-                    : (localFocusBot ??
-                      (project.splitFocusBot as SplitFocusPane | undefined) ??
-                      DEFAULT_SPLIT_FOCUS_BOT);
-                setLocalFocusTop(top);
-                setLocalFocusBot(bot);
-                if (focusSaveTimer.current) clearTimeout(focusSaveTimer.current);
-                focusSaveTimer.current = setTimeout(() => {
-                  void persistOption({
-                    splitFocusTop: top,
-                    splitFocusBot: bot,
-                  });
-                }, 350);
-              }}
               logoUrl={project.logoUrl}
               logoCorner={logoCorner}
               logoOpacity={logoOpacity}
@@ -800,6 +782,32 @@ export default function ClipProjectPage() {
           </div>
         )}
       </footer>
+
+      {project.sourceVideoUrl && focusedClip && (
+        <SplitFrameDialog
+          open={splitFrameOpen}
+          sourceUrl={project.sourceVideoUrl}
+          startSec={focusedClip.startSec}
+          endSec={focusedClip.endSec}
+          focusTop={splitFocusTop ?? DEFAULT_SPLIT_FOCUS_TOP}
+          focusBot={splitFocusBot ?? DEFAULT_SPLIT_FOCUS_BOT}
+          onClose={() => setSplitFrameOpen(false)}
+          onApply={(top, bot) => {
+            setLocalFocusTop(top);
+            setLocalFocusBot(bot);
+            setPreferSoft(true);
+            void persistOption({
+              splitFocusTop: top,
+              splitFocusBot: bot,
+            });
+          }}
+          onResetAuto={() => {
+            setLocalFocusTop(null);
+            setLocalFocusBot(null);
+            void persistOption({ clearSplitFocus: true });
+          }}
+        />
+      )}
     </div>
   );
 }
