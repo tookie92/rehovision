@@ -31,7 +31,12 @@ from generators.transcribe import download_source, transcribe_video
 from generators.video import assemble_video
 from generators.voiceover import generate_voiceover
 from generators.youtube import download_youtube
-from upload_server import resolve_local_file, start_upload_server, store_result_file
+from upload_server import (
+    resolve_local_file,
+    start_upload_server,
+    store_result_file,
+    store_source_file,
+)
 
 load_dotenv()
 
@@ -187,7 +192,7 @@ def submit_source_video(site_url: str, job_id: str, file_path: Path) -> str:
     if size_mb > 20:
         raise RuntimeError(
             f"Fichier trop gros pour submitSourceVideo ({size_mb:.0f} Mo). "
-            "Utiliser le flux YouTube local (cache) sans upload Convex."
+            "Utiliser submit_source_media_url (disque worker /media/)."
         )
     payload = file_path.read_bytes()
     if not payload:
@@ -210,6 +215,57 @@ def submit_source_video(site_url: str, job_id: str, file_path: Path) -> str:
     if not url:
         raise RuntimeError("submitSourceVideo sans resultUrl")
     return url
+
+
+def submit_source_media_url(
+    site_url: str, job_id: str, media_url: str, local_file_id: str
+) -> None:
+    """Enregistre /media/{id} sur le projet clip (soft preview navigateur)."""
+    res = requests.post(
+        f"{site_url}/worker/submitSourceMediaUrl",
+        params={"jobId": job_id},
+        headers={**_headers(), "Content-Type": "application/json"},
+        json={"mediaUrl": media_url, "localFileId": local_file_id},
+        timeout=60,
+    )
+    if not res.ok:
+        log.error(
+            "submitSourceMediaUrl %s: %s",
+            res.status_code,
+            res.text[:800],
+        )
+    res.raise_for_status()
+
+
+def needs_yt_source_persist(payload: dict[str, Any]) -> bool:
+    """True si YouTube sans source déjà dispo en /media/ (soft preview)."""
+    youtube_url = payload.get("youtubeUrl")
+    if not youtube_url:
+        return False
+    if payload.get("localFileId"):
+        return False
+    source_url = str(payload.get("sourceVideoUrl") or "")
+    if "/media/" in source_url:
+        return False
+    return True
+
+
+def persist_source_for_soft_preview(
+    site_url: str,
+    job_id: str,
+    src: Path,
+    *,
+    stable_key: str,
+) -> tuple[str, str]:
+    """Copie source sur disque worker + notifie Convex (JSON, pas blob)."""
+    media_url, file_id = store_source_file(
+        src,
+        stable_key=stable_key,
+        preferred_ext=src.suffix or ".mp4",
+    )
+    submit_source_media_url(site_url, job_id, media_url, file_id)
+    log.info("Source soft preview → %s", media_url)
+    return media_url, file_id
 
 
 def resolve_media_source(
@@ -337,6 +393,14 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
                 source_url=source_url,
                 local_file_id=local_file_id,
             )
+            # Soft preview navigateur : YouTube → /media/{id} (comme upload fichier)
+            if needs_yt_source_persist(payload):
+                persist_source_for_soft_preview(
+                    site_url,
+                    job_id,
+                    src,
+                    stable_key=str(youtube_url),
+                )
             lang = payload.get("language") or "auto"
             transcript = transcribe_video(src, language=lang)
             submit_clip_pipeline_result(
@@ -366,6 +430,17 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
                 source_url=source_url,
                 local_file_id=local_file_id,
             )
+            # Soft preview backfill (fileId stable) : anciens projets YT
+            if needs_yt_source_persist(payload) and youtube_url:
+                try:
+                    persist_source_for_soft_preview(
+                        site_url,
+                        job_id,
+                        src,
+                        stable_key=str(youtube_url),
+                    )
+                except Exception as e:
+                    log.warning("persist source soft preview: %s", e)
             out = work_dir / "clip.mp4"
             path = render_clip(
                 src,

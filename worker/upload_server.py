@@ -127,6 +127,55 @@ def store_result_file(src: Path, *, preferred_ext: str | None = None) -> str:
     return media_url
 
 
+def store_source_file(
+    src: Path,
+    *,
+    stable_key: str,
+    preferred_ext: str | None = None,
+) -> tuple[str, str]:
+    """
+    Persiste une source (ex. YouTube) sous un fileId stable (uuid5)
+    pour soft preview + réutilisation entre jobs (pas N copies).
+    Retourne (media_url, file_id).
+    """
+    if not src.is_file() or src.stat().st_size == 0:
+        raise RuntimeError(f"Source vide: {src}")
+    ext = (preferred_ext or src.suffix or ".mp4").lower()
+    if not ext.startswith("."):
+        ext = f".{ext}"
+    if ext not in _MEDIA_EXTS:
+        ext = ".mp4"
+    file_id = str(uuid.uuid5(uuid.NAMESPACE_URL, stable_key.strip()))
+    dest = media_root() / "uploads" / f"{file_id}{ext}"
+    base = public_base_url()
+    if not base:
+        raise RuntimeError(
+            "WORKER_PUBLIC_URL manquant — requis pour soft preview YouTube"
+        )
+    if not dest.is_file() or dest.stat().st_size == 0:
+        shutil.copy2(src, dest)
+    media_url = f"{base}/media/{file_id}"
+    meta = {
+        "fileId": file_id,
+        "filename": src.name,
+        "sizeBytes": dest.stat().st_size,
+        "mediaUrl": media_url,
+        "kind": "source_media",
+        "stableKey": stable_key[:200],
+    }
+    (media_root() / "uploads" / f"{file_id}.json").write_text(
+        json.dumps(meta),
+        encoding="utf-8",
+    )
+    log.info(
+        "Source stockée %s (%.1f Mo) → %s",
+        file_id,
+        dest.stat().st_size / 1e6,
+        media_url,
+    )
+    return media_url, file_id
+
+
 def public_base_url() -> str:
     return (os.getenv("WORKER_PUBLIC_URL") or "").rstrip("/")
 

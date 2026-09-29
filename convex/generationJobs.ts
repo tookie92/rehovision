@@ -880,8 +880,53 @@ export const setClipProjectSource = internalMutation({
 });
 
 /**
+ * YouTube (ou autre) : source déjà sur le disque worker → URL /media/{id}
+ * pour soft preview navigateur (évite OOM submitSourceVideo).
+ */
+export const setClipProjectSourceMedia = internalMutation({
+  args: {
+    jobId: v.id("generationJobs"),
+    mediaUrl: v.string(),
+    localFileId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (!job?.clipProjectId) {
+      throw new Error("Job clip introuvable");
+    }
+    const project = await ctx.db.get(job.clipProjectId);
+    if (!project) {
+      throw new Error("Projet clip introuvable");
+    }
+    const mediaUrl = args.mediaUrl.trim();
+    const localFileId = args.localFileId.trim();
+    if (!mediaUrl || !localFileId) {
+      throw new Error("mediaUrl et localFileId requis");
+    }
+    const patch: {
+      sourceVideoUrl: string;
+      sourceLocalFileId: string;
+      errorMessage?: undefined;
+      status?: typeof project.status;
+    } = {
+      sourceVideoUrl: mediaUrl,
+      sourceLocalFileId: localFileId,
+      errorMessage: undefined,
+    };
+    // Pendant le download YT uniquement — ne pas reculer un projet déjà ready
+    if (project.status === "downloading") {
+      patch.status = "transcribing";
+    }
+    await ctx.db.patch(job.clipProjectId, patch);
+    return null;
+  },
+});
+
+/**
  * HTTP — upload de la vidéo source (YouTube → storage) pendant un job transcribe.
  * Query: jobId — Body: fichier brut
+ * @deprecated Préférer submitSourceMediaUrl (JSON) pour les gros vlogs.
  */
 export const submitSourceVideo = httpAction(async (ctx, request) => {
   try {
@@ -918,6 +963,53 @@ export const submitSourceVideo = httpAction(async (ctx, request) => {
       resultUrl,
     });
     return json({ ok: true, resultUrl, storageId });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return json({ error: msg }, 500);
+  }
+});
+
+/**
+ * HTTP — source YouTube persistée sur le worker (/media/{id}).
+ * Query: jobId — Body JSON { mediaUrl, localFileId }
+ */
+export const submitSourceMediaUrl = httpAction(async (ctx, request) => {
+  try {
+    assertWorkerSecret(request);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unauthorized";
+    const status = msg === "UNAUTHORIZED_WORKER" ? 401 : 500;
+    return json({ error: msg }, status);
+  }
+
+  const url = new URL(request.url);
+  const jobIdParam = url.searchParams.get("jobId");
+  if (!jobIdParam) {
+    return json({ error: "jobId requis" }, 400);
+  }
+  const jobId = jobIdParam as Id<"generationJobs">;
+
+  let body: { mediaUrl?: string; localFileId?: string };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return json({ error: "JSON invalide" }, 400);
+  }
+
+  const mediaUrl = typeof body.mediaUrl === "string" ? body.mediaUrl.trim() : "";
+  const localFileId =
+    typeof body.localFileId === "string" ? body.localFileId.trim() : "";
+  if (!mediaUrl || !localFileId) {
+    return json({ error: "mediaUrl et localFileId requis" }, 400);
+  }
+
+  try {
+    await ctx.runMutation(internal.generationJobs.setClipProjectSourceMedia, {
+      jobId,
+      mediaUrl,
+      localFileId,
+    });
+    return json({ ok: true, mediaUrl, localFileId });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return json({ error: msg }, 500);

@@ -5,6 +5,7 @@ import {
   submitScriptResult,
   submitClipPipelineResult,
   submitSourceVideo,
+  submitSourceMediaUrl,
 } from "./generationJobs";
 
 /**
@@ -41,6 +42,12 @@ http.route({
   path: "/worker/submitSourceVideo",
   method: "POST",
   handler: submitSourceVideo,
+});
+
+http.route({
+  path: "/worker/submitSourceMediaUrl",
+  method: "POST",
+  handler: submitSourceMediaUrl,
 });
 
 export default http;
