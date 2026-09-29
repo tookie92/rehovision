@@ -16,12 +16,17 @@ import { ClipManualTrim } from "@/components/ClipManualTrim";
 import { ClipEditTrim } from "@/components/ClipEditTrim";
 import {
   CLIP_STATUS_LABEL,
+  downloadUrls,
   formatClipDuration,
   formatTimecode,
   isPipelineActive,
   projectStatusTone,
   safeDownloadName,
 } from "@/lib/clipStatus";
+import {
+  EXPORT_PLATFORMS,
+  type ExportPlatformId,
+} from "@/lib/exportPresets";
 import type {
   AudioEnhanceId,
   CaptionStyleId,
@@ -51,6 +56,9 @@ export default function ClipProjectPage() {
   const [savingTrim, setSavingTrim] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [applyInfo, setApplyInfo] = useState<string | null>(null);
+  const [exportPlatform, setExportPlatform] =
+    useState<ExportPlatformId>("reels");
 
   async function onRetryPipeline() {
     setRetryError(null);
@@ -136,8 +144,6 @@ export default function ClipProjectPage() {
       storageId: storageId as never,
     });
   }
-
-  const [applyInfo, setApplyInfo] = useState<string | null>(null);
 
   async function onApplyRerender() {
     setRetryError(null);
@@ -335,9 +341,9 @@ export default function ClipProjectPage() {
         </p>
       )}
 
-      {/* Clips d’abord — cœur Opus */}
+      {/* Clips d’abord — cœur Opus + export Viblo */}
       <section className="mb-10">
-        <div className="mb-5 flex items-baseline justify-between gap-3">
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight">
             {clips.length > 0
               ? `Clips (${clips.length})`
@@ -345,7 +351,72 @@ export default function ClipProjectPage() {
                 ? "Clips en préparation"
                 : "Clips"}
           </h2>
+          {readyCount > 0 && (
+            <p className="text-xs font-medium text-signal">
+              {readyCount} prêt{readyCount > 1 ? "s" : ""} à poster
+            </p>
+          )}
         </div>
+
+        {readyCount > 0 && (
+          <div className="mb-6 space-y-3 rounded-2xl border border-signal/30 bg-signal/5 px-4 py-4 md:px-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Export</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Choisis la plateforme — le fichier est nommé pour l’upload
+                  direct.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="cursor-pointer"
+                onClick={() => {
+                  const plat =
+                    EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
+                      ?.fileSlug ?? exportPlatform;
+                  const items = clips
+                    .filter((c) => c.resultUrl && c.status === "ready")
+                    .map((c) => ({
+                      url: c.resultUrl!,
+                      filename: safeDownloadName(c.title, c.order, plat),
+                    }));
+                  downloadUrls(items);
+                }}
+              >
+                <DownloadSimple className="size-4" weight="bold" />
+                Tout télécharger ({readyCount})
+              </Button>
+            </div>
+            <div
+              className="flex flex-wrap gap-1.5"
+              role="radiogroup"
+              aria-label="Plateforme d’export"
+            >
+              {EXPORT_PLATFORMS.map((p) => {
+                const active = p.id === exportPlatform;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    title={p.hint}
+                    onClick={() => setExportPlatform(p.id)}
+                    className={
+                      active
+                        ? "cursor-pointer rounded-lg bg-signal/20 px-3 py-1.5 text-sm font-medium text-signal ring-1 ring-signal/40"
+                        : "cursor-pointer rounded-lg bg-secondary/80 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+                    }
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {clips.length === 0 && pipelineBusy && (
           <div className="rounded-2xl border border-dashed border-border px-6 py-14 text-center">
@@ -420,11 +491,13 @@ export default function ClipProjectPage() {
                           clip.status === "failed"
                             ? "shrink-0 text-[11px] font-medium text-destructive"
                             : clip.status === "ready"
-                              ? "shrink-0 text-[11px] font-medium text-signal"
+                              ? "shrink-0 rounded-md bg-signal/15 px-1.5 py-0.5 text-[11px] font-medium text-signal"
                               : "shrink-0 text-[11px] font-medium text-amber-400"
                         }
                       >
-                        {CLIP_STATUS_LABEL[clip.status] ?? clip.status}
+                        {clip.status === "ready"
+                          ? "Prêt à poster"
+                          : (CLIP_STATUS_LABEL[clip.status] ?? clip.status)}
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -460,7 +533,12 @@ export default function ClipProjectPage() {
                       {clip.resultUrl && (
                         <a
                           href={clip.resultUrl}
-                          download={safeDownloadName(clip.title, clip.order)}
+                          download={safeDownloadName(
+                            clip.title,
+                            clip.order,
+                            EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
+                              ?.fileSlug ?? exportPlatform,
+                          )}
                           className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90"
                         >
                           <DownloadSimple className="size-4" weight="bold" />

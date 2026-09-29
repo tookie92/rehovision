@@ -17,7 +17,21 @@ Règle : **une priorité à la fois**. Cocher avant de passer à la suivante.
 | Entrée | Vlog long, fichier, lien YouTube | Galerie de stickers / collage film |
 | Cœur | Hooks IA + reframe + captions | Éditeur multitrack + chat agent |
 | Sortie | Shorts viraux prêts à poster | Projet CapCut à peaufiner 2 h |
-| Inspi | OpusClip | Muse / OpenChatCut (bribes UX seulement) |
+| Inspi | OpusClip (moteur) + Viblo (friction UX) | Muse / OpenChatCut (bribes polish seulement) |
+
+---
+
+## Emprunts [Viblo](https://viblo.ai/) (friction, pas le produit)
+
+Voler la **forme**, garder le **job** Opus. Pas de timeline NLE, pas de ranking/story faceless comme cœur.
+
+- [x] Parcours mental **3 temps** : Import → Clips → Export (labels UI, pas un wizard forcé)
+- [x] Écran projet = **grille de clips + 1 bandeau Export** (polish replié)
+- [x] Promesse **prêt à poster** (badge + CTA téléchargement clair)
+- [x] Vitesse perçue : message « mis en file » / progression simple
+- [x] Durée reel standard ~30s (déjà étape 4 partielle)
+
+Hors emprunt : templates ranking/commentary, VO ElevenLabs comme funnel principal, brand kits Business.
 
 ---
 
@@ -36,6 +50,7 @@ Règle : **une priorité à la fois**. Cocher avant de passer à la suivante.
 - [x] Trim drag In/Out + ajuster clip existant
 - [x] Pack viral : logo + musique ducking + punch
 - [x] Doc cookies YouTube (`worker/cookies/README.md`)
+- [x] UI atelier Opus-ish (dropzone, grille projets, polish collapsible)
 
 ---
 
@@ -85,14 +100,17 @@ Pas d’éditeur Muse. Des **presets** au re-rendu :
 
 ---
 
-### Étape 4 — Export & partage
+### Étape 4 — Export & partage (Viblo friction)
 
-- [ ] Presets durée / plateforme (TikTok / Reels / Shorts) si pertinent
-- [x] Durée cible hooks **~30s** (min 20s, max 45s) — plus de cuts à 8s
-- [ ] Nom de fichier + meta clairs
+Objectif : un clic = fichier prêt TikTok/Reels/Shorts.
+
+- [x] Durée cible hooks **~30s** (min 20s, max 45s)
+- [x] Presets plateforme (TikTok / Reels / Shorts) — label + nom de fichier
+- [x] Noms de fichier clairs (`01-reels-titre.mp4`)
+- [x] Bandeau **Export** : badge « Prêt à poster » + Télécharger / Télécharger tout
 - [ ] (Plus tard) deep-link share — optionnel
 
-**Critère de done :** « Télécharger » = fichier prêt à uploader sur TikTok sans retouche.
+**Critère de done :** « Télécharger » = MP4 9:16 nommé pour la plateforme, sans retouche CapCut.
 
 ---
 
@@ -117,7 +135,7 @@ Pas d’éditeur Muse. Des **presets** au re-rendu :
 
 ## Hors scope (pour l’instant)
 
-Ne pas démarrer tant que les étapes 0–3 ne sont pas done :
+Ne pas démarrer tant que les étapes 0–4 ne sont pas done :
 
 - Timeline multitrack (Media / Music / VO / Text / Graphics / Filters / Overlays)
 - Packs stickers / collage film
@@ -125,6 +143,7 @@ Ne pas démarrer tant que les étapes 0–3 ne sont pas done :
 - Chat agent qui édite une timeline (OpenChatCut)
 - Grade / LUT pro avec scrubber d’intensité plein écran
 - Gen musique IA lourde (après musique upload + ducking)
+- Templates Viblo ranking / commentary / story comme cœur produit
 
 ---
 
@@ -139,15 +158,16 @@ Y revenir seulement si le clipping Opus est stable en prod.
 ## Comment avancer
 
 1. Cocher **Étape 0** en prod Ubuntu.  
-2. Dire en Agent mode : `go étape 1` (puis 2, 3…).  
+2. Dire en Agent mode : `go étape N`.  
 3. Une PR / un push par étape.  
-4. Pas de batch « tout Muse + tout Opus ».
+4. Pas de batch « tout Muse + tout Opus + tout Viblo ».
 
 ---
 
 ## Références
 
-- Inspi produit : [OpusClip](https://www.opus.pro/)
+- Inspi moteur : [OpusClip](https://www.opus.pro/)
+- Inspi friction UX : [Viblo](https://viblo.ai/)
 - Emprunts polish seulement : [Muse Reels](https://apps.apple.com/us/app/muse-reels-video-editor/id1638320348)
 - Pas le modèle d’archi : [OpenChatCut](https://openchatcut.com/)
 - Worker local : `worker/README.md`

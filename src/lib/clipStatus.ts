@@ -103,12 +103,39 @@ export function pipelineDetail(
   }
 }
 
-export function safeDownloadName(title: string, order: number): string {
+export function safeDownloadName(
+  title: string,
+  order: number,
+  platform?: string,
+): string {
   const slug = title
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
-    .slice(0, 48);
-  return `${String(Math.max(1, order)).padStart(2, "0")}-${slug || "clip"}.mp4`;
+    .slice(0, 40);
+  const plat = (platform || "reel")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+    .slice(0, 12);
+  const prefix = String(Math.max(1, order)).padStart(2, "0");
+  return `${prefix}-${plat}-${slug || "clip"}.mp4`;
+}
+
+/** Déclenche N téléchargements séquentiels (navigateur). */
+export function downloadUrls(
+  items: ReadonlyArray<{ url: string; filename: string }>,
+  delayMs = 400,
+): void {
+  items.forEach((item, i) => {
+    window.setTimeout(() => {
+      const a = document.createElement("a");
+      a.href = item.url;
+      a.download = item.filename;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }, i * delayMs);
+  });
 }
