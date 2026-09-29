@@ -91,3 +91,16 @@ Souvent **pas** une vidéo tronquée : le worker prenait le sidecar `{fileId}.js
 git pull && # restart worker
 # Relancer le même projet (retry) — le .mp4 est déjà sur disque
 ```
+
+### `500 submitJobResult` / OOM 64 Mo
+
+Les clips MP4 ne passent **plus** dans le body httpAction Convex.
+Le worker les stocke sous `/media/{id}` (`WORKER_PUBLIC_URL` obligatoire)
+et poste seulement `{ "resultUrl": "…" }`.
+
+Vérifie dans `worker/.env` :
+```
+WORKER_PUBLIC_URL=http://IP_LAN:8787
+UPLOAD_HTTP_PORT=8787
+```
+Puis restart worker + `npm run convex:deploy:self-hosted` après pull.

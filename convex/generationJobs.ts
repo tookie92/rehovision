@@ -462,8 +462,14 @@ export const getNextJob = httpAction(async (ctx, request) => {
 });
 
 /**
- * HTTP Action — upload du résultat + marquage done.
- * Body : fichier brut | Query : jobId, durationSeconds?, error?
+ * HTTP Action — résultat job fichier.
+ *
+ * Deux modes :
+ * 1) JSON `{ resultUrl, durationSeconds?, error? }` — clips/vidéos déjà sur disque
+ *    worker (évite OOM httpAction 64 Mo).
+ * 2) Body binaire — petits fichiers (image/voix) via Convex storage.
+ *
+ * Query : jobId, durationSeconds?, error? (error en query garde le mode fail rapide).
  */
 export const submitJobResult = httpAction(async (ctx, request) => {
   try {
@@ -492,10 +498,65 @@ export const submitJobResult = httpAction(async (ctx, request) => {
       return json({ ok: true, failed: true });
     }
 
-    // arrayBuffer + Uint8Array : Blob([ArrayBuffer]) échoue parfois côté Convex
+    const contentTypeHeader = (
+      request.headers.get("Content-Type") || ""
+    ).toLowerCase();
+
+    // Mode URL externe (worker /media/…) — pas de buffer fichier dans l’httpAction
+    if (contentTypeHeader.includes("application/json")) {
+      let body: {
+        resultUrl?: string;
+        durationSeconds?: number;
+        error?: string;
+      };
+      try {
+        body = (await request.json()) as typeof body;
+      } catch {
+        return json({ error: "JSON invalide" }, 400);
+      }
+      if (body.error) {
+        await ctx.runMutation(internal.generationJobs.applyJobResult, {
+          jobId,
+          resultUrl: "",
+          errorMessage: body.error,
+        });
+        return json({ ok: true, failed: true });
+      }
+      const resultUrl = (body.resultUrl || "").trim();
+      if (!resultUrl) {
+        return json({ error: "resultUrl requis" }, 400);
+      }
+      const parsedDuration =
+        body.durationSeconds !== undefined
+          ? Number(body.durationSeconds)
+          : undefined;
+      const durationSeconds =
+        parsedDuration !== undefined && !Number.isNaN(parsedDuration)
+          ? Math.round(parsedDuration * 1000) / 1000
+          : undefined;
+      await ctx.runMutation(internal.generationJobs.applyJobResult, {
+        jobId,
+        resultUrl,
+        durationSeconds,
+      });
+      return json({ ok: true, resultUrl, via: "url" });
+    }
+
+    // Mode binaire — plafonner pour éviter OOM 64 Mo
     const buffer = await request.arrayBuffer();
     if (!buffer || buffer.byteLength === 0) {
       return json({ error: "Fichier vide" }, 400);
+    }
+    const maxBytes = 12 * 1024 * 1024;
+    if (buffer.byteLength > maxBytes) {
+      return json(
+        {
+          error:
+            `Fichier trop gros pour Convex storage via httpAction (${Math.round(buffer.byteLength / 1e6)} Mo). ` +
+            "Le worker doit poster JSON { resultUrl } (média local /media/).",
+        },
+        413,
+      );
     }
 
     const contentType =
@@ -510,7 +571,6 @@ export const submitJobResult = httpAction(async (ctx, request) => {
 
     const durationParam = url.searchParams.get("durationSeconds");
     const parsedDuration = durationParam ? Number(durationParam) : undefined;
-    // Arrondi pour éviter les floats trop longs côté JSON / logs
     const durationSeconds =
       parsedDuration !== undefined && !Number.isNaN(parsedDuration)
         ? Math.round(parsedDuration * 1000) / 1000
@@ -522,7 +582,7 @@ export const submitJobResult = httpAction(async (ctx, request) => {
       durationSeconds,
     });
 
-    return json({ ok: true, resultUrl, storageId });
+    return json({ ok: true, resultUrl, storageId, via: "storage" });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("submitJobResult failed:", msg);

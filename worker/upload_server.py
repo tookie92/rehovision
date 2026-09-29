@@ -21,6 +21,7 @@ import logging
 import mimetypes
 import os
 import re
+import shutil
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -78,6 +79,48 @@ def resolve_local_file(file_id: str) -> Path | None:
     # sans extension
     bare = uploads / file_id
     return bare if bare.is_file() else None
+
+
+def store_result_file(src: Path, *, preferred_ext: str | None = None) -> str:
+    """
+    Copie un résultat de rendu sur le disque worker et retourne l’URL publique /media/.
+    Évite d’envoyer le MP4 dans l’httpAction Convex (limite ~64 Mo RAM).
+    """
+    if not src.is_file() or src.stat().st_size == 0:
+        raise RuntimeError(f"Résultat vide: {src}")
+    ext = (preferred_ext or src.suffix or ".mp4").lower()
+    if not ext.startswith("."):
+        ext = f".{ext}"
+    if ext not in _MEDIA_EXTS:
+        ext = ".mp4"
+    file_id = str(uuid.uuid4())
+    dest = media_root() / "uploads" / f"{file_id}{ext}"
+    shutil.copy2(src, dest)
+    base = public_base_url()
+    if not base:
+        raise RuntimeError(
+            "WORKER_PUBLIC_URL manquant — requis pour servir les clips rendus "
+            "(évite OOM Convex submitJobResult)"
+        )
+    media_url = f"{base}/media/{file_id}"
+    meta = {
+        "fileId": file_id,
+        "filename": src.name,
+        "sizeBytes": dest.stat().st_size,
+        "mediaUrl": media_url,
+        "kind": "render_result",
+    }
+    (media_root() / "uploads" / f"{file_id}.json").write_text(
+        json.dumps(meta),
+        encoding="utf-8",
+    )
+    log.info(
+        "Résultat stocké local %s (%.1f Mo) → %s",
+        file_id,
+        dest.stat().st_size / 1e6,
+        media_url,
+    )
+    return media_url
 
 
 def public_base_url() -> str:
