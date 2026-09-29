@@ -48,6 +48,8 @@ type Props = {
   variant?: "default" | "drawer";
   splitSwap?: boolean;
   onSplitSwap?: (v: boolean) => void;
+  onClearSplitFocus?: () => void;
+  hasManualSplitFocus?: boolean;
   onCaptionStyle: (v: CaptionStyleId) => void;
   onLayoutMode: (v: LayoutModeId) => void;
   onVoiceoverMode: (v: VoiceoverModeId) => void;
@@ -133,6 +135,8 @@ export function ClipRenderOptions({
   variant = "default",
   splitSwap = false,
   onSplitSwap,
+  onClearSplitFocus,
+  hasManualSplitFocus = false,
   onCaptionStyle,
   onLayoutMode,
   onVoiceoverMode,
@@ -263,8 +267,22 @@ export function ClipRenderOptions({
                   ? "Échanger haut ↔ bas (actif)"
                   : "Échanger haut ↔ bas"}
               </button>
+              {onClearSplitFocus && (
+                <button
+                  type="button"
+                  disabled={disabled || !hasManualSplitFocus}
+                  onClick={() => {
+                    onPreviewIntent?.();
+                    onClearSplitFocus();
+                  }}
+                  className="cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-sm text-foreground hover:bg-secondary disabled:opacity-50"
+                >
+                  Reset auto (faces IA)
+                </button>
+              )}
               <p className="text-[11px] text-muted-foreground">
-                Soft preview live ; re-rendre pour l’export ffmpeg.
+                Sur le stage Soft : glisse Haut/Bas + zoom. Re-rendre pour
+                l’export.
               </p>
             </div>
           )}

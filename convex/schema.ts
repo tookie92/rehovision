@@ -97,6 +97,21 @@ export default defineSchema({
     ),
     /** Split : échange les demi-cadres haut/bas */
     splitSwap: v.optional(v.boolean()),
+    /** Split : focus manuel haut (cx/cy 0–1, zoom ≥1). Absent = auto faces. */
+    splitFocusTop: v.optional(
+      v.object({
+        cx: v.number(),
+        cy: v.number(),
+        zoom: v.number(),
+      }),
+    ),
+    splitFocusBot: v.optional(
+      v.object({
+        cx: v.number(),
+        cy: v.number(),
+        zoom: v.number(),
+      }),
+    ),
     voiceoverMode: v.optional(
       v.union(
         v.literal("off"),

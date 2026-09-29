@@ -144,8 +144,6 @@ Objectif : un clic = fichier prêt TikTok/Reels/Shorts.
 
 ## Prochaine étape (ordre)
 
-Étapes 0–6 livrées. Prochaine priorité produit (sans timeline) :
-
 ### Étape 7 — Assembler 2–3 clips (stitch)
 
 Sans NLE : sélectionner 2–3 hooks → un seul reel 9:16 (hard cuts + captions/polish du projet).
@@ -156,6 +154,17 @@ Sans NLE : sélectionner 2–3 hooks → un seul reel 9:16 (hard cuts + captions
 - [ ] Export 1 MP4 nommé plateforme
 
 **Critère de done :** 3 hooks → 1 reel postable, sans CapCut.
+
+### Étape 8 — Split cadrage manuel ✅
+
+Boîtes Haut/Bas (pan + zoom) type CapCut, sans barre de ratios (9:16 only).
+
+- [x] Soft : glisser cadres + zoom +/−
+- [x] Persister `splitFocusTop` / `splitFocusBot`
+- [x] ffmpeg Split utilise le focus manuel (sinon auto faces)
+- [x] Reset → détection IA
+
+**Critère de done :** 2 visages bien cadrés en soft, puis Re-rendre = même crop.
 
 Optionnels restants (plus bas priorité) : deep-link share (étape 4), packs LUT préchargés (étape 6).
 
@@ -184,7 +193,7 @@ Y revenir seulement si le clipping Opus est stable en prod (Étape 0 ✅).
 ## Comment avancer
 
 1. ~~Cocher **Étape 0** en prod Ubuntu.~~ ✅  
-2. Dire en Agent mode : `go étape 7` (ou optionnel share / LUT).  
+2. Dire en Agent mode : `go étape 7` (stitch) — Étape 8 Split cadrage ✅.  
 3. Une PR / un push par étape.  
 4. Pas de batch « tout Muse + tout Opus + tout Viblo ».
 

@@ -42,6 +42,24 @@ const logoCornerValidator = v.optional(
   ),
 );
 
+const splitFocusPaneValidator = v.object({
+  cx: v.number(),
+  cy: v.number(),
+  zoom: v.number(),
+});
+
+function clampSplitFocus(p: {
+  cx: number;
+  cy: number;
+  zoom: number;
+}): { cx: number; cy: number; zoom: number } {
+  return {
+    cx: Math.min(0.92, Math.max(0.08, p.cx)),
+    cy: Math.min(0.85, Math.max(0.12, p.cy)),
+    zoom: Math.min(2.5, Math.max(1, p.zoom)),
+  };
+}
+
 const viralProjectFields = {
   lookFilter: lookFilterValidator,
   lutStorageId: v.optional(v.id("_storage")),
@@ -67,6 +85,8 @@ function viralPayload(project: Doc<"clipProjects">) {
     musicUrl: project.musicUrl,
     musicVolume: project.musicVolume ?? 0.18,
     splitSwap: project.splitSwap ?? false,
+    splitFocusTop: project.splitFocusTop,
+    splitFocusBot: project.splitFocusBot,
   };
 }
 
@@ -100,6 +120,8 @@ const clipProjectDoc = v.object({
     ),
   ),
   splitSwap: v.optional(v.boolean()),
+  splitFocusTop: v.optional(splitFocusPaneValidator),
+  splitFocusBot: v.optional(splitFocusPaneValidator),
   voiceoverMode: v.optional(
     v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
   ),
@@ -329,6 +351,8 @@ const clipProjectSummary = v.object({
     ),
   ),
   splitSwap: v.optional(v.boolean()),
+  splitFocusTop: v.optional(splitFocusPaneValidator),
+  splitFocusBot: v.optional(splitFocusPaneValidator),
   voiceoverMode: v.optional(
     v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
   ),
@@ -564,6 +588,9 @@ export const updateRenderOptions = mutation({
       ),
     ),
     splitSwap: v.optional(v.boolean()),
+    splitFocusTop: v.optional(splitFocusPaneValidator),
+    splitFocusBot: v.optional(splitFocusPaneValidator),
+    clearSplitFocus: v.optional(v.boolean()),
     voiceoverMode: v.optional(
       v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
     ),
@@ -590,6 +617,17 @@ export const updateRenderOptions = mutation({
     if (args.captionStyle !== undefined) patch.captionStyle = args.captionStyle;
     if (args.layoutMode !== undefined) patch.layoutMode = args.layoutMode;
     if (args.splitSwap !== undefined) patch.splitSwap = args.splitSwap;
+    if (args.clearSplitFocus) {
+      patch.splitFocusTop = undefined;
+      patch.splitFocusBot = undefined;
+    } else {
+      if (args.splitFocusTop !== undefined) {
+        patch.splitFocusTop = clampSplitFocus(args.splitFocusTop);
+      }
+      if (args.splitFocusBot !== undefined) {
+        patch.splitFocusBot = clampSplitFocus(args.splitFocusBot);
+      }
+    }
     if (args.voiceoverMode !== undefined) {
       patch.voiceoverMode = args.voiceoverMode;
     }

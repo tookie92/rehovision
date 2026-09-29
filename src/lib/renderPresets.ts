@@ -123,6 +123,32 @@ export type AudioEnhanceId = (typeof AUDIO_ENHANCE_MODES)[number]["id"];
 export type PunchEffectId = (typeof PUNCH_EFFECTS)[number]["id"];
 export type LogoCornerId = (typeof LOGO_CORNERS)[number]["id"];
 
+/** Focus visage Split — cx/cy 0–1 (object-position), zoom 1–2.5 */
+export type SplitFocusPane = {
+  cx: number;
+  cy: number;
+  zoom: number;
+};
+
+export const DEFAULT_SPLIT_FOCUS_TOP: SplitFocusPane = {
+  cx: 0.32,
+  cy: 0.38,
+  zoom: 1.2,
+};
+export const DEFAULT_SPLIT_FOCUS_BOT: SplitFocusPane = {
+  cx: 0.68,
+  cy: 0.38,
+  zoom: 1.2,
+};
+
+export function clampSplitFocus(p: SplitFocusPane): SplitFocusPane {
+  return {
+    cx: Math.min(0.92, Math.max(0.08, p.cx)),
+    cy: Math.min(0.85, Math.max(0.12, p.cy)),
+    zoom: Math.min(2.5, Math.max(1, p.zoom)),
+  };
+}
+
 export function isCaptionStyle(v: string): v is CaptionStyleId {
   return CAPTION_STYLES.some((s) => s.id === v);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
@@ -33,7 +33,12 @@ import type {
   LookFilterId,
   LogoCornerId,
   PunchEffectId,
+  SplitFocusPane,
   VoiceoverModeId,
+} from "@/lib/renderPresets";
+import {
+  DEFAULT_SPLIT_FOCUS_BOT,
+  DEFAULT_SPLIT_FOCUS_TOP,
 } from "@/lib/renderPresets";
 
 /**
@@ -70,6 +75,13 @@ export default function ClipProjectPage() {
   const [sortMode, setSortMode] = useState<"order" | "score">("score");
   const [preferSoft, setPreferSoft] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [localFocusTop, setLocalFocusTop] = useState<SplitFocusPane | null>(
+    null,
+  );
+  const [localFocusBot, setLocalFocusBot] = useState<SplitFocusPane | null>(
+    null,
+  );
+  const focusSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function onRetryPipeline() {
     setRetryError(null);
@@ -103,6 +115,9 @@ export default function ClipProjectPage() {
       captionStyle: CaptionStyleId;
       layoutMode: LayoutModeId;
       splitSwap: boolean;
+      splitFocusTop: SplitFocusPane;
+      splitFocusBot: SplitFocusPane;
+      clearSplitFocus: boolean;
       voiceoverMode: VoiceoverModeId;
       audioEnhance: AudioEnhanceId;
       punchEffect: PunchEffectId;
@@ -327,6 +342,14 @@ export default function ClipProjectPage() {
   const captionStyle = (project.captionStyle ?? "viral") as CaptionStyleId;
   const layoutMode = (project.layoutMode ?? "smart") as LayoutModeId;
   const splitSwap = Boolean(project.splitSwap);
+  const splitFocusTop =
+    localFocusTop ??
+    (project.splitFocusTop as SplitFocusPane | undefined) ??
+    null;
+  const splitFocusBot =
+    localFocusBot ??
+    (project.splitFocusBot as SplitFocusPane | undefined) ??
+    null;
   const voiceoverMode = (project.voiceoverMode ?? "off") as VoiceoverModeId;
   const audioEnhance = (project.audioEnhance ?? "off") as AudioEnhanceId;
   const punchEffect = (project.punchEffect ?? "off") as PunchEffectId;
@@ -372,6 +395,17 @@ export default function ClipProjectPage() {
     onCaptionStyle: (v: CaptionStyleId) => void persistOption({ captionStyle: v }),
     onLayoutMode: (v: LayoutModeId) => void persistOption({ layoutMode: v }),
     onSplitSwap: (v: boolean) => void persistOption({ splitSwap: v }),
+    onClearSplitFocus: () => {
+      setLocalFocusTop(null);
+      setLocalFocusBot(null);
+      void persistOption({ clearSplitFocus: true });
+    },
+    hasManualSplitFocus: Boolean(
+      project.splitFocusTop ||
+        project.splitFocusBot ||
+        localFocusTop ||
+        localFocusBot,
+    ),
     onVoiceoverMode: (v: VoiceoverModeId) =>
       void persistOption({ voiceoverMode: v }),
     onAudioEnhance: (v: AudioEnhanceId) =>
@@ -597,6 +631,32 @@ export default function ClipProjectPage() {
               punchEffect={punchEffect}
               layoutMode={layoutMode}
               splitSwap={splitSwap}
+              splitFocusTop={splitFocusTop ?? DEFAULT_SPLIT_FOCUS_TOP}
+              splitFocusBot={splitFocusBot ?? DEFAULT_SPLIT_FOCUS_BOT}
+              onSplitFocusChange={(pane, focus) => {
+                setPreferSoft(true);
+                const top =
+                  pane === "top"
+                    ? focus
+                    : (localFocusTop ??
+                      (project.splitFocusTop as SplitFocusPane | undefined) ??
+                      DEFAULT_SPLIT_FOCUS_TOP);
+                const bot =
+                  pane === "bot"
+                    ? focus
+                    : (localFocusBot ??
+                      (project.splitFocusBot as SplitFocusPane | undefined) ??
+                      DEFAULT_SPLIT_FOCUS_BOT);
+                setLocalFocusTop(top);
+                setLocalFocusBot(bot);
+                if (focusSaveTimer.current) clearTimeout(focusSaveTimer.current);
+                focusSaveTimer.current = setTimeout(() => {
+                  void persistOption({
+                    splitFocusTop: top,
+                    splitFocusBot: bot,
+                  });
+                }, 350);
+              }}
               logoUrl={project.logoUrl}
               logoCorner={logoCorner}
               logoOpacity={logoOpacity}

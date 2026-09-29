@@ -312,36 +312,81 @@ def build_split_filter_complex(
     work_dir: Path,
     *,
     swap: bool = False,
+    focus_top: dict[str, float] | None = None,
+    focus_bot: dict[str, float] | None = None,
 ) -> str:
     width, height = _ffprobe_size(source_path)
-    centers = estimate_two_subjects(source_path, start_sec, end_sec, work_dir)
     half_h = OUT_H // 2
-    crops = []
-    for cx, cy in centers[:2]:
-        cw, ch, x, y = compute_crop_box(width, height, cx, cy)
-        # Forcer crop plus carré-horizontal pour demi-écran : aspect 1080:960
-        target_a = OUT_W / half_h
-        if width / height >= target_a:
-            ch2 = height
-            cw2 = int(round(height * target_a))
-            cw2 = min(cw2, width)
-            x2 = int(round(cx * width - cw2 / 2))
-            x2 = max(0, min(x2, width - cw2))
-            y2 = 0
-            cw, ch, x, y = cw2, ch2, x2, y2
-        else:
-            cw2 = width
-            ch2 = int(round(width / target_a))
-            ch2 = min(ch2, height)
-            y2 = int(round(cy * height - ch2 / 2))
-            y2 = max(0, min(y2, height - ch2))
-            cw, ch, x, y = cw2, ch2, 0, y2
-        cw = max(2, cw - (cw % 2))
-        ch = max(2, ch - (ch % 2))
-        crops.append((cw, ch, x, y))
+    target_a = OUT_W / half_h
 
-    while len(crops) < 2:
-        crops.append(crops[0] if crops else (width, height, 0, 0))
+    def _crop_from_focus(
+        cx: float, cy: float, zoom: float
+    ) -> tuple[int, int, int, int]:
+        z = max(1.0, min(2.5, float(zoom)))
+        # zoom↑ → fenêtre de crop plus petite
+        if width / height >= target_a:
+            ch = height
+            cw = int(round(height * target_a / z))
+            cw = max(2, min(cw, width))
+            cw -= cw % 2
+            x = int(round(cx * width - cw / 2))
+            x = max(0, min(x, width - cw))
+            return cw, ch, x, 0
+        cw = width
+        ch = int(round(width / target_a / z))
+        ch = max(2, min(ch, height))
+        ch -= ch % 2
+        y = int(round(cy * height - ch / 2))
+        y = max(0, min(y, height - ch))
+        return cw, ch, 0, y
+
+    manual = (
+        isinstance(focus_top, dict)
+        and isinstance(focus_bot, dict)
+        and "cx" in focus_top
+        and "cx" in focus_bot
+    )
+
+    if manual:
+        crops = [
+            _crop_from_focus(
+                float(focus_top["cx"]),
+                float(focus_top.get("cy", 0.4)),
+                float(focus_top.get("zoom", 1.2)),
+            ),
+            _crop_from_focus(
+                float(focus_bot["cx"]),
+                float(focus_bot.get("cy", 0.4)),
+                float(focus_bot.get("zoom", 1.2)),
+            ),
+        ]
+    else:
+        centers = estimate_two_subjects(source_path, start_sec, end_sec, work_dir)
+        crops = []
+        for cx, cy in centers[:2]:
+            cw, ch, x, y = compute_crop_box(width, height, cx, cy)
+            # Forcer crop plus carré-horizontal pour demi-écran : aspect 1080:960
+            if width / height >= target_a:
+                ch2 = height
+                cw2 = int(round(height * target_a))
+                cw2 = min(cw2, width)
+                x2 = int(round(cx * width - cw2 / 2))
+                x2 = max(0, min(x2, width - cw2))
+                y2 = 0
+                cw, ch, x, y = cw2, ch2, x2, y2
+            else:
+                cw2 = width
+                ch2 = int(round(width / target_a))
+                ch2 = min(ch2, height)
+                y2 = int(round(cy * height - ch2 / 2))
+                y2 = max(0, min(y2, height - ch2))
+                cw, ch, x, y = cw2, ch2, 0, y2
+            cw = max(2, cw - (cw % 2))
+            ch = max(2, ch - (ch % 2))
+            crops.append((cw, ch, x, y))
+
+        while len(crops) < 2:
+            crops.append(crops[0] if crops else (width, height, 0, 0))
 
     if swap:
         crops = [crops[1], crops[0]]
@@ -363,6 +408,8 @@ def build_reframe_vf(
     layout_mode: str | None = None,
     *,
     split_swap: bool = False,
+    split_focus_top: dict[str, float] | None = None,
+    split_focus_bot: dict[str, float] | None = None,
 ) -> tuple[str, str | None]:
     """
     Retourne (vf_simple | "", filter_complex | None).
@@ -387,6 +434,8 @@ def build_reframe_vf(
                 end_sec,
                 work_dir,
                 swap=split_swap,
+                focus_top=split_focus_top,
+                focus_bot=split_focus_bot,
             )
             return "", fc
         except Exception as e:

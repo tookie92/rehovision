@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   logoCornerClass,
   punchScale,
@@ -18,6 +18,12 @@ import type {
   LookFilterId,
   LogoCornerId,
   PunchEffectId,
+  SplitFocusPane,
+} from "@/lib/renderPresets";
+import {
+  DEFAULT_SPLIT_FOCUS_BOT,
+  DEFAULT_SPLIT_FOCUS_TOP,
+  clampSplitFocus,
 } from "@/lib/renderPresets";
 
 type ClipLike = {
@@ -40,6 +46,9 @@ type Props = {
   punchEffect: PunchEffectId;
   layoutMode?: LayoutModeId;
   splitSwap?: boolean;
+  splitFocusTop?: SplitFocusPane | null;
+  splitFocusBot?: SplitFocusPane | null;
+  onSplitFocusChange?: (pane: "top" | "bot", focus: SplitFocusPane) => void;
   logoUrl?: string | null;
   logoCorner: LogoCornerId;
   logoOpacity: number;
@@ -56,6 +65,10 @@ function SoftSplitVideos({
   swap,
   filterCss,
   scale,
+  focusTop,
+  focusBot,
+  editable,
+  onFocusChange,
 }: {
   sourceUrl: string;
   startSec: number;
@@ -63,9 +76,22 @@ function SoftSplitVideos({
   swap: boolean;
   filterCss: string;
   scale: number;
+  focusTop: SplitFocusPane;
+  focusBot: SplitFocusPane;
+  editable: boolean;
+  onFocusChange?: (pane: "top" | "bot", focus: SplitFocusPane) => void;
 }) {
   const topRef = useRef<HTMLVideoElement>(null);
   const botRef = useRef<HTMLVideoElement>(null);
+  const topBoxRef = useRef<HTMLDivElement>(null);
+  const botBoxRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{
+    pane: "top" | "bot";
+    startX: number;
+    startY: number;
+    cx: number;
+    cy: number;
+  } | null>(null);
 
   useEffect(() => {
     const top = topRef.current;
@@ -103,16 +129,118 @@ function SoftSplitVideos({
     };
   }, [sourceUrl, startSec, endSec]);
 
-  const posA = swap ? "70% 35%" : "30% 35%";
-  const posB = swap ? "30% 35%" : "70% 35%";
-  const style = {
+  const topF = swap ? focusBot : focusTop;
+  const botF = swap ? focusTop : focusBot;
+  const styleBase = {
     filter: filterCss === "none" ? undefined : filterCss,
-    transform: scale !== 1 ? `scale(${scale})` : undefined,
   };
+
+  function startDrag(
+    pane: "top" | "bot",
+    e: ReactPointerEvent<HTMLDivElement>,
+    focus: SplitFocusPane,
+  ) {
+    if (!editable || !onFocusChange) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = {
+      pane,
+      startX: e.clientX,
+      startY: e.clientY,
+      cx: focus.cx,
+      cy: focus.cy,
+    };
+  }
+
+  function moveDrag(e: ReactPointerEvent<HTMLDivElement>, box: HTMLDivElement | null) {
+    const d = dragRef.current;
+    if (!d || !onFocusChange || !box) return;
+    const rect = box.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+    const dx = (e.clientX - d.startX) / rect.width;
+    const dy = (e.clientY - d.startY) / rect.height;
+    const logical: "top" | "bot" =
+      swap ? (d.pane === "top" ? "bot" : "top") : d.pane;
+    const base = logical === "top" ? focusTop : focusBot;
+    onFocusChange(
+      logical,
+      clampSplitFocus({
+        cx: d.cx - dx,
+        cy: d.cy - dy,
+        zoom: base.zoom,
+      }),
+    );
+  }
+
+  function endDrag(e: ReactPointerEvent<HTMLDivElement>) {
+    dragRef.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function ZoomBtns({
+    focus,
+    pane,
+  }: {
+    focus: SplitFocusPane;
+    pane: "top" | "bot";
+  }) {
+    if (!editable || !onFocusChange) return null;
+    const logical: "top" | "bot" = swap ? (pane === "top" ? "bot" : "top") : pane;
+    return (
+      <div className="absolute bottom-1 right-1 z-30 flex gap-0.5">
+        <button
+          type="button"
+          className="size-7 cursor-pointer rounded bg-background/80 text-xs font-bold backdrop-blur-sm"
+          aria-label="Zoom −"
+          onClick={() =>
+            onFocusChange(
+              logical,
+              clampSplitFocus({ ...focus, zoom: focus.zoom - 0.15 }),
+            )
+          }
+        >
+          −
+        </button>
+        <button
+          type="button"
+          className="size-7 cursor-pointer rounded bg-background/80 text-xs font-bold backdrop-blur-sm"
+          aria-label="Zoom +"
+          onClick={() =>
+            onFocusChange(
+              logical,
+              clampSplitFocus({ ...focus, zoom: focus.zoom + 0.15 }),
+            )
+          }
+        >
+          +
+        </button>
+      </div>
+    );
+  }
+
+  function FrameOverlay({ label, focus }: { label: string; focus: SplitFocusPane }) {
+    if (!editable) return null;
+    const size = `${Math.round(44 / focus.zoom)}%`;
+    return (
+      <div
+        className="pointer-events-none absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-md border-2 border-white/90 shadow-[0_0_0_1px_rgb(0_0_0_/_0.4)]"
+        style={{ width: size, height: size }}
+      >
+        <span className="absolute -top-5 left-0 rounded bg-[#8b5e3c] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">
+          {label}
+        </span>
+        <span className="absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
+      </div>
+    );
+  }
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden">
-      <div className="relative h-1/2 overflow-hidden">
+      <div ref={topBoxRef} className="relative h-1/2 overflow-hidden">
         <video
           ref={topRef}
           key={`split-a-${sourceUrl}-${startSec}`}
@@ -121,10 +249,29 @@ function SoftSplitVideos({
           muted
           preload="metadata"
           className="absolute inset-0 h-full w-full object-cover"
-          style={{ ...style, objectPosition: posA }}
+          style={{
+            ...styleBase,
+            objectPosition: `${topF.cx * 100}% ${topF.cy * 100}%`,
+            transform: `scale(${scale * topF.zoom})`,
+          }}
         />
+        {editable && (
+          <div
+            className="absolute inset-0 z-10 cursor-grab touch-none active:cursor-grabbing"
+            onPointerDown={(e) => startDrag("top", e, topF)}
+            onPointerMove={(e) => moveDrag(e, topBoxRef.current)}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            aria-label="Cadre haut — glisser"
+          />
+        )}
+        <FrameOverlay label="Haut" focus={topF} />
+        <ZoomBtns focus={topF} pane="top" />
       </div>
-      <div className="relative h-1/2 overflow-hidden border-t border-white/25">
+      <div
+        ref={botBoxRef}
+        className="relative h-1/2 overflow-hidden border-t border-white/25"
+      >
         <video
           ref={botRef}
           key={`split-b-${sourceUrl}-${startSec}`}
@@ -133,8 +280,24 @@ function SoftSplitVideos({
           muted
           preload="metadata"
           className="absolute inset-0 h-full w-full object-cover"
-          style={{ ...style, objectPosition: posB }}
+          style={{
+            ...styleBase,
+            objectPosition: `${botF.cx * 100}% ${botF.cy * 100}%`,
+            transform: `scale(${scale * botF.zoom})`,
+          }}
         />
+        {editable && (
+          <div
+            className="absolute inset-0 z-10 cursor-grab touch-none active:cursor-grabbing"
+            onPointerDown={(e) => startDrag("bot", e, botF)}
+            onPointerMove={(e) => moveDrag(e, botBoxRef.current)}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            aria-label="Cadre bas — glisser"
+          />
+        )}
+        <FrameOverlay label="Bas" focus={botF} />
+        <ZoomBtns focus={botF} pane="bot" />
       </div>
     </div>
   );
@@ -152,6 +315,9 @@ export function ClipStagePreview({
   punchEffect,
   layoutMode = "smart",
   splitSwap = false,
+  splitFocusTop,
+  splitFocusBot,
+  onSplitFocusChange,
   logoUrl,
   logoCorner,
   logoOpacity,
@@ -184,6 +350,8 @@ export function ClipStagePreview({
   const showFlash = punchEffect === "flash" && activeMode === "soft";
   const lutHint = softLookNeedsRealRender(lookFilter) && activeMode === "soft";
   const softSplit = activeMode === "soft" && layoutMode === "split" && Boolean(sourceUrl);
+  const focusTop = splitFocusTop ?? DEFAULT_SPLIT_FOCUS_TOP;
+  const focusBot = splitFocusBot ?? DEFAULT_SPLIT_FOCUS_BOT;
 
   useEffect(() => {
     if (softPreview && canSoft) setMode("soft");
@@ -200,6 +368,8 @@ export function ClipStagePreview({
     punchEffect,
     layoutMode,
     splitSwap,
+    splitFocusTop,
+    splitFocusBot,
   ]);
 
   useEffect(() => {
@@ -258,6 +428,10 @@ export function ClipStagePreview({
                 swap={splitSwap}
                 filterCss={lookFilterCss}
                 scale={scale}
+                focusTop={focusTop}
+                focusBot={focusBot}
+                editable={Boolean(onSplitFocusChange)}
+                onFocusChange={onSplitFocusChange}
               />
             ) : (
               <video
@@ -379,6 +553,9 @@ export function ClipStagePreview({
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
           Soft ≈ navigateur ; export = Re-rendre.
           {lutHint ? " LUT : approx. soft, vrai grade au re-rendu." : ""}
+          {softSplit && onSplitFocusChange
+            ? " Glisse les cadres Haut/Bas, +/− pour zoomer."
+            : ""}
         </p>
       )}
     </div>

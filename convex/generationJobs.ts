@@ -799,6 +799,8 @@ export const applyClipPipelineResult = internalMutation({
             captionStyle: project?.captionStyle ?? "viral",
             layoutMode: project?.layoutMode ?? "smart",
             splitSwap: project?.splitSwap ?? false,
+            splitFocusTop: project?.splitFocusTop,
+            splitFocusBot: project?.splitFocusBot,
             voiceoverMode: project?.voiceoverMode ?? "off",
             audioEnhance: project?.audioEnhance ?? "off",
             lookFilter: project?.lookFilter ?? "off",

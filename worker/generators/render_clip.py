@@ -227,6 +227,8 @@ def render_clip(
     caption_style: str | None = None,
     layout_mode: str | None = None,
     split_swap: bool = False,
+    split_focus_top: dict[str, float] | None = None,
+    split_focus_bot: dict[str, float] | None = None,
     voiceover_mode: str | None = None,
     audio_enhance: str | None = None,
     punch_effect: str | None = None,
@@ -268,6 +270,8 @@ def render_clip(
         work,
         layout_mode=layout_mode,
         split_swap=bool(split_swap),
+        split_focus_top=split_focus_top,
+        split_focus_bot=split_focus_bot,
     )
 
     base_path = work / "clip_base.mp4"
