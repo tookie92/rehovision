@@ -8,11 +8,14 @@ Sur vlogs longs : viser 5–8 clips (pas seulement 2).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from typing import Any
 
 import requests
+
+log = logging.getLogger("rehovision-worker.propose_clips")
 
 TARGET_CLIP_SEC = 30.0
 MIN_CLIP_SEC = 20.0
@@ -21,6 +24,8 @@ MAX_CLIP_SEC = 45.0
 MAX_IOU = 0.42
 MIN_SCORE = 35
 MAX_CLIPS = 8
+# Budget chars pour Ollama (vlogs YT longs → sinon timeout / JSON cassé → "Clip N")
+MAX_TRANSCRIPT_CHARS = 14_000
 
 SYSTEM_PROMPT = """Tu es un monteur viral type Opus Clip / TikTok Reels.
 À partir d'un transcript horodaté, propose 5 à 8 clips prêts à poster.
@@ -31,7 +36,7 @@ Réponds UNIQUEMENT en JSON valide:
 {
   "clips": [
     {
-      "title": "titre accrocheur court",
+      "title": "titre accrocheur court (3–7 mots, FR, PAS « Clip 1 »)",
       "hookReason": "pourquoi ce passage marche (1 phrase concrète)",
       "viralScore": 78,
       "startSec": 12.5,
@@ -48,6 +53,7 @@ Réponds UNIQUEMENT en JSON valide:
   ]
 }
 Règles:
+- title OBLIGATOIRE : hook punchy en français (ex. « Posé un lapin ?! »), jamais « Clip 1/2 »
 - viralScore 0–100 : tension / émotion / clarté du hook / quotabilité
 - Le hook (phrase forte) dans les 3 premières secondes du clip
 - endSec - startSec ≈ 30s (idéal 25–35). JAMAIS sous 20s
@@ -93,6 +99,58 @@ def _format_transcript(transcript: dict[str, Any]) -> str:
         if text:
             lines.append(f"[{start:.1f}-{end:.1f}] {text}")
     return "\n".join(lines)
+
+
+def _sample_transcript_for_llm(body: str, max_chars: int = MAX_TRANSCRIPT_CHARS) -> str:
+    """Échantillonne début / milieu / fin si transcript trop long pour Ollama."""
+    if len(body) <= max_chars:
+        return body
+    lines = body.split("\n")
+    if len(lines) <= 40:
+        return body[:max_chars]
+    third = max(1, len(lines) // 3)
+    budget = max_chars // 3
+    head = "\n".join(lines[:third])[:budget]
+    mid_lines = lines[third : 2 * third]
+    mid = "\n".join(mid_lines)[:budget]
+    tail = "\n".join(lines[2 * third :])[:budget]
+    return (
+        f"{head}\n"
+        f"…[milieu omis]…\n"
+        f"{mid}\n"
+        f"…[suite omise]…\n"
+        f"{tail}"
+    )
+
+
+_GENERIC_TITLE = re.compile(
+    r"^(clip\s*\d*|hook\s*\d*|titre|untitled|sans titre)?$",
+    re.I,
+)
+
+
+def _title_from_caption(caption: str, order: int) -> str:
+    """Titre punchy depuis le texte (fallback si Ollama / heuristique)."""
+    raw = re.sub(r"\s+", " ", (caption or "").strip())
+    if not raw:
+        return f"Moment {order}"
+    # Première phrase / bout de phrase
+    chunk = re.split(r"[.!?\n]", raw, maxsplit=1)[0].strip() or raw
+    words = chunk.split()
+    if len(words) > 8:
+        chunk = " ".join(words[:8])
+    if len(chunk) > 56:
+        chunk = chunk[:53].rstrip() + "…"
+    if chunk and chunk[0].islower():
+        chunk = chunk[0].upper() + chunk[1:]
+    return chunk
+
+
+def _normalize_title(title: str, caption: str, order: int) -> str:
+    t = re.sub(r"\s+", " ", (title or "").strip())
+    if not t or _GENERIC_TITLE.match(t) or t.lower().startswith("clip "):
+        return _title_from_caption(caption, order)
+    return t[:120]
 
 
 def _normalize_window(
@@ -217,7 +275,7 @@ def _heuristic_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
             span = ne - ns
             clips.append(
                 {
-                    "title": f"Clip {order}",
+                    "title": _title_from_caption(caption, order),
                     "hookReason": "Passage dense (fallback ~30s)",
                     "viralScore": _heuristic_score(caption, span),
                     "startSec": ns,
@@ -266,7 +324,7 @@ def _parse_clips(raw: str, duration: float) -> list[dict[str, Any]]:
         data = json.loads(match.group(0))
 
     out: list[dict[str, Any]] = []
-    for item in data.get("clips") or []:
+    for i, item in enumerate(data.get("clips") or [], start=1):
         try:
             start = float(item["startSec"])
             end = float(item["endSec"])
@@ -285,7 +343,7 @@ def _parse_clips(raw: str, duration: float) -> list[dict[str, Any]]:
             score = _heuristic_score(caption, end - start)
         score = max(0, min(100, score))
         entry: dict[str, Any] = {
-            "title": str(item.get("title") or "Clip")[:120],
+            "title": _normalize_title(str(item.get("title") or ""), caption, i),
             "hookReason": str(item.get("hookReason") or "")[:300],
             "viralScore": score,
             "startSec": start,
@@ -308,23 +366,32 @@ def propose_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
     target = 6 if duration >= 600 else 5
     if duration >= 1200:
         target = 8
+    body_for_llm = _sample_transcript_for_llm(body)
     user = (
         f"Durée totale: {duration:.1f}s\n"
         f"Propose environ {target} clips (min 5, max {MAX_CLIPS}), "
         f"répartis sur TOUTE la durée.\n"
         f"Cible par clip: {TARGET_CLIP_SEC:.0f}s (min {MIN_CLIP_SEC:.0f}s)\n"
         f"Score chaque clip (viralScore). Évite les doublons.\n"
+        f"Chaque clip DOIT avoir un title accrocheur FR (pas « Clip N »).\n"
         f"Langue: {transcript.get('language', 'unknown')}\n\n"
-        f"Transcript:\n{body}"
+        f"Transcript:\n{body_for_llm}"
     )
 
     try:
         raw = _ollama_chat(SYSTEM_PROMPT, user)
         clips = _parse_clips(raw, duration or 9999)
         if clips:
+            for i, c in enumerate(clips, start=1):
+                c["title"] = _normalize_title(
+                    str(c.get("title") or ""),
+                    str(c.get("captionText") or ""),
+                    i,
+                )
             return clips
-    except Exception:
-        pass
+        log.warning("Ollama a renvoyé 0 clips parsables — fallback heuristique")
+    except Exception as e:
+        log.warning("propose_clips Ollama échoué (%s) — fallback heuristique", e)
 
     clips = _heuristic_clips(transcript)
     if not clips:
