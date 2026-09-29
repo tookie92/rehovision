@@ -1,5 +1,7 @@
 """
 Propose des clips viraux (hooks) à partir d'un transcript via Ollama.
+
+Cible Reels/TikTok : ~30s (pas des micro-cuts de 8s).
 """
 
 from __future__ import annotations
@@ -11,8 +13,14 @@ from typing import Any
 
 import requests
 
-SYSTEM_PROMPT = """Tu es un monteur viral type ChatCut / Opus Clip.
-À partir d'un transcript horodaté, propose 3 à 6 clips courts (15–60s) avec un fort hook.
+# Durée standard Reels / Shorts
+TARGET_CLIP_SEC = 30.0
+MIN_CLIP_SEC = 20.0
+MAX_CLIP_SEC = 45.0
+
+SYSTEM_PROMPT = """Tu es un monteur viral type Opus Clip / TikTok Reels.
+À partir d'un transcript horodaté, propose 3 à 6 clips prêts à poster.
+Durée STANDARD = 30 secondes (plage acceptée 25–35s, jamais sous 20s).
 Réponds UNIQUEMENT en JSON valide:
 {
   "clips": [
@@ -20,7 +28,7 @@ Réponds UNIQUEMENT en JSON valide:
       "title": "titre accrocheur court",
       "hookReason": "pourquoi ce passage marche",
       "startSec": 12.5,
-      "endSec": 42.0,
+      "endSec": 42.5,
       "captionText": "texte principal du clip pour sous-titres",
       "broll": [
         {
@@ -34,7 +42,8 @@ Réponds UNIQUEMENT en JSON valide:
 }
 Règles:
 - startSec/endSec dans les bornes du transcript
-- endSec - startSec entre 15 et 60
+- endSec - startSec ≈ 30s (idéal). Min 25s, max 35s. JAMAIS sous 20s.
+- Le hook (phrase forte) dans les 3 premières secondes du clip
 - clips non chevauchants autant que possible
 - captionText = paraphrase claire du passage (FR si transcript FR)
 - broll optionnel : 0–2 cutaways, relStartSec relatif au début du clip, prompt EN sans texte dans l'image
@@ -77,15 +86,64 @@ def _format_transcript(transcript: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _normalize_window(
+    start: float,
+    end: float,
+    video_duration: float,
+) -> tuple[float, float] | None:
+    """Force une fenêtre proche de TARGET_CLIP_SEC dans les bornes vidéo."""
+    if end <= start:
+        return None
+
+    start = max(0.0, start)
+    if video_duration > 0:
+        end = min(video_duration, end)
+    span = end - start
+    if span <= 0:
+        return None
+
+    # Trop long → garder le début (hook) et couper à ~30s
+    if span > MAX_CLIP_SEC:
+        end = start + TARGET_CLIP_SEC
+        if video_duration > 0:
+            end = min(end, video_duration)
+        span = end - start
+
+    # Trop court → étendre autour du milieu / vers l'avant puis l'arrière
+    if span < MIN_CLIP_SEC:
+        need = TARGET_CLIP_SEC - span
+        half = need / 2.0
+        new_start = max(0.0, start - half)
+        new_end = end + (need - (start - new_start))
+        if video_duration > 0 and new_end > video_duration:
+            overflow = new_end - video_duration
+            new_end = video_duration
+            new_start = max(0.0, new_start - overflow)
+        start, end = new_start, new_end
+        span = end - start
+
+    # Vidéo source trop courte pour un reel 30s
+    if video_duration > 0 and video_duration < MIN_CLIP_SEC:
+        return (0.0, video_duration) if video_duration >= 8 else None
+
+    if span < MIN_CLIP_SEC:
+        # Impossible d'atteindre 20s (fin de vidéo) — garder si ≥15s, sinon drop
+        if span < 15.0:
+            return None
+        return (round(start, 2), round(end, 2))
+
+    return (round(start, 2), round(end, 2))
+
+
 def _heuristic_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
-    """Fallback si le LLM échoue : découpe en fenêtres ~30s sur segments denses."""
+    """Fallback si le LLM échoue : fenêtres ~30s sur segments denses."""
     segments = list(transcript.get("segments") or [])
     if not segments:
         return []
 
     duration = float(transcript.get("duration") or segments[-1].get("end", 30))
     clips: list[dict[str, Any]] = []
-    window = 30.0
+    window = TARGET_CLIP_SEC
     start = float(segments[0].get("start", 0))
     order = 1
     while start < duration - 10 and order <= 5:
@@ -96,13 +154,15 @@ def _heuristic_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
             if float(s.get("end", 0)) > start and float(s.get("start", 0)) < end
         ]
         caption = " ".join(t for t in texts if t)[:280]
-        if caption:
+        normalized = _normalize_window(start, end, duration)
+        if caption and normalized:
+            ns, ne = normalized
             clips.append(
                 {
                     "title": f"Clip {order}",
-                    "hookReason": "Passage dense (fallback)",
-                    "startSec": round(start, 2),
-                    "endSec": round(end, 2),
+                    "hookReason": "Passage dense (fallback ~30s)",
+                    "startSec": ns,
+                    "endSec": ne,
                     "captionText": caption,
                 }
             )
@@ -153,19 +213,15 @@ def _parse_clips(raw: str, duration: float) -> list[dict[str, Any]]:
             end = float(item["endSec"])
         except (KeyError, TypeError, ValueError):
             continue
-        if end <= start:
+        normalized = _normalize_window(start, end, duration if duration > 0 else 0)
+        if not normalized:
             continue
-        start = max(0.0, start)
-        end = min(duration, end) if duration > 0 else end
-        if end - start < 8:
-            continue
-        if end - start > 75:
-            end = start + 60
+        start, end = normalized
         entry: dict[str, Any] = {
             "title": str(item.get("title") or "Clip")[:120],
             "hookReason": str(item.get("hookReason") or "")[:300],
-            "startSec": round(start, 2),
-            "endSec": round(end, 2),
+            "startSec": start,
+            "endSec": end,
             "captionText": str(item.get("captionText") or "")[:500],
         }
         broll = _parse_broll(item)
@@ -183,6 +239,7 @@ def propose_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
 
     user = (
         f"Durée totale: {duration:.1f}s\n"
+        f"Cible par clip: {TARGET_CLIP_SEC:.0f}s (min {MIN_CLIP_SEC:.0f}s)\n"
         f"Langue: {transcript.get('language', 'unknown')}\n\n"
         f"Transcript:\n{body}"
     )

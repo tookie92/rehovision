@@ -88,6 +88,7 @@ Pas d’éditeur Muse. Des **presets** au re-rendu :
 ### Étape 4 — Export & partage
 
 - [ ] Presets durée / plateforme (TikTok / Reels / Shorts) si pertinent
+- [x] Durée cible hooks **~30s** (min 20s, max 45s) — plus de cuts à 8s
 - [ ] Nom de fichier + meta clairs
 - [ ] (Plus tard) deep-link share — optionnel
 
