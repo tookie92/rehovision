@@ -26,10 +26,7 @@ export function friendlyPipelineError(msg: string): string {
     lower.includes("not a bot")
   ) {
     return (
-      "YouTube bloque le téléchargement (anti-bot). " +
-      "Sur le worker : place les cookies dans worker/cookies/youtube.txt, " +
-      "ajoute YT_COOKIES=./cookies/youtube.txt dans worker/.env, redémarre le worker, " +
-      "puis Relancer — ou importe un fichier MP4 depuis Import."
+      "YouTube bloque le téléchargement. Importe un fichier MP4, ou configure les cookies sur le worker puis Relancer."
     );
   }
   if (msg.length > 320) return `${msg.slice(0, 320)}…`;
@@ -37,7 +34,7 @@ export function friendlyPipelineError(msg: string): string {
 }
 
 /**
- * Stepper visuel du funnel clips (source → Whisper → hooks → rendu).
+ * Stepper compact du funnel (source → analyse → hooks → rendu).
  */
 export function ClipPipelineProgress({
   status,
@@ -51,12 +48,12 @@ export function ClipPipelineProgress({
   const ready = status === "ready";
 
   return (
-    <div className="rounded-xl border border-border bg-card/40 px-4 py-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-          Pipeline
-        </p>
-        <span className={`timecode text-xs ${projectStatusTone(status)}`}>
+    <div className="rounded-2xl border border-border bg-card/50 px-4 py-4 md:px-5">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-foreground">Progression</p>
+        <span
+          className={`rounded-md px-2 py-0.5 text-xs font-medium ${projectStatusTone(status)}`}
+        >
           {active && (
             <span className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-amber-400 align-middle" />
           )}
@@ -68,24 +65,26 @@ export function ClipPipelineProgress({
         {PIPELINE_STEPS.map((step, i) => {
           const done = ready || (!failed && current > i);
           const currentStep =
-            !ready && !failed && (current === i || (status === "uploading" && i === 0));
+            !ready &&
+            !failed &&
+            (current === i || (status === "uploading" && i === 0));
           return (
             <li
               key={step.key}
               className={
                 done
-                  ? "rounded-lg border border-signal/30 bg-signal/5 px-3 py-2"
+                  ? "rounded-xl bg-signal/10 px-3 py-2.5 ring-1 ring-signal/25"
                   : currentStep
-                    ? "rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2"
+                    ? "rounded-xl bg-amber-500/10 px-3 py-2.5 ring-1 ring-amber-500/30"
                     : failed && current >= 0 && i === Math.max(current, 0)
-                      ? "rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2"
-                      : "rounded-lg border border-border/60 px-3 py-2 opacity-50"
+                      ? "rounded-xl bg-destructive/10 px-3 py-2.5 ring-1 ring-destructive/30"
+                      : "rounded-xl bg-secondary/40 px-3 py-2.5 opacity-55"
               }
             >
-              <p className="timecode text-[10px] text-muted-foreground">
-                0{i + 1}
+              <p className="text-[11px] text-muted-foreground">Étape {i + 1}</p>
+              <p className="mt-0.5 text-sm font-medium text-foreground">
+                {step.label}
               </p>
-              <p className="mt-0.5 text-sm text-foreground">{step.label}</p>
             </li>
           );
         })}
@@ -96,7 +95,10 @@ export function ClipPipelineProgress({
       </p>
 
       {errorMessage && (
-        <p className="mt-2 text-sm text-destructive" role="alert">
+        <p
+          className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          role="alert"
+        >
           {friendlyPipelineError(errorMessage)}
         </p>
       )}

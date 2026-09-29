@@ -64,12 +64,8 @@ export function ClipManualTrim({
   }
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-card/40 px-4 py-4">
-      <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-        Trim manuel
-      </p>
-
-      <div className="overflow-hidden rounded-lg border border-border bg-black">
+    <div className="space-y-4">
+      <div className="overflow-hidden rounded-xl border border-border bg-black">
         <video
           ref={videoRef}
           src={sourceUrl}

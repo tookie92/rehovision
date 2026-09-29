@@ -1,10 +1,16 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
+import {
+  FilmStrip,
+  LinkSimple,
+  UploadSimple,
+  SpinnerGap,
+} from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,17 +46,35 @@ function uploadWithProgress(
       onProgress(Math.min(99, Math.round((ev.loaded / ev.total) * 100)));
     };
     xhr.onload = () => {
-      if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new Error(`Upload échoué (${xhr.status})`));
-        return;
-      }
       const body =
         typeof xhr.response === "object" && xhr.response !== null
           ? (xhr.response as Record<string, unknown>)
-          : (JSON.parse(String(xhr.responseText || "{}")) as Record<
-              string,
-              unknown
-            >);
+          : (() => {
+              try {
+                return JSON.parse(String(xhr.responseText || "{}")) as Record<
+                  string,
+                  unknown
+                >;
+              } catch {
+                return {} as Record<string, unknown>;
+              }
+            })();
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const detail =
+          typeof body.error === "string"
+            ? body.error
+            : typeof body.message === "string"
+              ? body.message
+              : "";
+        reject(
+          new Error(
+            detail
+              ? `Upload échoué (${xhr.status}): ${detail}`
+              : `Upload échoué (${xhr.status})`,
+          ),
+        );
+        return;
+      }
       onProgress(100);
       resolve(body);
     };
@@ -60,8 +84,15 @@ function uploadWithProgress(
   });
 }
 
+function formatBytes(n: number): string {
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} Ko`;
+  if (n < 1024 * 1024 * 1024)
+    return `${(Math.round((n / (1024 * 1024)) * 10) / 10).toFixed(1)} Mo`;
+  return `${(Math.round((n / (1024 * 1024 * 1024)) * 10) / 10).toFixed(1)} Go`;
+}
+
 /**
- * Atelier Opus Clip : lien YouTube OU fichier → clips verticaux.
+ * Atelier Opus-style : une zone d’import claire + grille de projets.
  */
 export default function DashboardPage() {
   const router = useRouter();
@@ -73,21 +104,34 @@ export default function DashboardPage() {
   );
   const createFromYoutube = useMutation(api.clipProjects.createFromYoutube);
 
-  /** Si true, POST /api/worker-upload → disque Ubuntu (voir .env.local). */
   const useWorkerUpload =
     process.env.NEXT_PUBLIC_WORKER_UPLOAD === "1" ||
     process.env.NEXT_PUBLIC_WORKER_UPLOAD === "true";
 
   const fileRef = useRef<HTMLInputElement>(null);
-  const [mode, setMode] = useState<Mode>("youtube");
+  const [mode, setMode] = useState<Mode>("file");
   const [title, setTitle] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [fileSizeMb, setFileSizeMb] = useState<number | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [pending, setPending] = useState(false);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [phase, setPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const pickFile = useCallback((f: File | null | undefined) => {
+    if (!f) {
+      setFile(null);
+      return;
+    }
+    if (!f.type.startsWith("video/") && !f.type.startsWith("audio/")) {
+      setError("Choisis une vidéo (MP4, MOV, WebM…)");
+      return;
+    }
+    setError(null);
+    setFile(f);
+    setMode("file");
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -112,9 +156,8 @@ export default function DashboardPage() {
         return;
       }
 
-      const file = fileRef.current?.files?.[0];
       if (!file) {
-        setError("Choisis un fichier vidéo");
+        setError("Glisse une vidéo ou clique pour choisir un fichier");
         setPending(false);
         return;
       }
@@ -125,7 +168,7 @@ export default function DashboardPage() {
       }
       if (!useWorkerUpload && file.size > 500 * 1024 * 1024) {
         setError(
-          "Sans upload worker local, max ~500 Mo via Convex. Configure NEXT_PUBLIC_WORKER_UPLOAD_URL.",
+          "Sans upload worker local, max ~500 Mo. Configure NEXT_PUBLIC_WORKER_UPLOAD=1.",
         );
         setPending(false);
         return;
@@ -134,7 +177,7 @@ export default function DashboardPage() {
       const clipTitle = title.trim() || file.name.replace(/\.[^.]+$/, "");
 
       if (useWorkerUpload) {
-        setPhase("Envoi vers le worker (disque local)…");
+        setPhase("Envoi vers le worker…");
         setUploadPct(0);
         const body = await uploadWithProgress(
           "/api/worker-upload",
@@ -149,7 +192,7 @@ export default function DashboardPage() {
             String(body.error || "Réponse worker incomplete (fileId/mediaUrl)"),
           );
         }
-        setPhase("Lancement Whisper…");
+        setPhase("Lancement…");
         setUploadPct(null);
         const projectId = await createFromLocalUpload({
           title: clipTitle,
@@ -160,14 +203,14 @@ export default function DashboardPage() {
         return;
       }
 
-      setPhase("Préparation upload Convex…");
+      setPhase("Préparation…");
       const uploadUrl = await generateUploadUrl({});
-      setPhase("Envoi vers Convex…");
+      setPhase("Envoi…");
       setUploadPct(0);
       const body = await uploadWithProgress(uploadUrl, file, setUploadPct);
       const storageId = String(body.storageId || "");
       if (!storageId) throw new Error("Réponse upload sans storageId");
-      setPhase("Lancement Whisper…");
+      setPhase("Lancement…");
       setUploadPct(null);
       const projectId = await createFromUpload({
         title: clipTitle,
@@ -183,75 +226,154 @@ export default function DashboardPage() {
   }
 
   const submitLabel = (() => {
-    if (!pending) return "Lancer le découpage";
+    if (!pending) return mode === "youtube" ? "Générer les clips" : "Lancer";
     if (mode === "youtube") return phase ?? "Création…";
-    if (uploadPct != null) return `Upload ${uploadPct}%…`;
-    return phase ?? "Upload…";
+    if (uploadPct != null) return `Envoi ${uploadPct}%`;
+    return phase ?? "Envoi…";
   })();
 
   return (
     <div>
       <DashboardNav />
 
-      <div className="mb-8">
-        <p className="timecode text-xs text-signal">IMPORT</p>
-        <h1 className="mt-2 font-display text-4xl tracking-tight">
-          YouTube ou fichier → clips
+      <header className="mb-8 max-w-2xl">
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+          Transforme un vlog en clips
         </h1>
-        <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-          Colle un lien ou importe une vidéo. Transcription → hooks → coupe
-          9:16 prête à poster.
+        <p className="mt-2 text-base text-muted-foreground">
+          Importe une vidéo. L’IA coupe les meilleurs moments en 9:16 prêts à
+          poster.
         </p>
-      </div>
+      </header>
 
-      <div
-        className="mb-4 flex gap-1"
-        role="tablist"
-        aria-label="Source d’import"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === "youtube"}
-          onClick={() => !pending && setMode("youtube")}
-          className={
-            mode === "youtube"
-              ? "cursor-pointer rounded-md bg-secondary px-3 py-1.5 text-sm text-foreground"
-              : "cursor-pointer rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-          }
+      <form onSubmit={onSubmit} className="mb-14">
+        <div
+          role="tablist"
+          aria-label="Source"
+          className="mb-3 inline-flex rounded-xl border border-border bg-card/60 p-1"
         >
-          Lien YouTube
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === "file"}
-          onClick={() => !pending && setMode("file")}
-          className={
-            mode === "file"
-              ? "cursor-pointer rounded-md bg-secondary px-3 py-1.5 text-sm text-foreground"
-              : "cursor-pointer rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-          }
-        >
-          Fichier vidéo
-        </button>
-      </div>
-
-      <form onSubmit={onSubmit} className="mb-12 max-w-xl space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="title">Titre (optionnel)</Label>
-          <Input
-            id="title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="ex. Podcast #12"
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "file"}
             disabled={pending}
-          />
+            onClick={() => setMode("file")}
+            className={
+              mode === "file"
+                ? "inline-flex cursor-pointer items-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-medium text-foreground"
+                : "inline-flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
+            }
+          >
+            <UploadSimple className="size-4" weight="bold" />
+            Fichier
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "youtube"}
+            disabled={pending}
+            onClick={() => setMode("youtube")}
+            className={
+              mode === "youtube"
+                ? "inline-flex cursor-pointer items-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-medium text-foreground"
+                : "inline-flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
+            }
+          >
+            <LinkSimple className="size-4" weight="bold" />
+            YouTube
+          </button>
         </div>
 
-        {mode === "youtube" ? (
-          <div className="space-y-2">
-            <Label htmlFor="yt">Lien YouTube</Label>
+        {mode === "file" ? (
+          <div
+            onDragEnter={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              pickFile(e.dataTransfer.files?.[0]);
+            }}
+            className={
+              dragOver
+                ? "relative rounded-2xl border-2 border-dashed border-signal bg-signal/5 px-6 py-14 transition-colors"
+                : "relative rounded-2xl border-2 border-dashed border-border bg-card/40 px-6 py-14 transition-colors hover:border-muted-foreground/40"
+            }
+          >
+            <input
+              ref={fileRef}
+              type="file"
+              accept="video/*,audio/*"
+              disabled={pending}
+              className="sr-only"
+              id="atelier-file"
+              onChange={(e) => pickFile(e.target.files?.[0])}
+            />
+            <div className="mx-auto flex max-w-md flex-col items-center text-center">
+              <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-secondary text-signal">
+                <FilmStrip className="size-7" weight="duotone" />
+              </div>
+              {file ? (
+                <>
+                  <p className="text-base font-medium text-foreground">
+                    {file.name}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {formatBytes(file.size)}
+                    {useWorkerUpload ? " · upload local" : ""}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => fileRef.current?.click()}
+                    className="mt-3 cursor-pointer text-sm text-signal underline-offset-4 hover:underline"
+                  >
+                    Changer de fichier
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-base font-medium text-foreground">
+                    Glisse ta vidéo ici
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    MP4, MOV, WebM
+                    {useWorkerUpload ? " · jusqu’à 2 Go" : " · jusqu’à ~500 Mo"}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={pending}
+                    className="mt-5 cursor-pointer"
+                    onClick={() => fileRef.current?.click()}
+                  >
+                    Choisir un fichier
+                  </Button>
+                </>
+              )}
+            </div>
+            {pending && uploadPct != null && (
+              <div className="absolute inset-x-6 bottom-6">
+                <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className="h-full rounded-full bg-signal transition-[width] duration-200"
+                    style={{ width: `${uploadPct}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-border bg-card/40 px-5 py-6 md:px-6">
+            <Label htmlFor="yt" className="text-sm font-medium">
+              Lien YouTube
+            </Label>
             <Input
               id="yt"
               type="url"
@@ -259,108 +381,116 @@ export default function DashboardPage() {
               onChange={(e) => setYoutubeUrl(e.target.value)}
               placeholder="https://www.youtube.com/watch?v=…"
               disabled={pending}
-              className="h-11"
+              className="mt-2 h-12 text-base"
               autoComplete="off"
             />
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <Label htmlFor="file">Fichier</Label>
-            <Input
-              id="file"
-              ref={fileRef}
-              type="file"
-              accept="video/*,audio/*"
-              disabled={pending}
-              className="cursor-pointer"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                setFileName(f?.name ?? null);
-                setFileSizeMb(
-                  f ? Math.round((f.size / (1024 * 1024)) * 10) / 10 : null,
-                );
-              }}
-            />
-            {fileName && (
-              <p className="text-xs text-muted-foreground truncate">
-                {fileName}
-                {fileSizeMb != null ? ` · ${fileSizeMb} Mo` : ""}
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">
-              {useWorkerUpload
-                ? "Upload via worker Ubuntu (gros vlogs OK)."
-                : "Gros vlogs : mets NEXT_PUBLIC_WORKER_UPLOAD=1 + WORKER_UPLOAD_URL dans .env.local."}
+            <p className="mt-2 text-xs text-muted-foreground">
+              Si YouTube bloque le téléchargement, importe plutôt un fichier
+              MP4.
             </p>
           </div>
         )}
 
-        {error && (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-        <Button type="submit" disabled={pending} className="cursor-pointer">
-          {submitLabel}
-        </Button>
-        {pending && mode === "file" && uploadPct != null && (
-          <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
-            <div
-              className="h-full bg-signal transition-[width] duration-200"
-              style={{ width: `${uploadPct}%` }}
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="min-w-0 flex-1 space-y-2">
+            <Label htmlFor="title" className="text-sm text-muted-foreground">
+              Titre du projet (optionnel)
+            </Label>
+            <Input
+              id="title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={
+                file ? file.name.replace(/\.[^.]+$/, "") : "ex. Vlog Bali"
+              }
+              disabled={pending}
+              className="h-11"
             />
           </div>
+          <Button
+            type="submit"
+            disabled={pending || (mode === "file" && !file)}
+            size="lg"
+            className="h-11 shrink-0 cursor-pointer px-8"
+          >
+            {pending && (
+              <SpinnerGap className="size-4 animate-spin" weight="bold" />
+            )}
+            {submitLabel}
+          </Button>
+        </div>
+
+        {error && (
+          <p
+            className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            role="alert"
+          >
+            {error}
+          </p>
         )}
       </form>
 
       <section>
         <div className="mb-4 flex items-baseline justify-between gap-3">
-          <h2 className="font-display text-xl">Projets</h2>
+          <h2 className="text-lg font-semibold tracking-tight">Mes projets</h2>
           {projects && projects.length > 0 && (
-            <p className="timecode text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {projects.length} récent{projects.length > 1 ? "s" : ""}
             </p>
           )}
         </div>
-        {projects === undefined && <Skeleton className="h-20 w-full" />}
-        {projects && projects.length === 0 && (
-          <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-            Aucun projet. Importe une source ci-dessus pour générer des clips.
-          </p>
+
+        {projects === undefined && (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <Skeleton className="h-28 rounded-xl" />
+            <Skeleton className="h-28 rounded-xl" />
+            <Skeleton className="h-28 rounded-xl" />
+          </div>
         )}
+
+        {projects && projects.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-border px-6 py-12 text-center">
+            <p className="text-sm text-muted-foreground">
+              Aucun projet pour l’instant. Importe une vidéo ci-dessus.
+            </p>
+          </div>
+        )}
+
         {projects && projects.length > 0 && (
-          <ul className="divide-y divide-border border-y border-border">
+          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => {
               const active = isPipelineActive(p.status);
               return (
                 <li key={p._id}>
                   <Link
                     href={`/dashboard/clips/${p._id}`}
-                    className="flex items-center justify-between gap-4 py-4 transition-colors hover:bg-secondary/40"
+                    className="group flex h-full flex-col rounded-xl border border-border bg-card/50 p-4 transition-colors hover:border-signal/35 hover:bg-card"
                   >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{p.title}</p>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {p.clipCount > 0
-                          ? `${p.readyClipCount}/${p.clipCount} clips prêts`
-                          : p.sourceYoutubeUrl
-                            ? p.sourceYoutubeUrl
-                            : p.durationSeconds
-                              ? `${Math.round(p.durationSeconds)}s source`
-                              : "Fichier"}
-                        {p.failedClipCount > 0
-                          ? ` · ${p.failedClipCount} échec${p.failedClipCount > 1 ? "s" : ""}`
-                          : ""}
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground group-hover:text-signal">
+                        {p.title}
                       </p>
+                      <span
+                        className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium ${projectStatusTone(p.status)}`}
+                      >
+                        {active && (
+                          <span className="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-amber-400 align-middle" />
+                        )}
+                        {PROJECT_STATUS_LABEL[p.status] ?? p.status}
+                      </span>
                     </div>
-                    <span
-                      className={`timecode shrink-0 text-xs ${projectStatusTone(p.status)}`}
-                    >
-                      {active && (
-                        <span className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-amber-400 align-middle" />
-                      )}
-                      {PROJECT_STATUS_LABEL[p.status] ?? p.status}
-                    </span>
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      {p.clipCount > 0
+                        ? `${p.readyClipCount}/${p.clipCount} clips prêts`
+                        : p.sourceYoutubeUrl
+                          ? "YouTube"
+                          : p.durationSeconds
+                            ? `${Math.round(p.durationSeconds)}s`
+                            : "Fichier"}
+                      {p.failedClipCount > 0
+                        ? ` · ${p.failedClipCount} échec${p.failedClipCount > 1 ? "s" : ""}`
+                        : ""}
+                    </p>
                   </Link>
                 </li>
               );

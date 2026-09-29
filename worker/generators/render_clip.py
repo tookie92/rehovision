@@ -23,6 +23,7 @@ from generators.captions import (
     write_viral_ass,
 )
 from generators.reframe import build_reframe_vf
+from generators.viral_polish import apply_viral_polish
 
 log = logging.getLogger("rehovision-worker.render_clip")
 
@@ -227,6 +228,12 @@ def render_clip(
     layout_mode: str | None = None,
     voiceover_mode: str | None = None,
     audio_enhance: str | None = None,
+    punch_effect: str | None = None,
+    logo_url: str | None = None,
+    logo_corner: str | None = None,
+    logo_opacity: float | None = None,
+    music_url: str | None = None,
+    music_volume: float | None = None,
 ) -> Path:
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg introuvable dans le PATH")
@@ -293,6 +300,12 @@ def render_clip(
                 layout_mode=layout_mode,
                 voiceover_mode=voiceover_mode,
                 audio_enhance=audio_enhance,
+                punch_effect=punch_effect,
+                logo_url=logo_url,
+                logo_corner=logo_corner,
+                logo_opacity=logo_opacity,
+                music_url=music_url,
+                music_volume=music_volume,
             )
         log.warning("reframe échoué — letterbox")
         _ffmpeg_cut(
@@ -326,6 +339,18 @@ def render_clip(
         except Exception as e:
             log.warning("B-roll ignoré (%s)", e)
 
+    # Pack viral : punch → logo → (après VO) musique
+    current = apply_viral_polish(
+        current,
+        work,
+        punch_effect=punch_effect,
+        logo_url=logo_url,
+        logo_corner=logo_corner,
+        logo_opacity=logo_opacity,
+        music_url=None,  # musique après VO
+        music_volume=None,
+    )
+
     vo_mode = (voiceover_mode or "off").strip().lower()
     if vo_mode not in ("", "off"):
         vo_out = work / "clip_vo.mp4"
@@ -339,6 +364,16 @@ def render_clip(
         if ok:
             current = vo_out
             log.info("Voiceover mode=%s appliqué", vo_mode)
+
+    if music_url and str(music_url).strip():
+        current = apply_viral_polish(
+            current,
+            work,
+            punch_effect="off",
+            logo_url=None,
+            music_url=music_url,
+            music_volume=music_volume,
+        )
 
     ae_mode = (audio_enhance or "off").strip().lower()
     if ae_mode not in ("", "off"):

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   Show,
   SignInButton,
@@ -10,37 +11,46 @@ import {
 import { Button } from "@/components/ui/button";
 
 export function SiteHeader() {
+  const pathname = usePathname();
+  const inAtelier = pathname.startsWith("/dashboard");
+
   return (
-    <header className="relative z-20 flex items-center justify-between px-6 py-5 md:px-10">
-      <Link
-        href="/"
-        className="font-display text-2xl tracking-tight text-foreground"
-      >
-        Rehovision
-      </Link>
-      <nav className="flex items-center gap-1 sm:gap-2">
-        <Show when="signed-in">
-          <Link
-            href="/dashboard"
-            className="rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Atelier
-          </Link>
-          <UserButton />
-        </Show>
-        <Show when="signed-out">
-          <SignInButton mode="modal">
-            <Button variant="ghost" size="sm" className="cursor-pointer">
-              Connexion
-            </Button>
-          </SignInButton>
-          <SignUpButton mode="modal">
-            <Button size="sm" className="cursor-pointer">
-              Commencer
-            </Button>
-          </SignUpButton>
-        </Show>
-      </nav>
+    <header className="sticky top-0 z-20 border-b border-border/60 bg-background/85 backdrop-blur-md">
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-5 md:px-8">
+        <Link
+          href={inAtelier ? "/dashboard" : "/"}
+          className="text-lg font-semibold tracking-tight text-foreground"
+        >
+          Rehovision
+        </Link>
+        <nav className="flex items-center gap-1 sm:gap-2">
+          <Show when="signed-in">
+            <Link
+              href="/dashboard"
+              className={
+                inAtelier
+                  ? "rounded-lg bg-secondary px-3 py-1.5 text-sm font-medium text-foreground"
+                  : "rounded-lg px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              }
+            >
+              Atelier
+            </Link>
+            <UserButton />
+          </Show>
+          <Show when="signed-out">
+            <SignInButton mode="modal">
+              <Button variant="ghost" size="sm" className="cursor-pointer">
+                Connexion
+              </Button>
+            </SignInButton>
+            <SignUpButton mode="modal">
+              <Button size="sm" className="cursor-pointer">
+                Commencer
+              </Button>
+            </SignUpButton>
+          </Show>
+        </nav>
+      </div>
     </header>
   );
 }

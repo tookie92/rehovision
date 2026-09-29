@@ -101,10 +101,8 @@ class UploadHandler(BaseHTTPRequestHandler):
             self._send_json(401, {"error": "unauthorized"})
             return
 
-        length = int(self.headers.get("Content-Length") or "0")
-        if length <= 0:
-            self._send_json(400, {"error": "empty body"})
-            return
+        length_hdr = (self.headers.get("Content-Length") or "").strip()
+        length = int(length_hdr) if length_hdr.isdigit() else -1
         # ~2 Go soft limit
         if length > 2 * 1024 * 1024 * 1024:
             self._send_json(413, {"error": "file too large (max 2GB)"})
@@ -119,18 +117,45 @@ class UploadHandler(BaseHTTPRequestHandler):
         file_id = str(uuid.uuid4())
         dest = media_root() / "uploads" / f"{file_id}{ext}"
 
-        remaining = length
-        with dest.open("wb") as f:
-            while remaining > 0:
-                chunk = self.rfile.read(min(1024 * 1024, remaining))
-                if not chunk:
-                    break
-                f.write(chunk)
-                remaining -= len(chunk)
+        try:
+            with dest.open("wb") as f:
+                if length > 0:
+                    remaining = length
+                    while remaining > 0:
+                        chunk = self.rfile.read(min(1024 * 1024, remaining))
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        remaining -= len(chunk)
+                else:
+                    # Chunked / pas de Content-Length (proxy Next) — lire jusqu'à EOF
+                    # Limite soft 2 Go
+                    written = 0
+                    max_bytes = 2 * 1024 * 1024 * 1024
+                    while written < max_bytes:
+                        chunk = self.rfile.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        written += len(chunk)
+                    if written >= max_bytes:
+                        dest.unlink(missing_ok=True)
+                        self._send_json(413, {"error": "file too large (max 2GB)"})
+                        return
+        except Exception as e:
+            dest.unlink(missing_ok=True)
+            log.exception("Write upload failed")
+            self._send_json(500, {"error": f"write failed: {e}"})
+            return
 
         if not dest.is_file() or dest.stat().st_size == 0:
             dest.unlink(missing_ok=True)
-            self._send_json(500, {"error": "write failed"})
+            self._send_json(
+                400,
+                {
+                    "error": "empty body (Content-Length manquant ou flux vide)",
+                },
+            )
             return
 
         base = public_base_url()

@@ -34,6 +34,7 @@ Règle : **une priorité à la fois**. Cocher avant de passer à la suivante.
 - [x] Audio enhance Light (denoise + loudnorm)
 - [x] Upload local worker (gros vlogs, hors Convex)
 - [x] Trim drag In/Out + ajuster clip existant
+- [x] Pack viral : logo + musique ducking + punch
 - [x] Doc cookies YouTube (`worker/cookies/README.md`)
 
 ---
@@ -76,9 +77,9 @@ Sans ça, le reste est inutile.
 
 Pas d’éditeur Muse. Des **presets** au re-rendu :
 
-- [ ] **Logo / watermark** (upload PNG + coin + opacité)
-- [ ] **Musique** : upload bed + volume + ducking sous la parole
-- [ ] **1–2 effets punch** (zoom punch début, flash cut, ou grain léger) — presets, pas timeline
+- [x] **Logo / watermark** (upload PNG + coin + opacité)
+- [x] **Musique** : upload bed + volume + ducking sous la parole
+- [x] **1–2 effets punch** (zoom, flash, grain) — presets, pas timeline
 
 **Critère de done :** un clip avec logo + bed + 1 effet, sans ouvrir CapCut.
 

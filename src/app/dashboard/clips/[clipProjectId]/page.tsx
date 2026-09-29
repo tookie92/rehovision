@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
+import { ArrowLeft, DownloadSimple } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardNav } from "@/components/DashboardNav";
@@ -25,6 +26,8 @@ import type {
   AudioEnhanceId,
   CaptionStyleId,
   LayoutModeId,
+  LogoCornerId,
+  PunchEffectId,
   VoiceoverModeId,
 } from "@/lib/renderPresets";
 
@@ -35,6 +38,9 @@ export default function ClipProjectPage() {
   const retry = useMutation(api.clipProjects.retry);
   const retryFailedClips = useMutation(api.clipProjects.retryFailedClips);
   const updateRenderOptions = useMutation(api.clipProjects.updateRenderOptions);
+  const generateUploadUrl = useMutation(api.clipProjects.generateUploadUrl);
+  const setLogoAsset = useMutation(api.clipProjects.setLogoAsset);
+  const setMusicAsset = useMutation(api.clipProjects.setMusicAsset);
   const rerenderAll = useMutation(api.clipProjects.rerenderAll);
   const createManualClip = useMutation(api.clipProjects.createManualClip);
   const updateClipTrim = useMutation(api.clipProjects.updateClipTrim);
@@ -44,6 +50,7 @@ export default function ClipProjectPage() {
   const [editingClipId, setEditingClipId] = useState<Id<"clips"> | null>(null);
   const [savingTrim, setSavingTrim] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [toolsOpen, setToolsOpen] = useState(false);
 
   async function onRetryPipeline() {
     setRetryError(null);
@@ -78,6 +85,12 @@ export default function ClipProjectPage() {
       layoutMode: LayoutModeId;
       voiceoverMode: VoiceoverModeId;
       audioEnhance: AudioEnhanceId;
+      punchEffect: PunchEffectId;
+      logoCorner: LogoCornerId;
+      logoOpacity: number;
+      musicVolume: number;
+      clearLogo: boolean;
+      clearMusic: boolean;
     }>,
   ) {
     setRetryError(null);
@@ -88,11 +101,55 @@ export default function ClipProjectPage() {
     }
   }
 
+  async function uploadLogo(file: File) {
+    if (!file.type.startsWith("image/")) {
+      throw new Error("Logo : PNG/JPG/WebP");
+    }
+    const uploadUrl = await generateUploadUrl({});
+    const res = await fetch(uploadUrl, {
+      method: "POST",
+      headers: { "Content-Type": file.type },
+      body: file,
+    });
+    if (!res.ok) throw new Error(`Upload logo (${res.status})`);
+    const { storageId } = (await res.json()) as { storageId: string };
+    await setLogoAsset({
+      clipProjectId,
+      storageId: storageId as never,
+    });
+  }
+
+  async function uploadMusic(file: File) {
+    if (!file.type.startsWith("audio/") && !/\.(mp3|wav|m4a)$/i.test(file.name)) {
+      throw new Error("Musique : MP3/WAV");
+    }
+    const uploadUrl = await generateUploadUrl({});
+    const res = await fetch(uploadUrl, {
+      method: "POST",
+      headers: { "Content-Type": file.type || "audio/mpeg" },
+      body: file,
+    });
+    if (!res.ok) throw new Error(`Upload musique (${res.status})`);
+    const { storageId } = (await res.json()) as { storageId: string };
+    await setMusicAsset({
+      clipProjectId,
+      storageId: storageId as never,
+    });
+  }
+
+  const [applyInfo, setApplyInfo] = useState<string | null>(null);
+
   async function onApplyRerender() {
     setRetryError(null);
+    setApplyInfo(null);
     setRerendering(true);
     try {
-      await rerenderAll({ clipProjectId });
+      const n = await rerenderAll({ clipProjectId });
+      setApplyInfo(
+        n > 0
+          ? `${n} clip${n > 1 ? "s" : ""} mis en file — le worker les reprend.`
+          : "Aucun clip à re-rendre",
+      );
     } catch (err) {
       setRetryError(err instanceof Error ? err.message : "Erreur");
     } finally {
@@ -139,8 +196,12 @@ export default function ClipProjectPage() {
       <div>
         <DashboardNav />
         <Skeleton className="h-10 w-64" />
-        <Skeleton className="mt-6 h-28 w-full" />
-        <Skeleton className="mt-6 h-40 w-full" />
+        <Skeleton className="mt-6 h-28 w-full rounded-2xl" />
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Skeleton className="aspect-[9/16] max-h-[360px] rounded-2xl" />
+          <Skeleton className="aspect-[9/16] max-h-[360px] rounded-2xl" />
+          <Skeleton className="aspect-[9/16] max-h-[360px] rounded-2xl" />
+        </div>
       </div>
     );
   }
@@ -152,9 +213,10 @@ export default function ClipProjectPage() {
         <p className="text-sm text-muted-foreground">Projet introuvable.</p>
         <Link
           href="/dashboard"
-          className="mt-4 inline-block text-sm text-signal underline-offset-4 hover:underline"
+          className="mt-4 inline-flex items-center gap-1.5 text-sm text-signal hover:underline"
         >
-          ← Import
+          <ArrowLeft className="size-4" weight="bold" />
+          Retour aux projets
         </Link>
       </div>
     );
@@ -172,258 +234,364 @@ export default function ClipProjectPage() {
     (project.status === "ready" || project.status === "failed");
   const hasSource = Boolean(project.sourceVideoUrl);
   const canRerender = clips.length > 0 && hasSource;
+  const pipelineBusy = isPipelineActive(project.status);
 
   const captionStyle = (project.captionStyle ?? "viral") as CaptionStyleId;
   const layoutMode = (project.layoutMode ?? "smart") as LayoutModeId;
   const voiceoverMode = (project.voiceoverMode ?? "off") as VoiceoverModeId;
   const audioEnhance = (project.audioEnhance ?? "off") as AudioEnhanceId;
+  const punchEffect = (project.punchEffect ?? "off") as PunchEffectId;
+  const logoCorner = (project.logoCorner ?? "br") as LogoCornerId;
+  const logoOpacity = project.logoOpacity ?? 0.85;
+  const musicVolume = project.musicVolume ?? 0.18;
 
   return (
     <div>
       <DashboardNav />
 
-      <div className="mb-6">
+      <header className="mb-6">
         <Link
           href="/dashboard"
-          className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
-          ← Import
+          <ArrowLeft className="size-4" weight="bold" />
+          Projets
         </Link>
-        <h1 className="mt-3 font-display text-3xl tracking-tight">
-          {project.title}
-        </h1>
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-          {project.sourceYoutubeUrl && (
-            <a
-              href={project.sourceYoutubeUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="max-w-[280px] truncate text-xs text-muted-foreground underline-offset-4 hover:underline"
+        <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
+              {project.title}
+            </h1>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+              {project.sourceYoutubeUrl && (
+                <a
+                  href={project.sourceYoutubeUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="max-w-[240px] truncate underline-offset-4 hover:underline"
+                >
+                  YouTube
+                </a>
+              )}
+              {project.durationSeconds != null && (
+                <span>{Math.round(project.durationSeconds)}s source</span>
+              )}
+              {clips.length > 0 && (
+                <span className={projectStatusTone(project.status)}>
+                  {readyCount}/{clips.length} prêts
+                  {failedCount > 0 ? ` · ${failedCount} échec` : ""}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {(pipelineBusy || project.status === "failed" || clips.length === 0) && (
+        <div className="mb-8">
+          <ClipPipelineProgress
+            status={project.status}
+            errorMessage={project.errorMessage}
+            readyCount={readyCount}
+            clipCount={clips.length}
+          />
+        </div>
+      )}
+
+      {(canRetryPipeline || canRetryFailed) && (
+        <div className="mb-6 flex flex-wrap gap-3">
+          {canRetryPipeline && (
+            <Button
+              type="button"
+              onClick={onRetryPipeline}
+              disabled={retrying}
+              className="cursor-pointer"
             >
-              {project.sourceYoutubeUrl}
-            </a>
+              {retrying ? "Relance…" : "Relancer"}
+            </Button>
           )}
-          {project.durationSeconds != null && (
-            <span className="timecode text-xs text-muted-foreground">
-              {Math.round(project.durationSeconds)}s source
-            </span>
-          )}
-          {clips.length > 0 && (
-            <span
-              className={`timecode text-xs ${projectStatusTone(project.status)}`}
+          {canRetryFailed && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onRetryFailed}
+              disabled={retrying}
+              className="cursor-pointer"
             >
-              {readyCount}/{clips.length} prêts
-              {failedCount > 0 ? ` · ${failedCount} échec` : ""}
-            </span>
+              {retrying
+                ? "Relance…"
+                : `Relancer ${failedCount} clip${failedCount > 1 ? "s" : ""}`}
+            </Button>
           )}
         </div>
-      </div>
+      )}
 
-      <div className="mb-8 space-y-4">
-        <ClipPipelineProgress
-          status={project.status}
-          errorMessage={project.errorMessage}
-          readyCount={readyCount}
-          clipCount={clips.length}
-        />
+      {retryError && (
+        <p
+          className="mb-6 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          role="alert"
+        >
+          {retryError}
+        </p>
+      )}
 
-        {!hasSource ? (
-          <div className="space-y-3 rounded-xl border border-border bg-card/40 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-              Rendu & trim
-            </p>
+      {/* Clips d’abord — cœur Opus */}
+      <section className="mb-10">
+        <div className="mb-5 flex items-baseline justify-between gap-3">
+          <h2 className="text-lg font-semibold tracking-tight">
+            {clips.length > 0
+              ? `Clips (${clips.length})`
+              : pipelineBusy
+                ? "Clips en préparation"
+                : "Clips"}
+          </h2>
+        </div>
+
+        {clips.length === 0 && pipelineBusy && (
+          <div className="rounded-2xl border border-dashed border-border px-6 py-14 text-center">
             <p className="text-sm text-muted-foreground">
-              Indisponibles tant qu’il n’y a pas de vidéo source. L’échec
-              YouTube ci-dessus bloque tout (captions, layout, trim).
+              Les clips apparaissent ici dès que l’IA a trouvé les moments forts.
             </p>
-            <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
-              <li>
-                Contournement :{" "}
-                <Link
-                  href="/dashboard"
-                  className="text-signal underline-offset-4 hover:underline"
-                >
-                  Import → Fichier
-                </Link>{" "}
-                (MP4, sans cookies)
-              </li>
-              <li>
-                Ou configure les cookies yt-dlp sur Ubuntu (
-                <code className="text-xs">worker/cookies/README.md</code>
-                ), puis Relancer
-              </li>
-            </ul>
-          </div>
-        ) : (
-          <>
-            <ClipRenderOptions
-              captionStyle={captionStyle}
-              layoutMode={layoutMode}
-              voiceoverMode={voiceoverMode}
-              audioEnhance={audioEnhance}
-              disabled={false}
-              applyDisabled={!canRerender}
-              saving={rerendering}
-              onCaptionStyle={(v) => void persistOption({ captionStyle: v })}
-              onLayoutMode={(v) => void persistOption({ layoutMode: v })}
-              onVoiceoverMode={(v) => void persistOption({ voiceoverMode: v })}
-              onAudioEnhance={(v) => void persistOption({ audioEnhance: v })}
-              onApplyRerender={() => void onApplyRerender()}
-            />
-            <ClipManualTrim
-              sourceUrl={project.sourceVideoUrl!}
-              durationSeconds={project.durationSeconds}
-              disabled={false}
-              creating={creatingManual}
-              onCreate={onCreateManual}
-            />
-          </>
-        )}
-
-        {(canRetryPipeline || canRetryFailed) && (
-          <div className="flex flex-wrap gap-3">
-            {canRetryPipeline && (
-              <Button
-                type="button"
-                onClick={onRetryPipeline}
-                disabled={retrying}
-                className="cursor-pointer"
-              >
-                {retrying ? "Relance…" : "Relancer tout le pipeline"}
-              </Button>
-            )}
-            {canRetryFailed && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onRetryFailed}
-                disabled={retrying}
-                className="cursor-pointer"
-              >
-                {retrying
-                  ? "Relance…"
-                  : `Relancer ${failedCount} clip${failedCount > 1 ? "s" : ""} échoué${failedCount > 1 ? "s" : ""}`}
-              </Button>
-            )}
           </div>
         )}
-        {retryError && (
-          <p className="text-sm text-destructive" role="alert">
-            {retryError}
-          </p>
+
+        {clips.length === 0 && project.status === "ready" && (
+          <div className="rounded-2xl border border-dashed border-border px-6 py-14 text-center">
+            <p className="text-sm text-muted-foreground">
+              Aucun clip auto. Ouvre les outils ci-dessous pour un trim manuel.
+            </p>
+          </div>
         )}
-      </div>
 
-      {clips.length === 0 && isPipelineActive(project.status) && (
-        <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-          Les clips IA apparaîtront ici dès que les hooks sont proposés. Tu
-          peux déjà créer un clip manuel via Trim.
-        </p>
-      )}
+        {clips.length === 0 && project.status === "failed" && !hasSource && (
+          <div className="rounded-2xl border border-border bg-card/40 px-5 py-5 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">Pas de vidéo source</p>
+            <p className="mt-2">
+              Importe un{" "}
+              <Link
+                href="/dashboard"
+                className="text-signal underline-offset-4 hover:underline"
+              >
+                fichier MP4
+              </Link>{" "}
+              (plus fiable que YouTube sans cookies).
+            </p>
+          </div>
+        )}
 
-      {clips.length === 0 && project.status === "ready" && (
-        <p className="text-sm text-muted-foreground">
-          Aucun clip généré — utilise le trim manuel ci-dessus.
-        </p>
-      )}
-
-      {clips.length > 0 && (
-        <section>
-          <h2 className="mb-6 font-display text-xl">Clips</h2>
-          <ul className="grid gap-10 sm:grid-cols-2">
+        {clips.length > 0 && (
+          <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {clips.map((clip) => {
               const duration = formatClipDuration(clip.startSec, clip.endSec);
               return (
-                <li key={clip._id} className="space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-medium">{clip.title}</p>
-                      <p className="mt-1 timecode text-xs text-muted-foreground">
-                        {formatTimecode(clip.startSec)}–
-                        {formatTimecode(clip.endSec)} · {duration}
-                      </p>
-                    </div>
-                    <span
-                      className={
-                        clip.status === "failed"
-                          ? "timecode shrink-0 text-xs text-destructive"
-                          : clip.status === "ready"
-                            ? "timecode shrink-0 text-xs text-signal"
-                            : "timecode shrink-0 text-xs text-amber-400"
-                      }
-                    >
-                      {(clip.status === "proposed" ||
-                        clip.status === "rendering") && (
-                        <span className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-amber-400 align-middle" />
-                      )}
-                      {CLIP_STATUS_LABEL[clip.status] ?? clip.status}
-                    </span>
-                  </div>
-                  {clip.hookReason && (
-                    <p className="text-sm text-muted-foreground">
-                      {clip.hookReason}
-                    </p>
-                  )}
-                  {hasSource &&
-                    editingClipId === clip._id &&
-                    project.sourceVideoUrl && (
-                      <ClipEditTrim
-                        sourceUrl={project.sourceVideoUrl}
-                        initialStart={clip.startSec}
-                        initialEnd={clip.endSec}
-                        sourceDuration={project.durationSeconds}
-                        saving={savingTrim}
-                        onSave={(args) => onSaveClipTrim(clip._id, args)}
-                        onCancel={() => setEditingClipId(null)}
-                      />
-                    )}
-                  {hasSource && editingClipId !== clip._id && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={clip.status === "rendering"}
-                      onClick={() => setEditingClipId(clip._id)}
-                      className="cursor-pointer"
-                    >
-                      Ajuster trim
-                    </Button>
-                  )}
-                  {clip.errorMessage && (
-                    <p className="text-sm text-destructive" role="alert">
-                      {clip.errorMessage}
-                    </p>
-                  )}
+                <li
+                  key={clip._id}
+                  className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card/40"
+                >
                   {clip.resultUrl ? (
-                    <>
-                      <div className="mx-auto aspect-[9/16] max-h-[420px] w-full max-w-[240px] overflow-hidden rounded-2xl border border-border bg-black shadow-[inset_0_0_0_1px_rgb(61_214_198_/_0.08)]">
-                        <video
-                          src={clip.resultUrl}
-                          controls
-                          preload="metadata"
-                          className="h-full w-full object-contain"
-                        />
-                      </div>
-                      <a
-                        href={clip.resultUrl}
-                        download={safeDownloadName(clip.title, clip.order)}
-                        className="inline-flex h-9 cursor-pointer items-center rounded-md border border-border px-3 text-sm text-signal transition-colors hover:border-signal/40"
-                      >
-                        Télécharger · {duration}
-                      </a>
-                    </>
+                    <div className="aspect-[9/16] max-h-[420px] bg-black">
+                      <video
+                        src={clip.resultUrl}
+                        controls
+                        preload="metadata"
+                        className="h-full w-full object-contain"
+                      />
+                    </div>
                   ) : clip.status === "rendering" ||
                     clip.status === "proposed" ? (
-                    <div className="mx-auto flex aspect-[9/16] max-h-[280px] w-full max-w-[180px] items-center justify-center rounded-2xl border border-dashed border-border bg-card/30">
-                      <p className="timecode px-3 text-center text-[10px] text-muted-foreground">
+                    <div className="flex aspect-[9/16] max-h-[280px] items-center justify-center bg-secondary/30">
+                      <p className="text-xs text-muted-foreground">
                         Rendu 9:16…
                       </p>
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="flex aspect-[9/16] max-h-[200px] items-center justify-center bg-secondary/20">
+                      <p className="text-xs text-muted-foreground">Pas encore</p>
+                    </div>
+                  )}
+
+                  <div className="flex flex-1 flex-col gap-2 p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-medium leading-snug">
+                        {clip.title}
+                      </p>
+                      <span
+                        className={
+                          clip.status === "failed"
+                            ? "shrink-0 text-[11px] font-medium text-destructive"
+                            : clip.status === "ready"
+                              ? "shrink-0 text-[11px] font-medium text-signal"
+                              : "shrink-0 text-[11px] font-medium text-amber-400"
+                        }
+                      >
+                        {CLIP_STATUS_LABEL[clip.status] ?? clip.status}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {formatTimecode(clip.startSec)}–
+                      {formatTimecode(clip.endSec)} · {duration}
+                    </p>
+                    {clip.hookReason && (
+                      <p className="line-clamp-2 text-xs text-muted-foreground">
+                        {clip.hookReason}
+                      </p>
+                    )}
+                    {clip.errorMessage && (
+                      <p className="text-xs text-destructive" role="alert">
+                        {clip.errorMessage}
+                      </p>
+                    )}
+
+                    {hasSource &&
+                      editingClipId === clip._id &&
+                      project.sourceVideoUrl && (
+                        <ClipEditTrim
+                          sourceUrl={project.sourceVideoUrl}
+                          initialStart={clip.startSec}
+                          initialEnd={clip.endSec}
+                          sourceDuration={project.durationSeconds}
+                          saving={savingTrim}
+                          onSave={(args) => onSaveClipTrim(clip._id, args)}
+                          onCancel={() => setEditingClipId(null)}
+                        />
+                      )}
+
+                    <div className="mt-auto flex flex-wrap gap-2 pt-1">
+                      {clip.resultUrl && (
+                        <a
+                          href={clip.resultUrl}
+                          download={safeDownloadName(clip.title, clip.order)}
+                          className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90"
+                        >
+                          <DownloadSimple className="size-4" weight="bold" />
+                          Télécharger
+                        </a>
+                      )}
+                      {hasSource && editingClipId !== clip._id && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={clip.status === "rendering"}
+                          onClick={() => setEditingClipId(clip._id)}
+                          className="cursor-pointer"
+                        >
+                          Ajuster
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 </li>
               );
             })}
           </ul>
+        )}
+      </section>
+
+      {/* Outils secondaires — Appliquer toujours visible (sinon options sauvées sans jobs) */}
+      {hasSource && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card/50 px-4 py-3.5">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">
+                Appliquer le polish
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Les réglages ci-dessous sont enregistrés tout de suite. Clique
+                ici pour mettre les clips en file de rendu.
+              </p>
+            </div>
+            <Button
+              type="button"
+              disabled={!canRerender || rerendering}
+              onClick={() => void onApplyRerender()}
+              className="shrink-0 cursor-pointer"
+            >
+              {rerendering
+                ? "Mise en file…"
+                : canRerender
+                  ? `Re-rendre ${clips.length} clip${clips.length > 1 ? "s" : ""}`
+                  : "Pas de clip à rendre"}
+            </Button>
+          </div>
+          {applyInfo && (
+            <p className="text-sm text-signal" role="status">
+              {applyInfo}
+            </p>
+          )}
+
+          <ClipRenderOptions
+            captionStyle={captionStyle}
+            layoutMode={layoutMode}
+            voiceoverMode={voiceoverMode}
+            audioEnhance={audioEnhance}
+            punchEffect={punchEffect}
+            logoUrl={project.logoUrl}
+            logoCorner={logoCorner}
+            logoOpacity={logoOpacity}
+            musicUrl={project.musicUrl}
+            musicVolume={musicVolume}
+            disabled={false}
+            applyDisabled={!canRerender}
+            saving={rerendering}
+            defaultOpen={false}
+            hideApply
+            onCaptionStyle={(v) => void persistOption({ captionStyle: v })}
+            onLayoutMode={(v) => void persistOption({ layoutMode: v })}
+            onVoiceoverMode={(v) => void persistOption({ voiceoverMode: v })}
+            onAudioEnhance={(v) => void persistOption({ audioEnhance: v })}
+            onPunchEffect={(v) => void persistOption({ punchEffect: v })}
+            onLogoCorner={(v) => void persistOption({ logoCorner: v })}
+            onLogoOpacity={(v) => void persistOption({ logoOpacity: v })}
+            onMusicVolume={(v) => void persistOption({ musicVolume: v })}
+            onUploadLogo={async (f) => {
+              try {
+                await uploadLogo(f);
+              } catch (err) {
+                setRetryError(err instanceof Error ? err.message : "Erreur");
+              }
+            }}
+            onClearLogo={() => void persistOption({ clearLogo: true })}
+            onUploadMusic={async (f) => {
+              try {
+                await uploadMusic(f);
+              } catch (err) {
+                setRetryError(err instanceof Error ? err.message : "Erreur");
+              }
+            }}
+            onClearMusic={() => void persistOption({ clearMusic: true })}
+            onApplyRerender={() => void onApplyRerender()}
+          />
+
+          <div className="overflow-hidden rounded-2xl border border-border bg-card/50">
+            <button
+              type="button"
+              onClick={() => setToolsOpen((v) => !v)}
+              className="flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-secondary/40"
+              aria-expanded={toolsOpen}
+            >
+              <div>
+                <p className="text-sm font-semibold">Créer un clip manuel</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Choisis In / Out sur la timeline source
+                </p>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {toolsOpen ? "Fermer" : "Ouvrir"}
+              </span>
+            </button>
+            {toolsOpen && (
+              <div className="border-t border-border px-4 py-4">
+                <ClipManualTrim
+                  sourceUrl={project.sourceVideoUrl!}
+                  durationSeconds={project.durationSeconds}
+                  disabled={false}
+                  creating={creatingManual}
+                  onCreate={onCreateManual}
+                />
+              </div>
+            )}
+          </div>
         </section>
       )}
     </div>

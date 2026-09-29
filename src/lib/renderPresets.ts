@@ -77,10 +77,26 @@ export const AUDIO_ENHANCE_MODES = [
   },
 ] as const;
 
+export const PUNCH_EFFECTS = [
+  { id: "off", label: "Off", hint: "Pas d’effet" },
+  { id: "zoom", label: "Zoom", hint: "Cadre serré punch" },
+  { id: "flash", label: "Flash", hint: "Flash blanc d’entrée" },
+  { id: "grain", label: "Grain", hint: "Grain / contrast viral" },
+] as const;
+
+export const LOGO_CORNERS = [
+  { id: "tl", label: "HG", hint: "Haut gauche" },
+  { id: "tr", label: "HD", hint: "Haut droit" },
+  { id: "bl", label: "BG", hint: "Bas gauche" },
+  { id: "br", label: "BD", hint: "Bas droit" },
+] as const;
+
 export type CaptionStyleId = (typeof CAPTION_STYLES)[number]["id"];
 export type LayoutModeId = (typeof LAYOUT_MODES)[number]["id"];
 export type VoiceoverModeId = (typeof VOICEOVER_MODES)[number]["id"];
 export type AudioEnhanceId = (typeof AUDIO_ENHANCE_MODES)[number]["id"];
+export type PunchEffectId = (typeof PUNCH_EFFECTS)[number]["id"];
+export type LogoCornerId = (typeof LOGO_CORNERS)[number]["id"];
 
 export function isCaptionStyle(v: string): v is CaptionStyleId {
   return CAPTION_STYLES.some((s) => s.id === v);
@@ -96,4 +112,12 @@ export function isVoiceoverMode(v: string): v is VoiceoverModeId {
 
 export function isAudioEnhance(v: string): v is AudioEnhanceId {
   return AUDIO_ENHANCE_MODES.some((s) => s.id === v);
+}
+
+export function isPunchEffect(v: string): v is PunchEffectId {
+  return PUNCH_EFFECTS.some((s) => s.id === v);
+}
+
+export function isLogoCorner(v: string): v is LogoCornerId {
+  return LOGO_CORNERS.some((s) => s.id === v);
 }

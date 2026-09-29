@@ -3,8 +3,9 @@
 - Prefers frank product and strategy advice when choosing inspiration or scope (asked for direct Opus vs OpenChatCut vs Motion comparisons).
 - Product direction: Opus-style atelier (vlog/file/YouTube → AI-assisted cuts → trim → viral polish with captions/effects/music/logo → vertical export ready to post); not a full OpenChatCut/Muse-style multitrack NLE — may borrow light presets (music, filters, logo watermark), not the whole editor.
 - Communicates in French; prefer matching the user’s language in replies.
-- Prefers implementing roadmap priorities one-by-one rather than shipping a large batch at once.
-- Wants manual clip in/out (choose sequences) in addition to AI auto-hooks; render options must be usable once the pipeline is ready.
+- Implements priorities one-by-one using `ROADMAP.md` as the source of truth for ordered steps; avoid shipping a large batch at once.
+- Wants manual clip in/out with drag handles for start/end (not only AI auto-hooks); render options must be usable once the pipeline is ready.
+- After each shipped feature or étape, always say what to do on Ubuntu (`git pull` + restart Next/web and worker; plus `npm run convex:deploy:self-hosted` when Convex schema/functions change).
 
 ## Learned Workspace Facts
 
@@ -14,3 +15,6 @@
 - Worker runs on Linux/NVIDIA (apt, systemd, CUDA); Cursor/dev is on Windows — typical flow is push from Windows, then `git pull` + restart web/worker on Ubuntu.
 - `WORKER_SECRET_KEY` must match across Convex env, `worker/.env`, and root `.env.local` (never commit the value).
 - YouTube downloads on the Ubuntu worker often need cookies (`YT_COOKIES` / cookies file) due to anti-bot; file upload is the reliable fallback — without a usable source, clip render options stay locked/non-clickable.
+- Large vlog uploads prefer direct HTTP to the local worker (`UPLOAD_HTTP_PORT` / `WORKER_PUBLIC_URL` / `NEXT_PUBLIC_WORKER_UPLOAD`) over Convex storage; the Next `/api/worker-upload` proxy must send `Content-Length` (chunked bodies caused worker 400 empty-body errors).
+- Self-hosted Convex: after changes under `convex/`, deploy with `npm run convex:deploy:self-hosted` (not `npx convex dev`, which targets Convex Cloud).
+- Clip render options include a light viral pack (`punchEffect`, logo watermark, bed music with ducking); those fields must be live on self-hosted Convex or validators reject extras like `punchEffect`.

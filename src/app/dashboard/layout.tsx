@@ -11,7 +11,7 @@ export default async function DashboardLayout({
   if (!userId) redirect("/sign-in");
 
   return (
-    <div className="mx-auto min-h-[calc(100vh-4.5rem)] max-w-5xl px-6 py-10 md:px-10">
+    <div className="mx-auto min-h-[calc(100dvh-4.5rem)] w-full max-w-6xl px-5 pb-16 pt-6 md:px-8 md:pt-8">
       <DashboardAuthGate>{children}</DashboardAuthGate>
     </div>
   );

@@ -7,7 +7,8 @@ export const maxDuration = 600;
 
 /**
  * Proxy upload → worker disque local (secret côté serveur).
- * Body = fichier brut ; header optionnel x-filename.
+ * Buffer + Content-Length explicite : le serveur Python refuse souvent
+ * les corps chunked sans Content-Length (400 empty body).
  */
 export async function POST(req: NextRequest) {
   const base = (process.env.WORKER_UPLOAD_URL || "").replace(/\/$/, "");
@@ -24,21 +25,22 @@ export async function POST(req: NextRequest) {
 
   const filename = req.headers.get("x-filename") || "upload.mp4";
   const contentType = req.headers.get("content-type") || "video/mp4";
-  if (!req.body) {
-    return NextResponse.json({ error: "empty body" }, { status: 400 });
-  }
 
   try {
+    const buf = Buffer.from(await req.arrayBuffer());
+    if (buf.byteLength === 0) {
+      return NextResponse.json({ error: "empty body" }, { status: 400 });
+    }
+
     const upstream = await fetch(`${base}/upload`, {
       method: "POST",
       headers: {
         "x-worker-secret": secret,
         "x-filename": filename,
         "Content-Type": contentType,
+        "Content-Length": String(buf.byteLength),
       },
-      // @ts-expect-error Node fetch duplex for streaming body
-      duplex: "half",
-      body: req.body,
+      body: buf,
     });
 
     const text = await upstream.text();
@@ -46,7 +48,7 @@ export async function POST(req: NextRequest) {
     try {
       json = JSON.parse(text);
     } catch {
-      json = { error: text.slice(0, 400) };
+      json = { error: text.slice(0, 400) || `HTTP ${upstream.status}` };
     }
     return NextResponse.json(json, { status: upstream.status });
   } catch (err) {
@@ -55,7 +57,7 @@ export async function POST(req: NextRequest) {
         error:
           err instanceof Error
             ? err.message
-            : "Proxy upload worker échoué",
+            : "Proxy upload worker échoué — worker joignable ? UPLOAD_HTTP_PORT ?",
       },
       { status: 502 },
     );

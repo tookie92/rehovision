@@ -1,7 +1,47 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 import { requireUserId } from "./lib/auth";
 import { sliceCaptionSegments } from "./lib/captionSegments";
+
+const punchEffectValidator = v.optional(
+  v.union(
+    v.literal("off"),
+    v.literal("zoom"),
+    v.literal("flash"),
+    v.literal("grain"),
+  ),
+);
+const logoCornerValidator = v.optional(
+  v.union(
+    v.literal("tl"),
+    v.literal("tr"),
+    v.literal("bl"),
+    v.literal("br"),
+  ),
+);
+
+const viralProjectFields = {
+  punchEffect: punchEffectValidator,
+  logoStorageId: v.optional(v.id("_storage")),
+  logoUrl: v.optional(v.string()),
+  logoCorner: logoCornerValidator,
+  logoOpacity: v.optional(v.number()),
+  musicStorageId: v.optional(v.id("_storage")),
+  musicUrl: v.optional(v.string()),
+  musicVolume: v.optional(v.number()),
+};
+
+function viralPayload(project: Doc<"clipProjects">) {
+  return {
+    punchEffect: project.punchEffect ?? "off",
+    logoUrl: project.logoUrl,
+    logoCorner: project.logoCorner ?? "br",
+    logoOpacity: project.logoOpacity ?? 0.85,
+    musicUrl: project.musicUrl,
+    musicVolume: project.musicVolume ?? 0.18,
+  };
+}
 
 const clipProjectDoc = v.object({
   _id: v.id("clipProjects"),
@@ -45,6 +85,7 @@ const clipProjectDoc = v.object({
   audioEnhance: v.optional(
     v.union(v.literal("off"), v.literal("light")),
   ),
+  ...viralProjectFields,
   errorMessage: v.optional(v.string()),
   createdAt: v.number(),
 });
@@ -278,6 +319,7 @@ const clipProjectSummary = v.object({
   audioEnhance: v.optional(
     v.union(v.literal("off"), v.literal("light")),
   ),
+  ...viralProjectFields,
   errorMessage: v.optional(v.string()),
   createdAt: v.number(),
   clipCount: v.number(),
@@ -473,6 +515,7 @@ export const retryFailedClips = mutation({
           layoutMode: project.layoutMode ?? "smart",
           voiceoverMode: project.voiceoverMode ?? "off",
           audioEnhance: project.audioEnhance ?? "off",
+          ...viralPayload(project),
           title: clip.title,
         },
         createdAt: now,
@@ -517,6 +560,12 @@ export const updateRenderOptions = mutation({
     audioEnhance: v.optional(
       v.union(v.literal("off"), v.literal("light")),
     ),
+    punchEffect: punchEffectValidator,
+    logoCorner: logoCornerValidator,
+    logoOpacity: v.optional(v.number()),
+    musicVolume: v.optional(v.number()),
+    clearLogo: v.optional(v.boolean()),
+    clearMusic: v.optional(v.boolean()),
   },
   returns: v.id("clipProjects"),
   handler: async (ctx, args) => {
@@ -525,12 +574,7 @@ export const updateRenderOptions = mutation({
     if (!project || project.userId !== userId) {
       throw new Error("Projet introuvable");
     }
-    const patch: {
-      captionStyle?: typeof args.captionStyle;
-      layoutMode?: typeof args.layoutMode;
-      voiceoverMode?: typeof args.voiceoverMode;
-      audioEnhance?: typeof args.audioEnhance;
-    } = {};
+    const patch: Record<string, unknown> = {};
     if (args.captionStyle !== undefined) patch.captionStyle = args.captionStyle;
     if (args.layoutMode !== undefined) patch.layoutMode = args.layoutMode;
     if (args.voiceoverMode !== undefined) {
@@ -539,7 +583,72 @@ export const updateRenderOptions = mutation({
     if (args.audioEnhance !== undefined) {
       patch.audioEnhance = args.audioEnhance;
     }
+    if (args.punchEffect !== undefined) patch.punchEffect = args.punchEffect;
+    if (args.logoCorner !== undefined) patch.logoCorner = args.logoCorner;
+    if (args.logoOpacity !== undefined) patch.logoOpacity = args.logoOpacity;
+    if (args.musicVolume !== undefined) patch.musicVolume = args.musicVolume;
+    if (args.clearLogo) {
+      patch.logoUrl = undefined;
+      patch.logoStorageId = undefined;
+    }
+    if (args.clearMusic) {
+      patch.musicUrl = undefined;
+      patch.musicStorageId = undefined;
+    }
     await ctx.db.patch(args.clipProjectId, patch);
+    return args.clipProjectId;
+  },
+});
+
+/**
+ * Attache un logo PNG/JPG au projet (stockage Convex — petit fichier).
+ */
+export const setLogoAsset = mutation({
+  args: {
+    clipProjectId: v.id("clipProjects"),
+    storageId: v.id("_storage"),
+  },
+  returns: v.id("clipProjects"),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.clipProjectId);
+    if (!project || project.userId !== userId) {
+      throw new Error("Projet introuvable");
+    }
+    const url = await ctx.storage.getUrl(args.storageId);
+    if (!url) throw new Error("Logo introuvable");
+    await ctx.db.patch(args.clipProjectId, {
+      logoStorageId: args.storageId,
+      logoUrl: url,
+      logoCorner: project.logoCorner ?? "br",
+      logoOpacity: project.logoOpacity ?? 0.85,
+    });
+    return args.clipProjectId;
+  },
+});
+
+/**
+ * Attache un bed musical (mp3/wav) au projet.
+ */
+export const setMusicAsset = mutation({
+  args: {
+    clipProjectId: v.id("clipProjects"),
+    storageId: v.id("_storage"),
+  },
+  returns: v.id("clipProjects"),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.clipProjectId);
+    if (!project || project.userId !== userId) {
+      throw new Error("Projet introuvable");
+    }
+    const url = await ctx.storage.getUrl(args.storageId);
+    if (!url) throw new Error("Musique introuvable");
+    await ctx.db.patch(args.clipProjectId, {
+      musicStorageId: args.storageId,
+      musicUrl: url,
+      musicVolume: project.musicVolume ?? 0.18,
+    });
     return args.clipProjectId;
   },
 });
@@ -622,6 +731,7 @@ export const rerenderAll = mutation({
           layoutMode: project.layoutMode ?? "smart",
           voiceoverMode: project.voiceoverMode ?? "off",
           audioEnhance: project.audioEnhance ?? "off",
+          ...viralPayload(project),
           title: clip.title,
         },
         createdAt: now,
@@ -733,6 +843,7 @@ export const createManualClip = mutation({
         layoutMode: project.layoutMode ?? "smart",
         voiceoverMode: project.voiceoverMode ?? "off",
         audioEnhance: project.audioEnhance ?? "off",
+        ...viralPayload(project),
         title,
       },
       createdAt: now,
@@ -843,6 +954,7 @@ export const updateClipTrim = mutation({
         layoutMode: project.layoutMode ?? "smart",
         voiceoverMode: project.voiceoverMode ?? "off",
         audioEnhance: project.audioEnhance ?? "off",
+        ...viralPayload(project),
         title: clip.title,
       },
       createdAt: now,

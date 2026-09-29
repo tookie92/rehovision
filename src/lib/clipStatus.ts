@@ -1,18 +1,18 @@
 /** Labels + helpers pour le funnel clips (Opus-style). */
 
 export const PROJECT_STATUS_LABEL: Record<string, string> = {
-  uploading: "Upload",
-  downloading: "YouTube",
-  transcribing: "Transcription",
-  proposing: "Hooks",
-  rendering: "Rendu",
+  uploading: "Envoi",
+  downloading: "Téléchargement",
+  transcribing: "Analyse",
+  proposing: "Moments",
+  rendering: "Export",
   ready: "Prêt",
   failed: "Échec",
 };
 
 export const CLIP_STATUS_LABEL: Record<string, string> = {
   proposed: "En file",
-  rendering: "Rendu…",
+  rendering: "Export…",
   ready: "Prêt",
   failed: "Échec",
 };
@@ -20,9 +20,9 @@ export const CLIP_STATUS_LABEL: Record<string, string> = {
 /** Étapes ordonnées du pipeline (hors terminal ready/failed). */
 export const PIPELINE_STEPS = [
   { key: "downloading", label: "Source" },
-  { key: "transcribing", label: "Whisper" },
-  { key: "proposing", label: "Hooks" },
-  { key: "rendering", label: "Rendu" },
+  { key: "transcribing", label: "Analyse" },
+  { key: "proposing", label: "Moments" },
+  { key: "rendering", label: "Export" },
 ] as const;
 
 export type PipelineStepKey = (typeof PIPELINE_STEPS)[number]["key"];
@@ -83,21 +83,21 @@ export function pipelineDetail(
     case "uploading":
       return "Envoi du fichier…";
     case "downloading":
-      return "Téléchargement YouTube (yt-dlp)…";
+      return "Récupération de la vidéo…";
     case "transcribing":
-      return "Whisper transcrit l’audio…";
+      return "Analyse de l’audio et du texte…";
     case "proposing":
-      return "Ollama cherche les hooks viraux…";
+      return "Recherche des meilleurs moments…";
     case "rendering":
       return total > 0
-        ? `Reframe + captions + B-roll — ${ready}/${total} clips`
-        : "Reframe 9:16, captions et B-roll…";
+        ? `Création des clips 9:16 — ${ready}/${total}`
+        : "Création des clips verticaux…";
     case "ready":
       return total > 0
         ? `${ready}/${total} clip${total > 1 ? "s" : ""} prêts à poster`
         : "Terminé";
     case "failed":
-      return "Le pipeline s’est arrêté — tu peux relancer";
+      return "Une étape a échoué — tu peux relancer";
     default:
       return "";
   }

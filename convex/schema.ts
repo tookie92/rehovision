@@ -102,6 +102,29 @@ export default defineSchema({
     audioEnhance: v.optional(
       v.union(v.literal("off"), v.literal("light")),
     ),
+    // Pack viral (étape 3)
+    punchEffect: v.optional(
+      v.union(
+        v.literal("off"),
+        v.literal("zoom"),
+        v.literal("flash"),
+        v.literal("grain"),
+      ),
+    ),
+    logoStorageId: v.optional(v.id("_storage")),
+    logoUrl: v.optional(v.string()),
+    logoCorner: v.optional(
+      v.union(
+        v.literal("tl"),
+        v.literal("tr"),
+        v.literal("bl"),
+        v.literal("br"),
+      ),
+    ),
+    logoOpacity: v.optional(v.number()),
+    musicStorageId: v.optional(v.id("_storage")),
+    musicUrl: v.optional(v.string()),
+    musicVolume: v.optional(v.number()),
     errorMessage: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_userId", ["userId"]),

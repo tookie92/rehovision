@@ -354,6 +354,20 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
                 layout_mode=payload.get("layoutMode") or None,
                 voiceover_mode=payload.get("voiceoverMode") or None,
                 audio_enhance=payload.get("audioEnhance") or None,
+                punch_effect=payload.get("punchEffect") or None,
+                logo_url=payload.get("logoUrl") or None,
+                logo_corner=payload.get("logoCorner") or None,
+                logo_opacity=(
+                    float(payload["logoOpacity"])
+                    if payload.get("logoOpacity") is not None
+                    else None
+                ),
+                music_url=payload.get("musicUrl") or None,
+                music_volume=(
+                    float(payload["musicVolume"])
+                    if payload.get("musicVolume") is not None
+                    else None
+                ),
             )
             submit_file_result(site_url, job_id, path, "video/mp4")
             return
