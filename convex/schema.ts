@@ -95,6 +95,8 @@ export default defineSchema({
         v.literal("split"),
       ),
     ),
+    /** Split : échange les demi-cadres haut/bas */
+    splitSwap: v.optional(v.boolean()),
     voiceoverMode: v.optional(
       v.union(
         v.literal("off"),

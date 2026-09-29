@@ -226,6 +226,7 @@ def render_clip(
     broll_cues: list[dict[str, Any]] | None = None,
     caption_style: str | None = None,
     layout_mode: str | None = None,
+    split_swap: bool = False,
     voiceover_mode: str | None = None,
     audio_enhance: str | None = None,
     punch_effect: str | None = None,
@@ -266,6 +267,7 @@ def render_clip(
         float(end_sec),
         work,
         layout_mode=layout_mode,
+        split_swap=bool(split_swap),
     )
 
     base_path = work / "clip_base.mp4"
@@ -301,6 +303,7 @@ def render_clip(
                 broll_cues=broll_cues,
                 caption_style=caption_style,
                 layout_mode=layout_mode,
+                split_swap=split_swap,
                 voiceover_mode=voiceover_mode,
                 audio_enhance=audio_enhance,
                 punch_effect=punch_effect,

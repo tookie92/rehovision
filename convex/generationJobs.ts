@@ -798,6 +798,7 @@ export const applyClipPipelineResult = internalMutation({
             brollCues: p.broll ?? [],
             captionStyle: project?.captionStyle ?? "viral",
             layoutMode: project?.layoutMode ?? "smart",
+            splitSwap: project?.splitSwap ?? false,
             voiceoverMode: project?.voiceoverMode ?? "off",
             audioEnhance: project?.audioEnhance ?? "off",
             lookFilter: project?.lookFilter ?? "off",

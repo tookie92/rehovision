@@ -9,7 +9,6 @@ import type { Id } from "@convex/_generated/dataModel";
 import { ArrowLeft, DownloadSimple } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DashboardNav } from "@/components/DashboardNav";
 import { ClipPipelineProgress } from "@/components/ClipPipelineProgress";
 import { ClipRenderOptions } from "@/components/ClipRenderOptions";
 import { ClipManualTrim } from "@/components/ClipManualTrim";
@@ -36,6 +35,10 @@ import type {
   VoiceoverModeId,
 } from "@/lib/renderPresets";
 
+/**
+ * Atelier Opus-like : 1 viewport (clips | stage | outils | barre In/Out).
+ * Pas de scroll de page — scroll uniquement dans les panneaux.
+ */
 export default function ClipProjectPage() {
   const params = useParams();
   const clipProjectId = params.clipProjectId as Id<"clipProjects">;
@@ -97,6 +100,7 @@ export default function ClipProjectPage() {
     patch: Partial<{
       captionStyle: CaptionStyleId;
       layoutMode: LayoutModeId;
+      splitSwap: boolean;
       voiceoverMode: VoiceoverModeId;
       audioEnhance: AudioEnhanceId;
       punchEffect: PunchEffectId;
@@ -251,23 +255,16 @@ export default function ClipProjectPage() {
 
   if (data === undefined) {
     return (
-      <div>
-        <DashboardNav />
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="mt-6 h-28 w-full rounded-2xl" />
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Skeleton className="aspect-[9/16] max-h-[360px] rounded-2xl" />
-          <Skeleton className="aspect-[9/16] max-h-[360px] rounded-2xl" />
-          <Skeleton className="aspect-[9/16] max-h-[360px] rounded-2xl" />
-        </div>
+      <div className="space-y-4 p-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-[70vh] w-full rounded-xl" />
       </div>
     );
   }
 
   if (data === null) {
     return (
-      <div>
-        <DashboardNav />
+      <div className="p-6">
         <p className="text-sm text-muted-foreground">Projet introuvable.</p>
         <Link
           href="/dashboard"
@@ -296,6 +293,7 @@ export default function ClipProjectPage() {
 
   const captionStyle = (project.captionStyle ?? "viral") as CaptionStyleId;
   const layoutMode = (project.layoutMode ?? "smart") as LayoutModeId;
+  const splitSwap = Boolean(project.splitSwap);
   const voiceoverMode = (project.voiceoverMode ?? "off") as VoiceoverModeId;
   const audioEnhance = (project.audioEnhance ?? "off") as AudioEnhanceId;
   const punchEffect = (project.punchEffect ?? "off") as PunchEffectId;
@@ -320,472 +318,371 @@ export default function ClipProjectPage() {
     });
   }
 
-  return (
-    <div>
-      <DashboardNav />
+  const renderOptionsProps = {
+    captionStyle,
+    layoutMode,
+    splitSwap,
+    voiceoverMode,
+    audioEnhance,
+    punchEffect,
+    lookFilter,
+    lutUrl: project.lutUrl,
+    logoUrl: project.logoUrl,
+    logoCorner,
+    logoOpacity,
+    musicUrl: project.musicUrl,
+    musicVolume,
+    disabled: false,
+    applyDisabled: !canRerender,
+    saving: rerendering,
+    hideApply: true as const,
+    onCaptionStyle: (v: CaptionStyleId) => void persistOption({ captionStyle: v }),
+    onLayoutMode: (v: LayoutModeId) => void persistOption({ layoutMode: v }),
+    onSplitSwap: (v: boolean) => void persistOption({ splitSwap: v }),
+    onVoiceoverMode: (v: VoiceoverModeId) =>
+      void persistOption({ voiceoverMode: v }),
+    onAudioEnhance: (v: AudioEnhanceId) =>
+      void persistOption({ audioEnhance: v }),
+    onPunchEffect: (v: PunchEffectId) => void persistOption({ punchEffect: v }),
+    onLookFilter: (v: LookFilterId) => void persistOption({ lookFilter: v }),
+    onLogoCorner: (v: LogoCornerId) => void persistOption({ logoCorner: v }),
+    onLogoOpacity: (v: number) => void persistOption({ logoOpacity: v }),
+    onMusicVolume: (v: number) => void persistOption({ musicVolume: v }),
+    onPreviewIntent: () => setPreferSoft(true),
+    onUploadLogo: async (f: File) => {
+      try {
+        setPreferSoft(true);
+        await uploadLogo(f);
+      } catch (err) {
+        setRetryError(err instanceof Error ? err.message : "Erreur");
+      }
+    },
+    onClearLogo: () => void persistOption({ clearLogo: true }),
+    onUploadMusic: async (f: File) => {
+      try {
+        await uploadMusic(f);
+      } catch (err) {
+        setRetryError(err instanceof Error ? err.message : "Erreur");
+      }
+    },
+    onClearMusic: () => void persistOption({ clearMusic: true }),
+    onUploadLut: async (f: File) => {
+      try {
+        setPreferSoft(true);
+        await uploadLut(f);
+      } catch (err) {
+        setRetryError(err instanceof Error ? err.message : "Erreur");
+      }
+    },
+    onClearLut: () => void persistOption({ clearLut: true }),
+    onApplyRerender: () => void onApplyRerender(),
+  };
 
-      <header className="mb-6">
+  // Pipeline / empty : layout simple (pas encore d’atelier)
+  if (clips.length === 0 || pipelineBusy) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
         <Link
           href="/dashboard"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" weight="bold" />
           Projets
         </Link>
-        <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
-              {project.title}
-            </h1>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-              {project.sourceYoutubeUrl && (
-                <a
-                  href={project.sourceYoutubeUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="max-w-[240px] truncate underline-offset-4 hover:underline"
-                >
-                  YouTube
-                </a>
-              )}
-              {project.durationSeconds != null && (
-                <span>{Math.round(project.durationSeconds)}s source</span>
-              )}
-              {clips.length > 0 && (
-                <span className={projectStatusTone(project.status)}>
-                  {readyCount}/{clips.length} prêts
-                  {failedCount > 0 ? ` · ${failedCount} échec` : ""}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {(pipelineBusy || project.status === "failed" || clips.length === 0) && (
-        <div className="mb-8">
-          <ClipPipelineProgress
-            status={project.status}
-            errorMessage={project.errorMessage}
-            readyCount={readyCount}
-            clipCount={clips.length}
-          />
-        </div>
-      )}
-
-      {(canRetryPipeline || canRetryFailed) && (
-        <div className="mb-6 flex flex-wrap gap-3">
-          {canRetryPipeline && (
-            <Button
-              type="button"
-              onClick={onRetryPipeline}
-              disabled={retrying}
-              className="cursor-pointer"
-            >
-              {retrying ? "Relance…" : "Relancer"}
-            </Button>
-          )}
-          {canRetryFailed && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onRetryFailed}
-              disabled={retrying}
-              className="cursor-pointer"
-            >
-              {retrying
-                ? "Relance…"
-                : `Relancer ${failedCount} clip${failedCount > 1 ? "s" : ""}`}
-            </Button>
-          )}
-        </div>
-      )}
-
-      {retryError && (
-        <p
-          className="mb-6 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-          role="alert"
-        >
-          {retryError}
-        </p>
-      )}
-
-      {/* Atelier : filmstrip + stage 9:16 (preview soft avant rendu) */}
-      <section className="mb-10">
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">
-            {clips.length > 0
-              ? `Clips (${clips.length})`
-              : pipelineBusy
-                ? "Clips en préparation"
-                : "Clips"}
-          </h2>
-          <div className="flex flex-wrap items-center gap-3">
-            {readyCount > 0 && (
-              <p className="text-xs font-medium text-signal">
-                {readyCount} prêt{readyCount > 1 ? "s" : ""} à poster
-              </p>
-            )}
-            {clips.length > 0 && hasSource && (
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={preferSoft}
-                  onChange={(e) => setPreferSoft(e.target.checked)}
-                  className="size-3.5 accent-signal"
-                />
-                Préférer aperçu soft
-              </label>
-            )}
-          </div>
-        </div>
-
-        {readyCount > 0 && (
-          <div className="mb-6 space-y-3 rounded-2xl border border-signal/30 bg-signal/5 px-4 py-4 md:px-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-foreground">Export</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {selectedReady.length > 0
-                    ? `${selectedReady.length} sélectionné${selectedReady.length > 1 ? "s" : ""} prêts`
-                    : "Choisis la plateforme — ou coche des clips dans la liste"}
-                </p>
-              </div>
+        <h1 className="text-xl font-semibold tracking-tight">{project.title}</h1>
+        <ClipPipelineProgress
+          status={project.status}
+          errorMessage={project.errorMessage}
+          readyCount={readyCount}
+          clipCount={clips.length}
+        />
+        {(canRetryPipeline || canRetryFailed) && (
+          <div className="flex flex-wrap gap-3">
+            {canRetryPipeline && (
               <Button
                 type="button"
-                size="sm"
+                onClick={onRetryPipeline}
+                disabled={retrying}
                 className="cursor-pointer"
-                onClick={() => {
-                  const plat =
-                    EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
-                      ?.fileSlug ?? exportPlatform;
-                  const pool =
-                    selectedReady.length > 0
-                      ? selectedReady
-                      : clips.filter(
-                          (c) => c.resultUrl && c.status === "ready",
-                        );
-                  const items = pool.map((c) => ({
-                    url: c.resultUrl!,
-                    filename: safeDownloadName(c.title, c.order, plat),
-                  }));
-                  downloadUrls(items);
-                }}
               >
-                <DownloadSimple className="size-4" weight="bold" />
-                {selectedReady.length > 0
-                  ? `Télécharger (${selectedReady.length})`
-                  : `Tout télécharger (${readyCount})`}
+                {retrying ? "Relance…" : "Relancer"}
               </Button>
-            </div>
-            <div
-              className="flex flex-wrap gap-1.5"
-              role="radiogroup"
-              aria-label="Plateforme d’export"
-            >
-              {EXPORT_PLATFORMS.map((p) => {
-                const active = p.id === exportPlatform;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    title={p.hint}
-                    onClick={() => setExportPlatform(p.id)}
-                    className={
-                      active
-                        ? "cursor-pointer rounded-lg bg-signal/20 px-3 py-1.5 text-sm font-medium text-signal ring-1 ring-signal/40"
-                        : "cursor-pointer rounded-lg bg-secondary/80 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-                    }
-                  >
-                    {p.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {clips.length === 0 && pipelineBusy && (
-          <div className="rounded-2xl border border-dashed border-border px-6 py-14 text-center">
-            <p className="text-sm text-muted-foreground">
-              Les clips apparaissent ici dès que l’IA a trouvé les moments forts.
-            </p>
-          </div>
-        )}
-
-        {clips.length === 0 && project.status === "ready" && (
-          <div className="rounded-2xl border border-dashed border-border px-6 py-14 text-center">
-            <p className="text-sm text-muted-foreground">
-              Aucun clip auto. Ouvre les outils ci-dessous pour un trim manuel.
-            </p>
-          </div>
-        )}
-
-        {clips.length === 0 && project.status === "failed" && !hasSource && (
-          <div className="rounded-2xl border border-border bg-card/40 px-5 py-5 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">Pas de vidéo source</p>
-            <p className="mt-2">
-              Importe un{" "}
-              <Link
-                href="/dashboard"
-                className="text-signal underline-offset-4 hover:underline"
+            )}
+            {canRetryFailed && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onRetryFailed}
+                disabled={retrying}
+                className="cursor-pointer"
               >
-                fichier MP4
-              </Link>{" "}
-              (plus fiable que YouTube sans cookies).
+                Relancer les échecs
+              </Button>
+            )}
+          </div>
+        )}
+        {hasSource && project.status === "ready" && clips.length === 0 && (
+          <ClipManualTrim
+            sourceUrl={project.sourceVideoUrl!}
+            durationSeconds={project.durationSeconds}
+            disabled={false}
+            creating={creatingManual}
+            onCreate={onCreateManual}
+          />
+        )}
+        {retryError && (
+          <p className="text-sm text-destructive" role="alert">
+            {retryError}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-atelier-workspace
+      className="fixed inset-x-0 bottom-0 top-14 z-30 flex flex-col bg-background"
+    >
+      {/* Chrome atelier compact */}
+      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-3 md:px-4">
+        <Link
+          href="/dashboard"
+          className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-3.5" weight="bold" />
+          Projets
+        </Link>
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-sm font-semibold tracking-tight">
+            {project.title}
+          </h1>
+        </div>
+        <span className={`shrink-0 text-xs ${projectStatusTone(project.status)}`}>
+          {readyCount}/{clips.length} prêts
+        </span>
+        <label className="hidden cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
+          <input
+            type="checkbox"
+            checked={preferSoft}
+            onChange={(e) => setPreferSoft(e.target.checked)}
+            className="size-3 accent-signal"
+          />
+          Soft
+        </label>
+        {readyCount > 0 && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="hidden h-8 cursor-pointer sm:inline-flex"
+            onClick={() => {
+              const plat =
+                EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
+                  ?.fileSlug ?? exportPlatform;
+              const pool =
+                selectedReady.length > 0
+                  ? selectedReady
+                  : clips.filter((c) => c.resultUrl && c.status === "ready");
+              downloadUrls(
+                pool.map((c) => ({
+                  url: c.resultUrl!,
+                  filename: safeDownloadName(c.title, c.order, plat),
+                })),
+              );
+            }}
+          >
+            <DownloadSimple className="size-3.5" weight="bold" />
+            {selectedReady.length > 0
+              ? `Export (${selectedReady.length})`
+              : `Export (${readyCount})`}
+          </Button>
+        )}
+        <Button
+          type="button"
+          size="sm"
+          disabled={!canRerender || rerendering}
+          onClick={() => void onApplyRerender()}
+          className="h-8 shrink-0 cursor-pointer"
+        >
+          {rerendering
+            ? "File…"
+            : selectedIds.size > 0
+              ? `Re-rendre ${selectedIds.size}`
+              : "Re-rendre"}
+        </Button>
+      </header>
+
+      {(retryError || applyInfo) && (
+        <div className="shrink-0 border-b border-border px-3 py-1.5 text-xs">
+          {retryError && (
+            <p className="text-destructive" role="alert">
+              {retryError}
             </p>
-          </div>
-        )}
-
-        {clips.length > 0 && focusedClip && (
-          <div className="grid gap-6 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
-            <ClipFilmstrip
-              clips={clips}
-              focusedId={focusedClipId}
-              selectedIds={selectedIds}
-              sort={sortMode}
-              onSort={setSortMode}
-              onFocus={(id) => {
-                setFocusedClipId(id);
-                setEditingClipId(null);
-              }}
-              onToggleSelect={toggleSelect}
-              onSelectAll={() =>
-                setSelectedIds(new Set(clips.map((c) => c._id)))
-              }
-              onClearSelect={() => setSelectedIds(new Set())}
-            />
-
-            <div className="space-y-4 rounded-2xl border border-border bg-card/30 p-4 md:p-5">
-              <ClipStagePreview
-                clip={focusedClip}
-                sourceUrl={project.sourceVideoUrl}
-                softPreview={preferSoft}
-                captionStyle={captionStyle}
-                lookFilter={lookFilter}
-                punchEffect={punchEffect}
-                logoUrl={project.logoUrl}
-                logoCorner={logoCorner}
-                logoOpacity={logoOpacity}
-                editing={editingClipId === focusedClip._id}
-                editSlot={
-                  hasSource &&
-                  editingClipId === focusedClip._id &&
-                  project.sourceVideoUrl ? (
-                    <ClipEditTrim
-                      sourceUrl={project.sourceVideoUrl}
-                      initialStart={focusedClip.startSec}
-                      initialEnd={focusedClip.endSec}
-                      sourceDuration={project.durationSeconds}
-                      saving={savingTrim}
-                      onSave={(args) =>
-                        onSaveClipTrim(focusedClip._id, args)
-                      }
-                      onCancel={() => setEditingClipId(null)}
-                    />
-                  ) : null
-                }
-              />
-
-              <div className="flex flex-wrap gap-2 border-t border-border pt-4">
-                {focusedClip.resultUrl && (
-                  <a
-                    href={focusedClip.resultUrl}
-                    download={safeDownloadName(
-                      focusedClip.title,
-                      focusedClip.order,
-                      EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
-                        ?.fileSlug ?? exportPlatform,
-                    )}
-                    className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90"
-                  >
-                    <DownloadSimple className="size-4" weight="bold" />
-                    Télécharger
-                  </a>
-                )}
-                {hasSource && editingClipId !== focusedClip._id && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={focusedClip.status === "rendering"}
-                    onClick={() => setEditingClipId(focusedClip._id)}
-                    className="h-10 cursor-pointer"
-                  >
-                    Ajuster In/Out
-                  </Button>
-                )}
-                {hasSource && (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    disabled={
-                      rerendering || focusedClip.status === "rendering"
-                    }
-                    onClick={() => {
-                      setSelectedIds(new Set([focusedClip._id]));
-                      void (async () => {
-                        setRetryError(null);
-                        setApplyInfo(null);
-                        setRerendering(true);
-                        try {
-                          const n = await rerenderClips({
-                            clipProjectId,
-                            clipIds: [focusedClip._id],
-                          });
-                          setApplyInfo(
-                            n > 0
-                              ? "1 clip mis en file — rendu ffmpeg."
-                              : "Rien à rendre",
-                          );
-                        } catch (err) {
-                          setRetryError(
-                            err instanceof Error ? err.message : "Erreur",
-                          );
-                        } finally {
-                          setRerendering(false);
-                        }
-                      })();
-                    }}
-                    className="h-10 cursor-pointer"
-                  >
-                    Re-rendre ce clip
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Outils secondaires — Appliquer toujours visible (sinon options sauvées sans jobs) */}
-      {hasSource && (
-        <section className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card/50 px-4 py-3.5">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">
-                Appliquer le polish
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Soft preview = immédiat. Ce bouton lance le vrai rendu ffmpeg
-                {selectedIds.size > 0
-                  ? ` (${selectedIds.size} sélectionné${selectedIds.size > 1 ? "s" : ""})`
-                  : " (tous les clips)"}
-                .
-              </p>
-            </div>
-            <Button
-              type="button"
-              disabled={!canRerender || rerendering}
-              onClick={() => void onApplyRerender()}
-              className="shrink-0 cursor-pointer"
-            >
-              {rerendering
-                ? "Mise en file…"
-                : !canRerender
-                  ? "Pas de clip à rendre"
-                  : selectedIds.size > 0
-                    ? `Re-rendre ${selectedIds.size}`
-                    : `Re-rendre ${clips.length} clip${clips.length > 1 ? "s" : ""}`}
-            </Button>
-          </div>
-          {applyInfo && (
-            <p className="text-sm text-signal" role="status">
+          )}
+          {applyInfo && !retryError && (
+            <p className="text-signal" role="status">
               {applyInfo}
             </p>
           )}
+        </div>
+      )}
 
-          <ClipRenderOptions
-            captionStyle={captionStyle}
-            layoutMode={layoutMode}
-            voiceoverMode={voiceoverMode}
-            audioEnhance={audioEnhance}
-            punchEffect={punchEffect}
-            lookFilter={lookFilter}
-            lutUrl={project.lutUrl}
-            logoUrl={project.logoUrl}
-            logoCorner={logoCorner}
-            logoOpacity={logoOpacity}
-            musicUrl={project.musicUrl}
-            musicVolume={musicVolume}
-            disabled={false}
-            applyDisabled={!canRerender}
-            saving={rerendering}
-            defaultOpen
-            hideApply
-            onCaptionStyle={(v) => void persistOption({ captionStyle: v })}
-            onLayoutMode={(v) => void persistOption({ layoutMode: v })}
-            onVoiceoverMode={(v) => void persistOption({ voiceoverMode: v })}
-            onAudioEnhance={(v) => void persistOption({ audioEnhance: v })}
-            onPunchEffect={(v) => void persistOption({ punchEffect: v })}
-            onLookFilter={(v) => void persistOption({ lookFilter: v })}
-            onLogoCorner={(v) => void persistOption({ logoCorner: v })}
-            onLogoOpacity={(v) => void persistOption({ logoOpacity: v })}
-            onMusicVolume={(v) => void persistOption({ musicVolume: v })}
-            onPreviewIntent={() => setPreferSoft(true)}
-            onUploadLogo={async (f) => {
-              try {
-                setPreferSoft(true);
-                await uploadLogo(f);
-              } catch (err) {
-                setRetryError(err instanceof Error ? err.message : "Erreur");
-              }
+      {/* Corps : clips | stage | outils */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)_280px]">
+        <aside className="min-h-0 overflow-y-auto border-b border-border p-3 lg:border-b-0 lg:border-r">
+          <ClipFilmstrip
+            clips={clips}
+            focusedId={focusedClipId}
+            selectedIds={selectedIds}
+            sort={sortMode}
+            onSort={setSortMode}
+            onFocus={(id) => {
+              setFocusedClipId(id);
+              setEditingClipId(null);
             }}
-            onClearLogo={() => void persistOption({ clearLogo: true })}
-            onUploadMusic={async (f) => {
-              try {
-                await uploadMusic(f);
-              } catch (err) {
-                setRetryError(err instanceof Error ? err.message : "Erreur");
-              }
-            }}
-            onClearMusic={() => void persistOption({ clearMusic: true })}
-            onUploadLut={async (f) => {
-              try {
-                setPreferSoft(true);
-                await uploadLut(f);
-              } catch (err) {
-                setRetryError(err instanceof Error ? err.message : "Erreur");
-              }
-            }}
-            onClearLut={() => void persistOption({ clearLut: true })}
-            onApplyRerender={() => void onApplyRerender()}
+            onToggleSelect={toggleSelect}
+            onSelectAll={() =>
+              setSelectedIds(new Set(clips.map((c) => c._id)))
+            }
+            onClearSelect={() => setSelectedIds(new Set())}
           />
+        </aside>
 
-          <div className="overflow-hidden rounded-2xl border border-border bg-card/50">
+        <main className="relative min-h-0 overflow-hidden bg-black/20 p-3">
+          {focusedClip && (
+            <ClipStagePreview
+              clip={focusedClip}
+              sourceUrl={project.sourceVideoUrl}
+              softPreview={preferSoft}
+              captionStyle={captionStyle}
+              lookFilter={lookFilter}
+              punchEffect={punchEffect}
+              layoutMode={layoutMode}
+              splitSwap={splitSwap}
+              logoUrl={project.logoUrl}
+              logoCorner={logoCorner}
+              logoOpacity={logoOpacity}
+              compact
+              editing={editingClipId === focusedClip._id}
+              editSlot={
+                hasSource &&
+                editingClipId === focusedClip._id &&
+                project.sourceVideoUrl ? (
+                  <ClipEditTrim
+                    sourceUrl={project.sourceVideoUrl}
+                    initialStart={focusedClip.startSec}
+                    initialEnd={focusedClip.endSec}
+                    sourceDuration={project.durationSeconds}
+                    saving={savingTrim}
+                    onSave={(args) => onSaveClipTrim(focusedClip._id, args)}
+                    onCancel={() => setEditingClipId(null)}
+                  />
+                ) : null
+              }
+            />
+          )}
+        </main>
+
+        <aside className="hidden min-h-0 lg:block">
+          <ClipRenderOptions {...renderOptionsProps} variant="drawer" />
+        </aside>
+      </div>
+
+      {/* Barre bas : In/Out + actions clip + export plateforme */}
+      <footer className="shrink-0 border-t border-border bg-card/60 px-3 py-2 md:px-4">
+        <div className="flex flex-wrap items-center gap-2">
+          {focusedClip && hasSource && editingClipId !== focusedClip._id && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={focusedClip.status === "rendering"}
+              onClick={() => setEditingClipId(focusedClip._id)}
+              className="h-8 cursor-pointer"
+            >
+              Ajuster In/Out
+            </Button>
+          )}
+          {focusedClip?.resultUrl && (
+            <a
+              href={focusedClip.resultUrl}
+              download={safeDownloadName(
+                focusedClip.title,
+                focusedClip.order,
+                EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
+                  ?.fileSlug ?? exportPlatform,
+              )}
+              className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-lg bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:opacity-90"
+            >
+              <DownloadSimple className="size-3.5" weight="bold" />
+              Ce clip
+            </a>
+          )}
+          <div
+            className="flex flex-wrap gap-1"
+            role="radiogroup"
+            aria-label="Plateforme"
+          >
+            {EXPORT_PLATFORMS.map((p) => {
+              const active = p.id === exportPlatform;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  title={p.hint}
+                  onClick={() => setExportPlatform(p.id)}
+                  className={
+                    active
+                      ? "cursor-pointer rounded-md bg-signal/20 px-2 py-1 text-[11px] font-medium text-signal ring-1 ring-signal/40"
+                      : "cursor-pointer rounded-md bg-secondary/70 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+                  }
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="ml-auto flex items-center gap-2 lg:hidden">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="h-8 cursor-pointer"
+              onClick={() => setToolsOpen((v) => !v)}
+            >
+              {toolsOpen ? "Fermer outils" : "Outils"}
+            </Button>
+          </div>
+          {hasSource && (
             <button
               type="button"
               onClick={() => setToolsOpen((v) => !v)}
-              className="flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-secondary/40"
-              aria-expanded={toolsOpen}
+              className="hidden cursor-pointer text-[11px] text-muted-foreground hover:text-foreground lg:inline"
             >
-              <div>
-                <p className="text-sm font-semibold">Créer un clip manuel</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Choisis In / Out sur la timeline source
-                </p>
-              </div>
-              <span className="text-xs text-muted-foreground">
-                {toolsOpen ? "Fermer" : "Ouvrir"}
-              </span>
+              {toolsOpen ? "Fermer trim manuel" : "+ Clip manuel"}
             </button>
-            {toolsOpen && (
-              <div className="border-t border-border px-4 py-4">
-                <ClipManualTrim
-                  sourceUrl={project.sourceVideoUrl!}
-                  durationSeconds={project.durationSeconds}
-                  disabled={false}
-                  creating={creatingManual}
-                  onCreate={onCreateManual}
-                />
-              </div>
-            )}
+          )}
+        </div>
+        {toolsOpen && hasSource && (
+          <div className="mt-2 max-h-48 overflow-y-auto border-t border-border pt-2 lg:max-h-56">
+            <div className="lg:hidden">
+              <ClipRenderOptions {...renderOptionsProps} defaultOpen />
+            </div>
+            <div className="mt-2">
+              <ClipManualTrim
+                sourceUrl={project.sourceVideoUrl!}
+                durationSeconds={project.durationSeconds}
+                disabled={false}
+                creating={creatingManual}
+                onCreate={onCreateManual}
+              />
+            </div>
           </div>
-        </section>
-      )}
+        )}
+      </footer>
     </div>
   );
 }

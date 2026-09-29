@@ -32,6 +32,10 @@ Voler la **forme**, garder le **job** Opus. Pas de timeline NLE, pas de ranking/
 - [x] Promesse **prêt à poster** (badge + CTA téléchargement clair)
 - [x] Vitesse perçue : message « mis en file » / progression simple
 - [x] Durée reel standard ~30s (déjà étape 4 partielle)
+- [x] **Workspace 1 viewport** (clips | stage 9:16 | outils | barre In/Out) — plus de scroll page
+- [x] Hooks plus denses (5–8 sur longs vlogs)
+- [x] Captions CapCut-like (font display + word pop karaoke)
+- [x] Split soft preview + swap haut/bas
 
 Hors emprunt : templates ranking/commentary, VO ElevenLabs comme funnel principal, brand kits Business.
 

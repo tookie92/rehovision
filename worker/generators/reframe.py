@@ -310,6 +310,8 @@ def build_split_filter_complex(
     start_sec: float,
     end_sec: float,
     work_dir: Path,
+    *,
+    swap: bool = False,
 ) -> str:
     width, height = _ffprobe_size(source_path)
     centers = estimate_two_subjects(source_path, start_sec, end_sec, work_dir)
@@ -341,6 +343,9 @@ def build_split_filter_complex(
     while len(crops) < 2:
         crops.append(crops[0] if crops else (width, height, 0, 0))
 
+    if swap:
+        crops = [crops[1], crops[0]]
+
     (cw0, ch0, x0, y0) = crops[0]
     (cw1, ch1, x1, y1) = crops[1]
     return (
@@ -356,6 +361,8 @@ def build_reframe_vf(
     end_sec: float,
     work_dir: Path,
     layout_mode: str | None = None,
+    *,
+    split_swap: bool = False,
 ) -> tuple[str, str | None]:
     """
     Retourne (vf_simple | "", filter_complex | None).
@@ -375,7 +382,11 @@ def build_reframe_vf(
     if mode == "split":
         try:
             fc = build_split_filter_complex(
-                source_path, start_sec, end_sec, work_dir
+                source_path,
+                start_sec,
+                end_sec,
+                work_dir,
+                swap=split_swap,
             )
             return "", fc
         except Exception as e:

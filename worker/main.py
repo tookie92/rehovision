@@ -377,6 +377,7 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
                 broll_cues=payload.get("brollCues") or payload.get("broll") or None,
                 caption_style=payload.get("captionStyle") or None,
                 layout_mode=payload.get("layoutMode") or None,
+                split_swap=bool(payload.get("splitSwap")),
                 voiceover_mode=payload.get("voiceoverMode") or None,
                 audio_enhance=payload.get("audioEnhance") or None,
                 punch_effect=payload.get("punchEffect") or None,

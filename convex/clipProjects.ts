@@ -66,6 +66,7 @@ function viralPayload(project: Doc<"clipProjects">) {
     logoOpacity: project.logoOpacity ?? 0.85,
     musicUrl: project.musicUrl,
     musicVolume: project.musicVolume ?? 0.18,
+    splitSwap: project.splitSwap ?? false,
   };
 }
 
@@ -98,6 +99,7 @@ const clipProjectDoc = v.object({
       v.literal("split"),
     ),
   ),
+  splitSwap: v.optional(v.boolean()),
   voiceoverMode: v.optional(
     v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
   ),
@@ -326,6 +328,7 @@ const clipProjectSummary = v.object({
       v.literal("split"),
     ),
   ),
+  splitSwap: v.optional(v.boolean()),
   voiceoverMode: v.optional(
     v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
   ),
@@ -560,6 +563,7 @@ export const updateRenderOptions = mutation({
         v.literal("split"),
       ),
     ),
+    splitSwap: v.optional(v.boolean()),
     voiceoverMode: v.optional(
       v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
     ),
@@ -585,6 +589,7 @@ export const updateRenderOptions = mutation({
     const patch: Record<string, unknown> = {};
     if (args.captionStyle !== undefined) patch.captionStyle = args.captionStyle;
     if (args.layoutMode !== undefined) patch.layoutMode = args.layoutMode;
+    if (args.splitSwap !== undefined) patch.splitSwap = args.splitSwap;
     if (args.voiceoverMode !== undefined) {
       patch.voiceoverMode = args.voiceoverMode;
     }

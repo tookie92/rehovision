@@ -1,6 +1,6 @@
 """
 Captions virales (ASS) synchronisées sur le transcript Whisper.
-Phrases courtes + karaoke mot-à-mot quand les timestamps mots sont dispo.
+Style CapCut-like : fonts display, karaoke + pop mot-à-mot, outline fort.
 """
 
 from __future__ import annotations
@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +17,44 @@ log = logging.getLogger("rehovision-worker.captions")
 VIDEO_W = 1080
 VIDEO_H = 1920
 
+# Polices display type CapCut (ordre de préférence)
+_FONT_CANDIDATES = (
+    "Montserrat ExtraBold",
+    "Montserrat Black",
+    "Montserrat Bold",
+    "Impact",
+    "Arial Black",
+    "DejaVu Sans Bold",
+    "DejaVu Sans",
+    "Liberation Sans Bold",
+    "Arial",
+)
+
 
 def _find_font_name() -> str:
+    env = (os.getenv("CAPTION_FONT") or "").strip()
+    if env:
+        return env
+    # LibreOffice / fonts-extra souvent présents sur Ubuntu
+    for name in _FONT_CANDIDATES:
+        # ASS utilise le nom de famille ; on vérifie via fc-list si dispo
+        if shutil.which("fc-list"):
+            try:
+                import subprocess
+
+                r = subprocess.run(
+                    ["fc-list", f":family={name.split()[0]}", "file"],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                    check=False,
+                )
+                if r.stdout.strip():
+                    return name
+            except Exception:
+                pass
+        else:
+            return name
     return "Arial"
 
 
@@ -98,8 +135,22 @@ def _chunk_words(
     words: list[dict[str, float | str]], chunk_size: int
 ) -> list[list[dict[str, float | str]]]:
     if chunk_size < 1:
-        chunk_size = 4
+        chunk_size = 3
     return [words[i : i + chunk_size] for i in range(0, len(words), chunk_size)]
+
+
+def _word_pop_tag(dur_cs: int, *, pop: bool) -> str:
+    """Karaoke + scale pop CapCut-like (\\k + \\t fsc)."""
+    if not pop:
+        return f"{{\\k{dur_cs}}}"
+    # Pop 120% puis retour 100% pendant la durée du mot
+    up = min(12, max(4, dur_cs // 4))
+    down = min(dur_cs, up + max(6, dur_cs // 3))
+    return (
+        f"{{\\k{dur_cs}"
+        f"\\t(0,{up},\\fscx118\\fscy118)"
+        f"\\t({up},{down},\\fscx100\\fscy100)}}"
+    )
 
 
 def build_cues_for_clip(
@@ -111,10 +162,11 @@ def build_cues_for_clip(
 ) -> list[tuple[float, float, str]]:
     """
     Retourne des cues (start, end, texte ASS) relatifs au début du clip.
-    Texte peut contenir des tags {\\kN} pour karaoke.
+    Texte peut contenir des tags {\\kN} + pop pour karaoke CapCut-like.
     """
-    n = words_per_cue or int(os.getenv("CAPTION_WORDS_PER_CUE", "4"))
+    n = words_per_cue or int(os.getenv("CAPTION_WORDS_PER_CUE", "3"))
     use_karaoke = os.getenv("CAPTION_KARAOKE", "1") not in ("0", "false", "False")
+    use_pop = os.getenv("CAPTION_WORD_POP", "1") not in ("0", "false", "False")
 
     all_words: list[dict[str, float | str]] = []
     for seg in segments:
@@ -143,17 +195,17 @@ def build_cues_for_clip(
         abs_end = float(chunk[-1]["end"])
         rel_start = max(0.0, abs_start - clip_start)
         rel_end = max(rel_start + 0.12, abs_end - clip_start)
-        # Ne pas dépasser la durée du clip
         clip_dur = max(0.2, clip_end - clip_start)
         if rel_start >= clip_dur:
             continue
         rel_end = min(rel_end, clip_dur)
 
-        if use_karaoke and len(chunk) > 1:
+        if use_karaoke and len(chunk) >= 1:
             parts: list[str] = []
             for w in chunk:
                 dur_cs = max(1, int(round((float(w["end"]) - float(w["start"])) * 100)))
-                parts.append(f"{{\\k{dur_cs}}}{_escape_ass(str(w['word']))}")
+                tag = _word_pop_tag(dur_cs, pop=use_pop and len(chunk) > 1)
+                parts.append(f"{tag}{_escape_ass(str(w['word']))}")
             text = " ".join(parts)
         else:
             text = _escape_ass(" ".join(str(w["word"]) for w in chunk))
@@ -174,62 +226,83 @@ def write_viral_ass(
         return path
     presets: dict[str, dict[str, Any]] = {
         "viral": {
-            "fontsize": 68,
+            "fontsize": 72,
             "primary": "&H00FFFFFF",
             "secondary": "&H003DD6C6",
             "outline": "&H00000000",
-            "outline_w": 5,
-            "margin_v": 260,
+            "outline_w": 6,
+            "shadow": 2,
+            "spacing": 1,
+            "margin_v": 280,
+            "uppercase": False,
         },
         "bold_green": {
-            "fontsize": 72,
-            "primary": "&H0000FF7A",  # lime-ish BGR
+            "fontsize": 76,
+            "primary": "&H0000FF7A",
             "secondary": "&H00FFFFFF",
             "outline": "&H00000000",
-            "outline_w": 6,
-            "margin_v": 280,
+            "outline_w": 7,
+            "shadow": 2,
+            "spacing": 1,
+            "margin_v": 290,
+            "uppercase": True,
         },
         "yellow_pop": {
-            "fontsize": 70,
+            "fontsize": 74,
             "primary": "&H0000F0FF",
             "secondary": "&H00FFFFFF",
             "outline": "&H00000000",
-            "outline_w": 6,
-            "margin_v": 270,
+            "outline_w": 7,
+            "shadow": 2,
+            "spacing": 1,
+            "margin_v": 280,
+            "uppercase": True,
         },
         "minimal": {
-            "fontsize": 48,
+            "fontsize": 52,
             "primary": "&H00FFFFFF",
             "secondary": "&H00CCCCCC",
             "outline": "&H00000000",
             "outline_w": 3,
-            "margin_v": 160,
+            "shadow": 1,
+            "spacing": 0,
+            "margin_v": 180,
+            "uppercase": False,
         },
         "neon_pink": {
-            "fontsize": 70,
-            "primary": "&H00FF66FF",  # pink BGR-ish
+            "fontsize": 74,
+            "primary": "&H00FF66FF",
             "secondary": "&H00FFFFFF",
-            "outline": "&H00000000",
-            "outline_w": 5,
-            "margin_v": 270,
+            "outline": "&H001A0014",
+            "outline_w": 6,
+            "shadow": 3,
+            "spacing": 1,
+            "margin_v": 280,
+            "uppercase": True,
         },
         "impact": {
-            "fontsize": 78,
+            "fontsize": 82,
             "primary": "&H00FFFFFF",
             "secondary": "&H0000D7FF",
             "outline": "&H00000000",
-            "outline_w": 8,
+            "outline_w": 9,
+            "shadow": 3,
+            "spacing": 2,
             "margin_v": 300,
+            "uppercase": True,
         },
     }
     preset = presets.get(style_key, presets["viral"])
-    font = os.getenv("CAPTION_FONT", _find_font_name())
+    font = _find_font_name()
     fontsize = int(os.getenv("CAPTION_FONT_SIZE", str(preset["fontsize"])))
     primary = str(preset["primary"])
     secondary = str(preset["secondary"])
     outline = str(preset["outline"])
     outline_w = int(preset["outline_w"])
+    shadow = int(preset.get("shadow", 2))
+    spacing = int(preset.get("spacing", 0))
     margin_v = int(os.getenv("CAPTION_MARGIN_V", str(preset["margin_v"])))
+    do_upper = bool(preset.get("uppercase"))
 
     header = f"""[Script Info]
 Title: Rehovision Captions ({style_key})
@@ -240,7 +313,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Viral,{font},{fontsize},{primary},{secondary},{outline},&H80000000,-1,0,0,0,100,100,0,0,1,{outline_w},0,2,70,70,{margin_v},1
+Style: Viral,{font},{fontsize},{primary},{secondary},{outline},&H80000000,-1,0,0,0,100,100,{spacing},0,1,{outline_w},{shadow},2,60,60,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -249,13 +322,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for start, end, text in cues:
         if not text.strip():
             continue
+        # Uppercase hors tags ASS {\...}
+        if do_upper:
+            parts = re.split(r"(\{[^}]*\})", text)
+            text = "".join(
+                p if p.startswith("{") else p.upper() for p in parts
+            )
         lines.append(
             f"Dialogue: 0,{_format_ass_time(start)},{_format_ass_time(end)},"
             f"Viral,,0,0,0,,{text}\n"
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(lines), encoding="utf-8")
-    log.info("ASS captions style=%s → %s (%d cues)", style_key, path.name, len(cues))
+    log.info(
+        "ASS captions style=%s font=%s → %s (%d cues)",
+        style_key,
+        font,
+        path.name,
+        len(cues),
+    )
     return path
 
 
@@ -273,7 +358,7 @@ def cues_from_caption_text(
     text = re.sub(r"\s+", " ", (caption_text or "").strip())
     if not text or duration <= 0:
         return []
-    n = words_per_cue or int(os.getenv("CAPTION_WORDS_PER_CUE", "4"))
+    n = words_per_cue or int(os.getenv("CAPTION_WORDS_PER_CUE", "3"))
     tokens = text.split(" ")
     chunks = [" ".join(tokens[i : i + n]) for i in range(0, len(tokens), n)]
     if not chunks:

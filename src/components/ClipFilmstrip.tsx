@@ -102,7 +102,7 @@ export function ClipFilmstrip({
       </div>
 
       <ul
-        className="flex gap-2 overflow-x-auto pb-1 lg:max-h-[min(70vh,640px)] lg:flex-col lg:overflow-y-auto lg:overflow-x-hidden lg:pb-0"
+        className="flex gap-2 overflow-x-auto pb-1 lg:max-h-none lg:flex-1 lg:flex-col lg:overflow-y-auto lg:overflow-x-hidden lg:pb-0"
         role="listbox"
         aria-label="Liste des clips"
       >

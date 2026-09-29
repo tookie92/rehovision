@@ -44,6 +44,10 @@ type Props = {
   defaultOpen?: boolean;
   /** Masque le CTA interne si un bouton parent gère le re-rendu. */
   hideApply?: boolean;
+  /** drawer = panneau latéral toujours ouvert (workspace) */
+  variant?: "default" | "drawer";
+  splitSwap?: boolean;
+  onSplitSwap?: (v: boolean) => void;
   onCaptionStyle: (v: CaptionStyleId) => void;
   onLayoutMode: (v: LayoutModeId) => void;
   onVoiceoverMode: (v: VoiceoverModeId) => void;
@@ -126,6 +130,9 @@ export function ClipRenderOptions({
   saving,
   defaultOpen = false,
   hideApply = false,
+  variant = "default",
+  splitSwap = false,
+  onSplitSwap,
   onCaptionStyle,
   onLayoutMode,
   onVoiceoverMode,
@@ -147,9 +154,10 @@ export function ClipRenderOptions({
   const logoRef = useRef<HTMLInputElement>(null);
   const musicRef = useRef<HTMLInputElement>(null);
   const lutRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(defaultOpen || variant === "drawer");
   const [assetBusy, setAssetBusy] = useState(false);
   const [lutHint, setLutHint] = useState<string | null>(null);
+  const isDrawer = variant === "drawer";
 
   function withPreview<T>(fn: (v: T) => void): (v: T) => void {
     return (v) => {
@@ -223,30 +231,8 @@ export function ClipRenderOptions({
     }
   }
 
-  return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card/50">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-secondary/40"
-        aria-expanded={open}
-      >
-        <div>
-          <p className="text-sm font-semibold text-foreground">
-            Personnaliser le rendu
-          </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Clique un look / captions → aperçu soft live sur le stage
-          </p>
-        </div>
-        <CaretDown
-          className={`size-5 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
-          weight="bold"
-        />
-      </button>
-
-      {open && (
-        <div className="space-y-6 border-t border-border px-4 py-5">
+  const body = (
+        <div className={isDrawer ? "space-y-5 p-3" : "space-y-6 border-t border-border px-4 py-5"}>
           <ChipGroup
             label="Sous-titres"
             options={CAPTION_STYLES}
@@ -261,6 +247,27 @@ export function ClipRenderOptions({
             disabled={disabled}
             onChange={withPreview(onLayoutMode)}
           />
+          {layoutMode === "split" && onSplitSwap && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-foreground">Split — visages</p>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                  onPreviewIntent?.();
+                  onSplitSwap(!splitSwap);
+                }}
+                className="cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-sm text-foreground hover:bg-secondary disabled:opacity-50"
+              >
+                {splitSwap
+                  ? "Échanger haut ↔ bas (actif)"
+                  : "Échanger haut ↔ bas"}
+              </button>
+              <p className="text-[11px] text-muted-foreground">
+                Soft preview live ; re-rendre pour l’export ffmpeg.
+              </p>
+            </div>
+          )}
           <ChipGroup
             label="Audio"
             options={AUDIO_ENHANCE_MODES}
@@ -340,8 +347,7 @@ export function ClipRenderOptions({
             )}
             {lutUrl && (
               <p className="text-xs text-signal">
-                LUT active — soft approx. dans le stage ; Re-rendre pour le vrai
-                .cube
+                LUT active — soft approx. ; Re-rendre pour le vrai .cube
               </p>
             )}
           </div>
@@ -353,7 +359,7 @@ export function ClipRenderOptions({
             onChange={withPreview(onVoiceoverMode)}
           />
 
-          <div className="space-y-3 border-t border-border pt-5">
+          <div className="space-y-3 border-t border-border pt-4">
             <p className="text-sm font-medium">Logo</p>
             <div className="flex flex-wrap items-center gap-2">
               <input
@@ -424,7 +430,7 @@ export function ClipRenderOptions({
             )}
           </div>
 
-          <div className="space-y-3 border-t border-border pt-5">
+          <div className="space-y-3 border-t border-border pt-4">
             <p className="text-sm font-medium">Musique de fond</p>
             <div className="flex flex-wrap items-center gap-2">
               <input
@@ -481,7 +487,7 @@ export function ClipRenderOptions({
           </div>
 
           {!hideApply && (
-            <div className="flex flex-wrap items-center gap-3 border-t border-border pt-5">
+            <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
               <Button
                 type="button"
                 disabled={applyDisabled || saving}
@@ -495,14 +501,50 @@ export function ClipRenderOptions({
               </p>
             </div>
           )}
-          {hideApply && (
+          {hideApply && !isDrawer && (
             <p className="border-t border-border pt-4 text-xs text-muted-foreground">
-              Utilise le bouton « Re-rendre » au-dessus pour mettre les clips en
-              file.
+              Utilise le bouton « Re-rendre » pour mettre les clips en file.
             </p>
           )}
         </div>
-      )}
+  );
+
+  if (isDrawer) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden border-l border-border bg-card/40">
+        <div className="shrink-0 border-b border-border px-3 py-2.5">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            Outils
+          </p>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-card/50">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-secondary/40"
+        aria-expanded={open}
+      >
+        <div>
+          <p className="text-sm font-semibold text-foreground">
+            Personnaliser le rendu
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Clique un look / captions → aperçu soft live sur le stage
+          </p>
+        </div>
+        <CaretDown
+          className={`size-5 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+          weight="bold"
+        />
+      </button>
+
+      {open && body}
     </div>
   );
 }

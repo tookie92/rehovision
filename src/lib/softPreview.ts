@@ -1,4 +1,4 @@
-/** Soft preview navigateur — approx. des looks/captions (pas un rendu ffmpeg). */
+/** Soft preview navigateur — approx. des looks/captions CapCut-like (pas un rendu ffmpeg). */
 
 import type {
   CaptionStyleId,
@@ -33,6 +33,8 @@ export type SoftCaptionStyle = {
   stroke: string;
   sizeClass: string;
   weight: string;
+  uppercase: boolean;
+  tracking: string;
 };
 
 export function softCaptionStyle(
@@ -45,14 +47,18 @@ export function softCaptionStyle(
         color: "#39ff7a",
         stroke: "#000",
         sizeClass: "text-lg md:text-xl",
-        weight: "font-bold",
+        weight: "font-black",
+        uppercase: true,
+        tracking: "tracking-wide",
       };
     case "yellow_pop":
       return {
         color: "#ffe566",
         stroke: "#000",
         sizeClass: "text-lg md:text-xl",
-        weight: "font-extrabold",
+        weight: "font-black",
+        uppercase: true,
+        tracking: "tracking-wide",
       };
     case "minimal":
       return {
@@ -60,13 +66,17 @@ export function softCaptionStyle(
         stroke: "transparent",
         sizeClass: "text-sm md:text-base",
         weight: "font-medium",
+        uppercase: false,
+        tracking: "tracking-normal",
       };
     case "neon_pink":
       return {
         color: "#ff4fd8",
         stroke: "#1a0014",
         sizeClass: "text-lg md:text-xl",
-        weight: "font-bold",
+        weight: "font-black",
+        uppercase: true,
+        tracking: "tracking-wide",
       };
     case "impact":
       return {
@@ -74,6 +84,8 @@ export function softCaptionStyle(
         stroke: "#000",
         sizeClass: "text-xl md:text-2xl",
         weight: "font-black",
+        uppercase: true,
+        tracking: "tracking-wider",
       };
     case "viral":
     default:
@@ -81,7 +93,9 @@ export function softCaptionStyle(
         color: "#fff",
         stroke: "#000",
         sizeClass: "text-lg md:text-xl",
-        weight: "font-bold",
+        weight: "font-extrabold",
+        uppercase: false,
+        tracking: "tracking-wide",
       };
   }
 }

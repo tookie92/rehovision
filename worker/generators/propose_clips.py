@@ -2,6 +2,7 @@
 Propose des clips viraux (hooks) à partir d'un transcript via Ollama.
 
 Cible Reels/TikTok : ~30s, scorés, sans doublons.
+Sur vlogs longs : viser 5–8 clips (pas seulement 2).
 """
 
 from __future__ import annotations
@@ -18,10 +19,12 @@ MIN_CLIP_SEC = 20.0
 MAX_CLIP_SEC = 45.0
 # Chevauchement max (IoU) avant dédoublonnage
 MAX_IOU = 0.42
-MIN_SCORE = 45
+MIN_SCORE = 35
+MAX_CLIPS = 8
 
 SYSTEM_PROMPT = """Tu es un monteur viral type Opus Clip / TikTok Reels.
-À partir d'un transcript horodaté, propose 4 à 6 clips prêts à poster.
+À partir d'un transcript horodaté, propose 5 à 8 clips prêts à poster.
+Sur une vidéo longue (>10 min), vise 6–8 clips répartis sur toute la durée.
 Durée STANDARD = 30 secondes (plage 25–35s, jamais sous 20s).
 
 Réponds UNIQUEMENT en JSON valide:
@@ -49,6 +52,7 @@ Règles:
 - Le hook (phrase forte) dans les 3 premières secondes du clip
 - endSec - startSec ≈ 30s (idéal 25–35). JAMAIS sous 20s
 - Clips NON chevauchants (fenêtres disjointes)
+- Couvre le début, le milieu ET la fin du transcript (pas seulement l'intro)
 - Évite les intros « euh / bonjour » sans payoff
 - captionText = paraphrase claire (FR si transcript FR)
 - broll optionnel : 0–2 cutaways
@@ -179,7 +183,7 @@ def _dedupe_and_rank(clips: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ):
             continue
         kept.append(c)
-        if len(kept) >= 6:
+        if len(kept) >= MAX_CLIPS:
             break
     # Re-numérote l’ordre chronologique pour l’UI
     kept.sort(key=lambda c: float(c["startSec"]))
@@ -192,11 +196,14 @@ def _heuristic_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
         return []
 
     duration = float(transcript.get("duration") or segments[-1].get("end", 30))
+    # Densité : ~1 clip / 2–3 min sur longs vlogs, plafonné à MAX_CLIPS
+    target_n = min(MAX_CLIPS, max(5, int(duration / 150) + 2))
     clips: list[dict[str, Any]] = []
     window = TARGET_CLIP_SEC
+    gap = max(3.0, (duration - window * target_n) / max(1, target_n))
     start = float(segments[0].get("start", 0))
     order = 1
-    while start < duration - 10 and order <= 8:
+    while start < duration - 10 and order <= target_n:
         end = min(start + window, duration)
         texts = [
             str(s.get("text", "")).strip()
@@ -219,7 +226,7 @@ def _heuristic_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             )
             order += 1
-        start = end + 5.0
+        start = end + gap
     return _dedupe_and_rank(clips)
 
 
@@ -298,8 +305,13 @@ def propose_clips(transcript: dict[str, Any]) -> list[dict[str, Any]]:
     if not body.strip():
         raise RuntimeError("Transcript vide — impossible de proposer des clips")
 
+    target = 6 if duration >= 600 else 5
+    if duration >= 1200:
+        target = 8
     user = (
         f"Durée totale: {duration:.1f}s\n"
+        f"Propose environ {target} clips (min 5, max {MAX_CLIPS}), "
+        f"répartis sur TOUTE la durée.\n"
         f"Cible par clip: {TARGET_CLIP_SEC:.0f}s (min {MIN_CLIP_SEC:.0f}s)\n"
         f"Score chaque clip (viralScore). Évite les doublons.\n"
         f"Langue: {transcript.get('language', 'unknown')}\n\n"
