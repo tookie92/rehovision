@@ -126,7 +126,7 @@ export default function StudioPage() {
         </Link>
         <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="font-[family-name:var(--font-display)] text-4xl tracking-tight">
+            <h1 className="font-display text-4xl tracking-tight">
               {studio.name}
             </h1>
             <p className="mt-2 max-w-xl text-sm text-muted-foreground">

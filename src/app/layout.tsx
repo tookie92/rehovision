@@ -1,32 +1,40 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { shadcn } from "@clerk/ui/themes";
-import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
+import { Figtree, JetBrains_Mono, Syne } from "next/font/google";
 import ConvexClientProvider from "@/components/ConvexClientProvider";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import { SiteHeader } from "@/components/SiteHeader";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-sans",
+const figtree = Figtree({
+  variable: "--font-figtree",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const jetbrains = JetBrains_Mono({
+  variable: "--font-jetbrains",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  display: "swap",
 });
 
-const instrumentSerif = Instrument_Serif({
-  variable: "--font-display",
+const syne = Syne({
+  variable: "--font-syne",
   subsets: ["latin"],
-  weight: "400",
+  weight: ["600", "700", "800"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Rehovision",
+  title: "Rehovision — Atelier clips viraux",
   description:
-    "Transforme un sujet en vidéo narrative illustrée pour TikTok, YouTube et Instagram.",
+    "YouTube ou fichier → hooks IA → polish soft → export 9:16 prêt TikTok, Reels, Shorts.",
 };
+
+const themeBootScript = `(function(){try{var k='rehovision-theme';var t=localStorage.getItem(k);if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'}var r=document.documentElement;r.classList.toggle('dark',t==='dark');r.classList.toggle('light',t==='light');r.style.colorScheme=t}catch(e){document.documentElement.classList.add('dark')}})();`;
 
 export default function RootLayout({
   children,
@@ -34,14 +42,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" className="dark" suppressHydrationWarning>
+    <html lang="fr" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+      </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} min-h-screen antialiased`}
+        className={`${figtree.variable} ${jetbrains.variable} ${syne.variable} min-h-screen font-sans antialiased`}
       >
         <ClerkProvider appearance={{ theme: shadcn }}>
           <ConvexClientProvider>
-            <SiteHeader />
-            {children}
+            <ThemeProvider>
+              <SiteHeader />
+              {children}
+            </ThemeProvider>
           </ConvexClientProvider>
         </ClerkProvider>
       </body>

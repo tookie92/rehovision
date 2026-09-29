@@ -9,6 +9,7 @@ import {
   UserButton,
 } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function SiteHeader() {
   const pathname = usePathname();
@@ -19,11 +20,12 @@ export function SiteHeader() {
       <div className="mx-auto flex h-14 max-w-[1400px] items-center justify-between px-4 md:px-6 lg:px-8">
         <Link
           href={inAtelier ? "/dashboard" : "/"}
-          className="font-display text-xl tracking-tight text-foreground"
+          className="font-display text-xl font-bold tracking-tight text-foreground"
         >
           Rehovision
         </Link>
         <nav className="flex items-center gap-1 sm:gap-2">
+          <ThemeToggle />
           <Show when="signed-in">
             <Link
               href="/dashboard"
@@ -44,7 +46,7 @@ export function SiteHeader() {
               </Button>
             </SignInButton>
             <SignUpButton mode="modal">
-              <Button size="sm" className="cursor-pointer">
+              <Button size="sm" className="cursor-pointer font-semibold">
                 Commencer
               </Button>
             </SignUpButton>

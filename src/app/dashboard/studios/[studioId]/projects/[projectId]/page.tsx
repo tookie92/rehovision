@@ -236,7 +236,7 @@ export default function ProjectPage() {
         <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="font-[family-name:var(--font-display)] text-3xl tracking-tight sm:text-4xl">
+              <h1 className="font-display text-3xl tracking-tight sm:text-4xl">
                 {project.title}
               </h1>
               <Badge variant="secondary">

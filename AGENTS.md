@@ -8,10 +8,13 @@
 - Wants manual clip in/out with drag handles for start/end (not only AI auto-hooks); render options must be usable once the pipeline is ready.
 - Saving polish/render options alone does not enqueue jobs — always expose a visible re-render CTA that calls `rerenderAll` (or equivalent).
 - After each shipped feature or étape, always say what to do on Ubuntu (`git pull` + restart Next/web and worker; plus `npm run convex:deploy:self-hosted` when Convex schema/functions change).
+- Clip project UI should be an Opus-like no-scroll single-viewport workspace (clips list | 9:16 stage | tools | bottom In/Out + export/re-render), not a long-scrolling settings page.
+- Soft-preview polish on the stage before re-render (look/LUT approx, captions including Off, punch, Split dual-pane with haut↔bas swap).
+- Clip captions should look CapCut-like (karaoke / word-pop ASS with strong outline), with a real Off option — not plain burned text.
 
 ## Learned Workspace Facts
 
-- Rehovision has two pipelines: clips (YouTube/file → Whisper → Ollama hooks → ffmpeg vertical cuts with ASS captions, smart/Fill/Fit/Split reframe, optional Flux B-roll) and studio/faceless (Ollama script → image gen → OmniVoice/Piper voiceover → ffmpeg 9:16 assembly).
+- Rehovision has two pipelines: clips (YouTube/file → Whisper → Ollama hooks → ffmpeg vertical cuts with CapCut-like karaoke ASS captions, smart/Fill/Fit/Split reframe, optional Flux B-roll) and studio/faceless (Ollama script → image gen → OmniVoice/Piper voiceover → ffmpeg 9:16 assembly).
 - Local GPU worker stack (see `worker/README.md`): Ollama, Flux Schnell via Diffusers, OmniVoice with Piper fallback, Whisper, OpenCV reframe, ffmpeg; sized for RTX 3060 12GB VRAM (CPU offload for Flux).
 - Clips keep source audio by default; optional TTS mix/replace on clip re-render; full generative voiceover remains core to the studio pipeline.
 - Worker runs on Linux/NVIDIA (apt, systemd, CUDA); Cursor/dev is on Windows — typical flow is push from Windows, then `git pull` + restart web/worker on Ubuntu.
@@ -20,6 +23,6 @@
 - Large vlog uploads prefer direct HTTP to the local worker (`UPLOAD_HTTP_PORT` / `WORKER_PUBLIC_URL` / `NEXT_PUBLIC_WORKER_UPLOAD`) over Convex storage; the Next `/api/worker-upload` proxy must send `Content-Length` (chunked bodies caused worker 400 empty-body errors).
 - Rendered clip MP4s are also stored on the worker (`/media/{id}`) and submitted to Convex as JSON `{ resultUrl }` — never as httpAction body (Convex OOM at 64 MB).
 - Self-hosted Convex: after changes under `convex/`, deploy with `npm run convex:deploy:self-hosted` (not `npx convex dev`, which targets Convex Cloud).
-- Clip render options include a light viral pack (`punchEffect`, logo watermark, bed music with ducking); those fields must be live on self-hosted Convex or validators reject extras like `punchEffect`.
-- Clip hook proposals default to ~30s reel duration in `propose_clips` (standard short-form target).
+- Clip render options include a light viral pack (`punchEffect`, logo watermark, bed music with ducking, `splitSwap`); those fields must be live on self-hosted Convex or validators reject extras like `punchEffect`.
+- Clip hook proposals target ~30s reels and denser sets (~5–8 hooks) on long sources in `propose_clips` (not 1–2 clips for a 30‑min vlog).
 - Clip export uses platform presets (TikTok / Reels / Shorts), numbered ready-to-post filenames, and an export banner with bulk download.
