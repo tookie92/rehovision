@@ -110,6 +110,7 @@ export default function ClipProjectPage() {
     }>,
   ) {
     setRetryError(null);
+    setPreferSoft(true);
     try {
       await updateRenderOptions({ clipProjectId, ...patch });
     } catch (err) {
@@ -713,7 +714,7 @@ export default function ClipProjectPage() {
             disabled={false}
             applyDisabled={!canRerender}
             saving={rerendering}
-            defaultOpen={false}
+            defaultOpen
             hideApply
             onCaptionStyle={(v) => void persistOption({ captionStyle: v })}
             onLayoutMode={(v) => void persistOption({ layoutMode: v })}
@@ -724,8 +725,10 @@ export default function ClipProjectPage() {
             onLogoCorner={(v) => void persistOption({ logoCorner: v })}
             onLogoOpacity={(v) => void persistOption({ logoOpacity: v })}
             onMusicVolume={(v) => void persistOption({ musicVolume: v })}
+            onPreviewIntent={() => setPreferSoft(true)}
             onUploadLogo={async (f) => {
               try {
+                setPreferSoft(true);
                 await uploadLogo(f);
               } catch (err) {
                 setRetryError(err instanceof Error ? err.message : "Erreur");
@@ -742,6 +745,7 @@ export default function ClipProjectPage() {
             onClearMusic={() => void persistOption({ clearMusic: true })}
             onUploadLut={async (f) => {
               try {
+                setPreferSoft(true);
                 await uploadLut(f);
               } catch (err) {
                 setRetryError(err instanceof Error ? err.message : "Erreur");

@@ -9,16 +9,16 @@ import type {
 export function softLookCssFilter(look: LookFilterId): string {
   switch (look) {
     case "warm":
-      return "saturate(1.12) contrast(1.05) sepia(0.18) brightness(1.02)";
+      return "saturate(1.25) contrast(1.08) sepia(0.35) brightness(1.04)";
     case "cool":
-      return "saturate(1.05) contrast(1.04) hue-rotate(12deg) brightness(1.01)";
+      return "saturate(1.1) contrast(1.08) hue-rotate(18deg) brightness(1.03)";
     case "contrast":
-      return "contrast(1.22) saturate(1.08) brightness(1.02)";
+      return "contrast(1.35) saturate(1.15) brightness(1.03)";
     case "soft_grain":
-      return "contrast(1.04) saturate(0.96) brightness(1.01)";
+      return "contrast(1.08) saturate(0.92) brightness(1.02)";
     case "lut":
-      // LUT .cube non approximable en CSS
-      return "none";
+      // Soft approx — le .cube réel = re-rendu ffmpeg
+      return "contrast(1.14) saturate(1.22) sepia(0.15)";
     default:
       return "none";
   }
@@ -35,7 +35,10 @@ export type SoftCaptionStyle = {
   weight: string;
 };
 
-export function softCaptionStyle(style: CaptionStyleId): SoftCaptionStyle {
+export function softCaptionStyle(
+  style: CaptionStyleId,
+): SoftCaptionStyle | null {
+  if (style === "off") return null;
   switch (style) {
     case "bold_green":
       return {
@@ -98,5 +101,5 @@ export function logoCornerClass(corner: LogoCornerId): string {
 }
 
 export function punchScale(effect: string): number {
-  return effect === "zoom" ? 1.06 : 1;
+  return effect === "zoom" ? 1.08 : 1;
 }

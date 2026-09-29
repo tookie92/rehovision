@@ -60,6 +60,8 @@ type Props = {
   onUploadLut: (file: File) => Promise<void>;
   onClearLut: () => void;
   onApplyRerender: () => void;
+  /** Force le stage en mode soft preview (live look / captions). */
+  onPreviewIntent?: () => void;
 };
 
 function ChipGroup<T extends string>({
@@ -104,7 +106,7 @@ function ChipGroup<T extends string>({
 }
 
 /**
- * Pack viral / rendu — replié par défaut pour garder les clips au centre.
+ * Pack viral / rendu — soft preview live au clic des chips.
  */
 export function ClipRenderOptions({
   captionStyle,
@@ -140,6 +142,7 @@ export function ClipRenderOptions({
   onUploadLut,
   onClearLut,
   onApplyRerender,
+  onPreviewIntent,
 }: Props) {
   const logoRef = useRef<HTMLInputElement>(null);
   const musicRef = useRef<HTMLInputElement>(null);
@@ -148,8 +151,16 @@ export function ClipRenderOptions({
   const [assetBusy, setAssetBusy] = useState(false);
   const [lutHint, setLutHint] = useState<string | null>(null);
 
+  function withPreview<T>(fn: (v: T) => void): (v: T) => void {
+    return (v) => {
+      onPreviewIntent?.();
+      fn(v);
+    };
+  }
+
   async function handleLogo(file: File | undefined) {
     if (!file) return;
+    onPreviewIntent?.();
     setAssetBusy(true);
     try {
       await onUploadLogo(file);
@@ -170,6 +181,7 @@ export function ClipRenderOptions({
 
   async function handleLut(file: File | undefined) {
     if (!file) return;
+    onPreviewIntent?.();
     setAssetBusy(true);
     try {
       await onUploadLut(file);
@@ -224,7 +236,7 @@ export function ClipRenderOptions({
             Personnaliser le rendu
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Captions, cadre, audio, logo, musique
+            Clique un look / captions → aperçu soft live sur le stage
           </p>
         </div>
         <CaretDown
@@ -240,41 +252,41 @@ export function ClipRenderOptions({
             options={CAPTION_STYLES}
             value={captionStyle}
             disabled={disabled}
-            onChange={onCaptionStyle}
+            onChange={withPreview(onCaptionStyle)}
           />
           <ChipGroup
             label="Cadre"
             options={LAYOUT_MODES}
             value={layoutMode}
             disabled={disabled}
-            onChange={onLayoutMode}
+            onChange={withPreview(onLayoutMode)}
           />
           <ChipGroup
             label="Audio"
             options={AUDIO_ENHANCE_MODES}
             value={audioEnhance}
             disabled={disabled}
-            onChange={onAudioEnhance}
+            onChange={withPreview(onAudioEnhance)}
           />
           <ChipGroup
             label="Effet punch"
             options={PUNCH_EFFECTS}
             value={punchEffect}
             disabled={disabled}
-            onChange={onPunchEffect}
+            onChange={withPreview(onPunchEffect)}
           />
           <ChipGroup
             label="Look"
             options={LOOK_FILTERS}
             value={lookFilter}
             disabled={disabled}
-            onChange={onLookFilter}
+            onChange={withPreview(onLookFilter)}
           />
           <div className="space-y-2">
             <p className="text-sm font-medium text-foreground">LUT (.cube)</p>
             <p className="text-xs text-muted-foreground">
-              Upload DaVinci / Resolve, ou exporte Warm / Cool / Contrast en
-              .cube. Soft grain n’est pas exportable (bruit).
+              Soft = approx. ; vrai grade .cube au Re-rendre. Exporte aussi Warm
+              / Cool / Contrast.
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <input
@@ -328,7 +340,8 @@ export function ClipRenderOptions({
             )}
             {lutUrl && (
               <p className="text-xs text-signal">
-                LUT custom active — reclique Re-rendre pour appliquer
+                LUT active — soft approx. dans le stage ; Re-rendre pour le vrai
+                .cube
               </p>
             )}
           </div>
@@ -337,7 +350,7 @@ export function ClipRenderOptions({
             options={VOICEOVER_MODES}
             value={voiceoverMode}
             disabled={disabled}
-            onChange={onVoiceoverMode}
+            onChange={withPreview(onVoiceoverMode)}
           />
 
           <div className="space-y-3 border-t border-border pt-5">
@@ -388,7 +401,7 @@ export function ClipRenderOptions({
                   options={LOGO_CORNERS}
                   value={logoCorner}
                   disabled={disabled}
-                  onChange={onLogoCorner}
+                  onChange={withPreview(onLogoCorner)}
                 />
                 <label className="flex items-center gap-3 text-sm text-muted-foreground">
                   <span className="w-24 shrink-0">
@@ -400,9 +413,10 @@ export function ClipRenderOptions({
                     max={100}
                     value={Math.round(logoOpacity * 100)}
                     disabled={disabled}
-                    onChange={(e) =>
-                      onLogoOpacity(Number(e.target.value) / 100)
-                    }
+                    onChange={(e) => {
+                      onPreviewIntent?.();
+                      onLogoOpacity(Number(e.target.value) / 100);
+                    }}
                     className="flex-1 accent-[var(--signal)]"
                   />
                 </label>

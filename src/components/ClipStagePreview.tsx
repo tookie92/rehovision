@@ -73,14 +73,27 @@ export function ClipStagePreview({
   const lookFilterCss = softLookCssFilter(lookFilter);
   const caption = softCaptionStyle(captionStyle);
   const scale = punchScale(punchEffect);
-  const showGrain = lookFilter === "soft_grain" && activeMode === "soft";
+  const showGrain =
+    (lookFilter === "soft_grain" || lookFilter === "lut") &&
+    activeMode === "soft";
+  const showFlash = punchEffect === "flash" && activeMode === "soft";
   const lutHint = softLookNeedsRealRender(lookFilter) && activeMode === "soft";
 
   // Sync mode when clip / softPreview changes
   useEffect(() => {
     if (softPreview && canSoft) setMode("soft");
     else if (canFinal && !softPreview) setMode("final");
-  }, [clip.startSec, clip.endSec, clip.resultUrl, softPreview, canSoft, canFinal]);
+  }, [
+    clip.startSec,
+    clip.endSec,
+    clip.resultUrl,
+    softPreview,
+    canSoft,
+    canFinal,
+    lookFilter,
+    captionStyle,
+    punchEffect,
+  ]);
 
   // Loop In/Out on source preview
   useEffect(() => {
@@ -149,6 +162,13 @@ export function ClipStagePreview({
                   aria-hidden
                 />
               )}
+              {showFlash && (
+                <div
+                  key={`flash-${punchEffect}`}
+                  className="pointer-events-none absolute inset-0 animate-pulse bg-white/40"
+                  aria-hidden
+                />
+              )}
               {logoUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -158,7 +178,7 @@ export function ClipStagePreview({
                   style={{ opacity: logoOpacity }}
                 />
               )}
-              {clip.captionText && (
+              {caption && (
                 <div className="pointer-events-none absolute inset-x-3 bottom-14 text-center">
                   <p
                     className={`${caption.sizeClass} ${caption.weight} leading-snug`}
@@ -175,15 +195,20 @@ export function ClipStagePreview({
                           : undefined,
                     }}
                   >
-                    {clip.captionText.length > 120
-                      ? `${clip.captionText.slice(0, 117)}…`
-                      : clip.captionText}
+                    {(() => {
+                      const raw =
+                        (clip.captionText || "").trim() ||
+                        "Exemple de caption soft";
+                      return raw.length > 120
+                        ? `${raw.slice(0, 117)}…`
+                        : raw;
+                    })()}
                   </p>
                 </div>
               )}
               <div className="pointer-events-none absolute left-2 top-2 rounded-md bg-black/60 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-white/90">
-                Soft · {formatTimecode(clip.startSec)}–
-                {formatTimecode(clip.endSec)}
+                Soft · {lookFilter !== "off" ? lookFilter : "natif"}
+                {captionStyle !== "off" ? ` · ${captionStyle}` : " · no caps"}
               </div>
             </>
           ) : (
@@ -233,8 +258,11 @@ export function ClipStagePreview({
         )}
         {activeMode === "soft" && (
           <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-            Soft ≈ aperçu navigateur. Export = Re-rendre (ffmpeg).
-            {lutHint ? " LUT custom : rendu requis." : ""}
+            Clique Look / Captions / Punch ci-dessous → l’aperçu change tout de
+            suite. Soft ≈ navigateur ; export = Re-rendre.
+            {lutHint
+              ? " LUT .cube : soft approximatif, vrai grade au re-rendu."
+              : ""}
           </p>
         )}
       </div>

@@ -169,6 +169,9 @@ def write_viral_ass(
     style_name: str | None = None,
 ) -> Path:
     style_key = (style_name or os.getenv("CAPTION_STYLE", "viral")).strip().lower()
+    if style_key in ("off", "none", ""):
+        path.write_text("", encoding="utf-8")
+        return path
     presets: dict[str, dict[str, Any]] = {
         "viral": {
             "fontsize": 68,

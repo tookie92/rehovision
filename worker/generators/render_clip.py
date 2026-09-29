@@ -255,7 +255,8 @@ def render_clip(
         cues = cues_from_caption_text(caption_text, duration)
 
     ass_path: Path | None = None
-    if cues:
+    style_key = (caption_style or "viral").strip().lower()
+    if cues and style_key not in ("off", "none", ""):
         ass_path = work / "captions.ass"
         write_viral_ass(ass_path, cues, style_name=caption_style)
 

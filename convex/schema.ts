@@ -78,6 +78,7 @@ export default defineSchema({
     // Options de rendu Opus-like (appliquées au re-render)
     captionStyle: v.optional(
       v.union(
+        v.literal("off"),
         v.literal("viral"),
         v.literal("bold_green"),
         v.literal("yellow_pop"),

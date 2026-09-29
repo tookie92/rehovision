@@ -2,6 +2,11 @@
 
 export const CAPTION_STYLES = [
   {
+    id: "off",
+    label: "Off",
+    hint: "Sans sous-titres",
+  },
+  {
     id: "viral",
     label: "Viral",
     hint: "Blanc + karaoke cyan",

@@ -24,6 +24,7 @@ const lookFilterValidator = v.optional(
 );
 const captionStyleValidator = v.optional(
   v.union(
+    v.literal("off"),
     v.literal("viral"),
     v.literal("bold_green"),
     v.literal("yellow_pop"),
