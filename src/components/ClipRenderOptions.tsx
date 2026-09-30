@@ -51,6 +51,9 @@ type Props = {
   onOpenSplitFrame?: () => void;
   onClearSplitFocus?: () => void;
   hasManualSplitFocus?: boolean;
+  onOpenSmartFrame?: () => void;
+  onClearSmartFocus?: () => void;
+  hasManualSmartFocus?: boolean;
   onCaptionStyle: (v: CaptionStyleId) => void;
   onLayoutMode: (v: LayoutModeId) => void;
   onVoiceoverMode: (v: VoiceoverModeId) => void;
@@ -154,6 +157,9 @@ export function ClipRenderOptions({
   onOpenSplitFrame,
   onClearSplitFocus,
   hasManualSplitFocus = false,
+  onOpenSmartFrame,
+  onClearSmartFocus,
+  hasManualSmartFocus = false,
   onCaptionStyle,
   onLayoutMode,
   onVoiceoverMode,
@@ -319,6 +325,38 @@ export function ClipRenderOptions({
                 )}
               </div>
             )}
+            {(layoutMode === "smart" || layoutMode === "fill") &&
+              onOpenSmartFrame && (
+                <div className="space-y-2 rounded-xl border border-signal/25 bg-signal/5 p-2.5">
+                  <p className="font-display text-[13px] tracking-tight text-foreground">
+                    {layoutMode === "fill" ? "Fill" : "Smart"} — sujet
+                  </p>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      onPreviewIntent?.();
+                      onOpenSmartFrame();
+                    }}
+                    className="w-full cursor-pointer rounded-lg bg-signal px-3 py-2.5 text-sm font-semibold text-signal-foreground transition-[filter] hover:brightness-105 disabled:opacity-50"
+                  >
+                    Cadrer le sujet…
+                  </button>
+                  {onClearSmartFocus && (
+                    <button
+                      type="button"
+                      disabled={disabled || !hasManualSmartFocus}
+                      onClick={() => {
+                        onPreviewIntent?.();
+                        onClearSmartFocus();
+                      }}
+                      className="w-full cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-xs text-foreground hover:bg-secondary disabled:opacity-50"
+                    >
+                      Reset auto (détection)
+                    </button>
+                  )}
+                </div>
+              )}
             <ChipGroup
               label="Look"
               options={LOOK_FILTERS}

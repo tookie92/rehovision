@@ -87,6 +87,7 @@ function viralPayload(project: Doc<"clipProjects">) {
     splitSwap: project.splitSwap ?? false,
     splitFocusTop: project.splitFocusTop,
     splitFocusBot: project.splitFocusBot,
+    smartFocus: project.smartFocus,
   };
 }
 
@@ -122,6 +123,7 @@ const clipProjectDoc = v.object({
   splitSwap: v.optional(v.boolean()),
   splitFocusTop: v.optional(splitFocusPaneValidator),
   splitFocusBot: v.optional(splitFocusPaneValidator),
+  smartFocus: v.optional(splitFocusPaneValidator),
   voiceoverMode: v.optional(
     v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
   ),
@@ -375,6 +377,7 @@ const clipProjectSummary = v.object({
   splitSwap: v.optional(v.boolean()),
   splitFocusTop: v.optional(splitFocusPaneValidator),
   splitFocusBot: v.optional(splitFocusPaneValidator),
+  smartFocus: v.optional(splitFocusPaneValidator),
   voiceoverMode: v.optional(
     v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
   ),
@@ -622,6 +625,8 @@ export const updateRenderOptions = mutation({
     splitFocusTop: v.optional(splitFocusPaneValidator),
     splitFocusBot: v.optional(splitFocusPaneValidator),
     clearSplitFocus: v.optional(v.boolean()),
+    smartFocus: v.optional(splitFocusPaneValidator),
+    clearSmartFocus: v.optional(v.boolean()),
     voiceoverMode: v.optional(
       v.union(v.literal("off"), v.literal("mix"), v.literal("replace")),
     ),
@@ -658,6 +663,11 @@ export const updateRenderOptions = mutation({
       if (args.splitFocusBot !== undefined) {
         patch.splitFocusBot = clampSplitFocus(args.splitFocusBot);
       }
+    }
+    if (args.clearSmartFocus) {
+      patch.smartFocus = undefined;
+    } else if (args.smartFocus !== undefined) {
+      patch.smartFocus = clampSplitFocus(args.smartFocus);
     }
     if (args.voiceoverMode !== undefined) {
       patch.voiceoverMode = args.voiceoverMode;

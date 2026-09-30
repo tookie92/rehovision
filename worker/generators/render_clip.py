@@ -229,6 +229,7 @@ def render_clip(
     split_swap: bool = False,
     split_focus_top: dict[str, float] | None = None,
     split_focus_bot: dict[str, float] | None = None,
+    smart_focus: dict[str, float] | None = None,
     voiceover_mode: str | None = None,
     audio_enhance: str | None = None,
     punch_effect: str | None = None,
@@ -272,6 +273,7 @@ def render_clip(
         split_swap=bool(split_swap),
         split_focus_top=split_focus_top,
         split_focus_bot=split_focus_bot,
+        smart_focus=smart_focus,
     )
 
     base_path = work / "clip_base.mp4"

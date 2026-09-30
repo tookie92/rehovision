@@ -48,6 +48,7 @@ type Props = {
   splitSwap?: boolean;
   splitFocusTop?: SplitFocusPane | null;
   splitFocusBot?: SplitFocusPane | null;
+  smartFocus?: SplitFocusPane | null;
   onSplitFocusChange?: (pane: "top" | "bot", focus: SplitFocusPane) => void;
   logoUrl?: string | null;
   logoCorner: LogoCornerId;
@@ -317,6 +318,7 @@ export function ClipStagePreview({
   splitSwap = false,
   splitFocusTop,
   splitFocusBot,
+  smartFocus,
   onSplitFocusChange,
   logoUrl,
   logoCorner,
@@ -370,6 +372,7 @@ export function ClipStagePreview({
     splitSwap,
     splitFocusTop,
     splitFocusBot,
+    smartFocus,
   ]);
 
   useEffect(() => {
@@ -405,18 +408,31 @@ export function ClipStagePreview({
     : captionRaw;
   const captionWords = captionText.split(/\s+/).filter(Boolean).slice(0, 14);
 
-  /** Soft Smart/Fill : object-position face (FaceDetector) ou biais talking-head. */
+  /** Soft Smart/Fill : object-position manuel (smartFocus) ou FaceDetector. */
   const [objectPos, setObjectPos] = useState("50% 35%");
+  const [smartZoom, setSmartZoom] = useState(1);
   useEffect(() => {
     if (activeMode !== "soft" || softSplit) return;
     if (layoutMode === "fit") {
       setObjectPos("50% 50%");
+      setSmartZoom(1);
       return;
     }
     if (layoutMode !== "smart" && layoutMode !== "fill") {
       setObjectPos("50% 50%");
+      setSmartZoom(1);
       return;
     }
+
+    if (smartFocus) {
+      const cx = Math.min(92, Math.max(8, smartFocus.cx * 100));
+      const cy = Math.min(85, Math.max(12, smartFocus.cy * 100));
+      setObjectPos(`${cx.toFixed(1)}% ${cy.toFixed(1)}%`);
+      setSmartZoom(Math.min(2.5, Math.max(1, smartFocus.zoom)));
+      return;
+    }
+
+    setSmartZoom(1);
     const el = videoRef.current;
     if (!el) {
       setObjectPos("50% 35%");
@@ -482,7 +498,10 @@ export function ClipStagePreview({
     sourceUrl,
     clip.startSec,
     clip.endSec,
+    smartFocus,
   ]);
+
+  const combinedScale = scale * smartZoom;
 
   const modeToggle = (canSoft || canFinal) && (
     <div
@@ -573,7 +592,8 @@ export function ClipStagePreview({
               style={{
                 objectPosition: objectPos,
                 filter: lookFilterCss === "none" ? undefined : lookFilterCss,
-                transform: scale !== 1 ? `scale(${scale})` : undefined,
+                transform:
+                  combinedScale !== 1 ? `scale(${combinedScale})` : undefined,
               }}
             />
           )}

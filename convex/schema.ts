@@ -112,6 +112,14 @@ export default defineSchema({
         zoom: v.number(),
       }),
     ),
+    /** Smart/Fill : focus manuel 9:16. Absent = auto OpenCV / centre. */
+    smartFocus: v.optional(
+      v.object({
+        cx: v.number(),
+        cy: v.number(),
+        zoom: v.number(),
+      }),
+    ),
     voiceoverMode: v.optional(
       v.union(
         v.literal("off"),

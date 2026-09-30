@@ -16,6 +16,7 @@ import { ClipEditTrim } from "@/components/ClipEditTrim";
 import { ClipFilmstrip } from "@/components/ClipFilmstrip";
 import { ClipStagePreview } from "@/components/ClipStagePreview";
 import { SplitFrameDialog } from "@/components/SplitFrameDialog";
+import { SmartFrameDialog } from "@/components/SmartFrameDialog";
 import {
   downloadUrl,
   downloadUrls,
@@ -38,6 +39,7 @@ import type {
   VoiceoverModeId,
 } from "@/lib/renderPresets";
 import {
+  DEFAULT_SMART_FOCUS,
   DEFAULT_SPLIT_FOCUS_BOT,
   DEFAULT_SPLIT_FOCUS_TOP,
 } from "@/lib/renderPresets";
@@ -84,7 +86,10 @@ export default function ClipProjectPage() {
   const [localFocusBot, setLocalFocusBot] = useState<SplitFocusPane | null>(
     null,
   );
+  const [localSmartFocus, setLocalSmartFocus] =
+    useState<SplitFocusPane | null>(null);
   const [splitFrameOpen, setSplitFrameOpen] = useState(false);
+  const [smartFrameOpen, setSmartFrameOpen] = useState(false);
 
   async function onRetryPipeline() {
     setRetryError(null);
@@ -121,6 +126,8 @@ export default function ClipProjectPage() {
       splitFocusTop: SplitFocusPane;
       splitFocusBot: SplitFocusPane;
       clearSplitFocus: boolean;
+      smartFocus: SplitFocusPane;
+      clearSmartFocus: boolean;
       voiceoverMode: VoiceoverModeId;
       audioEnhance: AudioEnhanceId;
       punchEffect: PunchEffectId;
@@ -370,6 +377,10 @@ export default function ClipProjectPage() {
     localFocusBot ??
     (project.splitFocusBot as SplitFocusPane | undefined) ??
     null;
+  const smartFocus =
+    localSmartFocus ??
+    (project.smartFocus as SplitFocusPane | undefined) ??
+    null;
   const voiceoverMode = (project.voiceoverMode ?? "off") as VoiceoverModeId;
   const audioEnhance = (project.audioEnhance ?? "off") as AudioEnhanceId;
   const punchEffect = (project.punchEffect ?? "off") as PunchEffectId;
@@ -443,6 +454,16 @@ export default function ClipProjectPage() {
         localFocusTop ||
         localFocusBot,
     ),
+    onOpenSmartFrame: () => {
+      if (!project.sourceVideoUrl) return;
+      setPreferSoft(true);
+      setSmartFrameOpen(true);
+    },
+    onClearSmartFocus: () => {
+      setLocalSmartFocus(null);
+      void persistOption({ clearSmartFocus: true });
+    },
+    hasManualSmartFocus: Boolean(project.smartFocus || localSmartFocus),
     onVoiceoverMode: (v: VoiceoverModeId) =>
       void persistOption({ voiceoverMode: v }),
     onAudioEnhance: (v: AudioEnhanceId) =>
@@ -768,6 +789,7 @@ export default function ClipProjectPage() {
               splitSwap={splitSwap}
               splitFocusTop={splitFocusTop ?? DEFAULT_SPLIT_FOCUS_TOP}
               splitFocusBot={splitFocusBot ?? DEFAULT_SPLIT_FOCUS_BOT}
+              smartFocus={smartFocus}
               logoUrl={project.logoUrl}
               logoCorner={logoCorner}
               logoOpacity={logoOpacity}
@@ -934,6 +956,28 @@ export default function ClipProjectPage() {
             setLocalFocusTop(null);
             setLocalFocusBot(null);
             void persistOption({ clearSplitFocus: true });
+          }}
+        />
+      )}
+
+      {project.sourceVideoUrl && focusedClip && (
+        <SmartFrameDialog
+          open={smartFrameOpen}
+          sourceUrl={project.sourceVideoUrl}
+          startSec={focusedClip.startSec}
+          endSec={focusedClip.endSec}
+          focus={smartFocus ?? DEFAULT_SMART_FOCUS}
+          onClose={() => setSmartFrameOpen(false)}
+          onApply={(focus) => {
+            setLocalSmartFocus(focus);
+            setPreferSoft(true);
+            setSmartFrameOpen(false);
+            void persistOption({ smartFocus: focus });
+          }}
+          onResetAuto={() => {
+            setLocalSmartFocus(null);
+            setSmartFrameOpen(false);
+            void persistOption({ clearSmartFocus: true });
           }}
         />
       )}

@@ -835,6 +835,7 @@ export const applyClipPipelineResult = internalMutation({
             splitSwap: project?.splitSwap ?? false,
             splitFocusTop: project?.splitFocusTop,
             splitFocusBot: project?.splitFocusBot,
+            smartFocus: project?.smartFocus,
             voiceoverMode: project?.voiceoverMode ?? "off",
             audioEnhance: project?.audioEnhance ?? "off",
             lookFilter: project?.lookFilter ?? "off",

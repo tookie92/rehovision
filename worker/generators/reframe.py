@@ -411,6 +411,28 @@ def build_split_filter_complex(
     )
 
 
+def compute_crop_box_zoomed(
+    width: int,
+    height: int,
+    cx: float,
+    cy: float,
+    zoom: float = 1.0,
+) -> tuple[int, int, int, int]:
+    """Crop 9:16 centré sur (cx,cy), zoom↑ = fenêtre plus petite."""
+    crop_w, crop_h, _x, _y = compute_crop_box(width, height, cx, cy)
+    z = max(1.0, min(2.5, float(zoom)))
+    if z > 1.01:
+        crop_w = max(2, int(round(crop_w / z)))
+        crop_h = max(2, int(round(crop_h / z)))
+        crop_w -= crop_w % 2
+        crop_h -= crop_h % 2
+    x = int(round(cx * width - crop_w / 2))
+    y = int(round(cy * height - crop_h / 2))
+    x = max(0, min(x, width - crop_w))
+    y = max(0, min(y, height - crop_h))
+    return crop_w, crop_h, x, y
+
+
 def build_reframe_vf(
     source_path: Path,
     start_sec: float,
@@ -421,6 +443,7 @@ def build_reframe_vf(
     split_swap: bool = False,
     split_focus_top: dict[str, float] | None = None,
     split_focus_bot: dict[str, float] | None = None,
+    smart_focus: dict[str, float] | None = None,
 ) -> tuple[str, str | None]:
     """
     Retourne (vf_simple | "", filter_complex | None).
@@ -470,7 +493,25 @@ def build_reframe_vf(
             None,
         )
 
-    if mode == "center":
+    zoom = 1.0
+    if (
+        smart_focus
+        and isinstance(smart_focus, dict)
+        and mode in ("smart", "center")
+    ):
+        try:
+            cx = float(smart_focus.get("cx", 0.5))
+            cy = float(smart_focus.get("cy", 0.42))
+            zoom = float(smart_focus.get("zoom", 1.0))
+            log.info(
+                "Smart focus manuel cx=%.2f cy=%.2f zoom=%.2f",
+                cx,
+                cy,
+                zoom,
+            )
+        except (TypeError, ValueError):
+            cx, cy = 0.5, 0.42
+    elif mode == "center":
         cx, cy = 0.5, 0.42
     else:
         try:
@@ -481,7 +522,9 @@ def build_reframe_vf(
             log.warning("Détection visage échouée (%s) — center crop", e)
             cx, cy = 0.5, 0.42
 
-    crop_w, crop_h, x, y = compute_crop_box(width, height, cx, cy)
+    crop_w, crop_h, x, y = compute_crop_box_zoomed(
+        width, height, cx, cy, zoom
+    )
     log.info(
         "Crop %dx%d @ %d,%d (source %dx%d) → %dx%d mode=%s",
         crop_w,

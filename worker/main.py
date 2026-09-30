@@ -456,6 +456,7 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
                 split_swap=bool(payload.get("splitSwap")),
                 split_focus_top=payload.get("splitFocusTop") or None,
                 split_focus_bot=payload.get("splitFocusBot") or None,
+                smart_focus=payload.get("smartFocus") or None,
                 voiceover_mode=payload.get("voiceoverMode") or None,
                 audio_enhance=payload.get("audioEnhance") or None,
                 punch_effect=payload.get("punchEffect") or None,

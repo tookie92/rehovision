@@ -141,6 +141,13 @@ export const DEFAULT_SPLIT_FOCUS_BOT: SplitFocusPane = {
   zoom: 1.2,
 };
 
+/** Smart/Fill — cadre 9:16 manuel (talking-head). */
+export const DEFAULT_SMART_FOCUS: SplitFocusPane = {
+  cx: 0.5,
+  cy: 0.38,
+  zoom: 1.15,
+};
+
 export function clampSplitFocus(p: SplitFocusPane): SplitFocusPane {
   return {
     cx: Math.min(0.92, Math.max(0.08, p.cx)),
@@ -148,6 +155,8 @@ export function clampSplitFocus(p: SplitFocusPane): SplitFocusPane {
     zoom: Math.min(2.5, Math.max(1, p.zoom)),
   };
 }
+
+export const clampSmartFocus = clampSplitFocus;
 
 export function isCaptionStyle(v: string): v is CaptionStyleId {
   return CAPTION_STYLES.some((s) => s.id === v);
