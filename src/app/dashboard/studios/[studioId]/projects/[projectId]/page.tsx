@@ -306,7 +306,7 @@ export default function ProjectPage() {
   return (
     <div
       data-atelier-workspace
-      className="atelier-grain relative flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden"
+      className="atelier-grain fixed inset-x-0 bottom-0 top-14 z-30 flex h-[calc(100dvh-3.5rem)] max-h-[calc(100dvh-3.5rem)] flex-col overflow-hidden bg-background"
     >
       {/* Top bar */}
       <header className="relative z-[1] flex shrink-0 flex-wrap items-center gap-2 border-b border-border/70 bg-card/40 px-3 py-2 backdrop-blur-md md:px-4">
