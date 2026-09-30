@@ -191,6 +191,9 @@ Pipeline séparé (script → images → voix → assemble).
 Entrée : dashboard onglet **Faceless** → `createAndStartReel` → page projet.  
 Styles : `/dashboard/studios`.
 
+**Atelier faceless (phase 1)** ✅ : scènes | stage Soft/Final 9:16 | chips Style (Anime, Comic, Réaliste, Pixar…).  
+Suite : musique / logo / captions (pack clips) sur assembly.
+
 ---
 
 ## Comment avancer

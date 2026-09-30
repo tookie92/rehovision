@@ -6,12 +6,25 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { Doc, Id } from "@convex/_generated/dataModel";
+import {
+  ArrowLeft,
+  DownloadSimple,
+  Image as ImageIcon,
+  Microphone,
+  Sparkle,
+} from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { GenerationProgress } from "@/components/GenerationProgress";
+import { StudioStagePreview } from "@/components/StudioStagePreview";
+import {
+  ILLUSTRATION_LOOKS,
+  matchIllustrationLook,
+  type IllustrationLookId,
+} from "@/lib/stylePresets";
+import { downloadUrl, safeDownloadName } from "@/lib/clipStatus";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Brouillon",
@@ -24,9 +37,9 @@ const STATUS_LABEL: Record<string, string> = {
 function sceneAssetStatus(scene: Pick<Doc<"scenes">, "imageUrl" | "audioUrl">) {
   const image = Boolean(scene.imageUrl);
   const audio = Boolean(scene.audioUrl);
-  if (image && audio) return { label: "Complet", tone: "ok" as const };
-  if (image || audio) return { label: "Partiel", tone: "mid" as const };
-  return { label: "En attente", tone: "wait" as const };
+  if (image && audio) return { label: "OK", tone: "ok" as const };
+  if (image || audio) return { label: "…", tone: "mid" as const };
+  return { label: "—", tone: "wait" as const };
 }
 
 function sceneJobHint(
@@ -45,6 +58,9 @@ function sceneJobHint(
   return null;
 }
 
+/**
+ * Atelier faceless Opus-like : scènes | stage 9:16 | outils Style.
+ */
 export default function ProjectPage() {
   const params = useParams<{ studioId: string; projectId: string }>();
   const studioId = params.studioId as Id<"studios">;
@@ -53,6 +69,7 @@ export default function ProjectPage() {
   const data = useQuery(api.videoProjects.getVideoProjectWithScenes, {
     projectId,
   });
+  const studio = useQuery(api.studios.getStudio, { studioId });
   const jobs = useQuery(api.generationJobs.getJobsByProject, {
     videoProjectId: projectId,
   });
@@ -61,10 +78,15 @@ export default function ProjectPage() {
   const updateScene = useMutation(api.videoProjects.updateScene);
   const deleteScene = useMutation(api.videoProjects.deleteScene);
   const queueSceneJobs = useMutation(api.videoProjects.queueSceneJobs);
+  const updateStudio = useMutation(api.studios.updateStudio);
 
-  const [busy, setBusy] = useState<"script" | "assets" | null>(null);
+  const [busy, setBusy] = useState<"script" | "assets" | "style" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [preferSoft, setPreferSoft] = useState(true);
+  const [focusedOrder, setFocusedOrder] = useState<number | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const [drafts, setDrafts] = useState<
     Record<string, { narrationText: string; imagePrompt: string }>
   >({});
@@ -81,6 +103,13 @@ export default function ProjectPage() {
     jobs?.some(
       (j) =>
         (j.type === "image" || j.type === "voiceover") &&
+        (j.status === "pending" || j.status === "processing"),
+    ),
+  );
+  const hasActiveAssembly = Boolean(
+    jobs?.some(
+      (j) =>
+        j.type === "video_assembly" &&
         (j.status === "pending" || j.status === "processing"),
     ),
   );
@@ -101,14 +130,81 @@ export default function ProjectPage() {
     });
   }, [data?.scenes]);
 
+  useEffect(() => {
+    if (!data?.scenes?.length) return;
+    if (
+      focusedOrder == null ||
+      !data.scenes.some((s) => s.order === focusedOrder)
+    ) {
+      setFocusedOrder(data.scenes[0].order);
+    }
+  }, [data?.scenes, focusedOrder]);
+
+  if (data === undefined || studio === undefined) {
+    return (
+      <div className="flex h-[calc(100dvh-3.5rem)] flex-col gap-3 p-4">
+        <Skeleton className="h-10 w-64" />
+        <Skeleton className="min-h-0 flex-1 rounded-xl" />
+      </div>
+    );
+  }
+
+  if (data === null || studio === null) {
+    return (
+      <div className="space-y-4 p-6">
+        <p className="text-destructive">Projet introuvable</p>
+        <Link href="/dashboard" className="text-sm text-signal underline">
+          Dashboard
+        </Link>
+      </div>
+    );
+  }
+
+  const { project, scenes } = data;
+  const focused =
+    scenes.find((s) => s.order === focusedOrder) ?? scenes[0] ?? null;
+  const focusedIndex = focused
+    ? scenes.findIndex((s) => s._id === focused._id)
+    : 0;
+
+  const autoPipeline = Boolean(project.autoGenerateAssets);
+  const pipelineRunning =
+    hasActiveScriptJob ||
+    hasActiveAssetJobs ||
+    hasActiveAssembly ||
+    project.status === "generating" ||
+    (project.status === "draft" && hasActiveScriptJob);
+
+  const canScript =
+    (project.status === "draft" || project.status === "script_ready") &&
+    !hasActiveScriptJob;
+  const showApproveCta =
+    !autoPipeline &&
+    scenes.length > 0 &&
+    (project.status === "script_ready" ||
+      (project.status === "draft" && scenes.length > 0));
+  const canQueue =
+    showApproveCta &&
+    !hasActiveAssetJobs &&
+    (project.status === "script_ready" ||
+      project.status === "generating" ||
+      project.status === "draft");
+  const hidePrimaryScript =
+    autoPipeline &&
+    (hasActiveScriptJob ||
+      (project.status === "draft" && scenes.length === 0) ||
+      project.status === "generating");
+
+  const activeLook = matchIllustrationLook(studio.visualStyle);
+
   async function onGenerateScript() {
     setError(null);
     setBusy("script");
-    setEditing(false);
     try {
       await generateScript({ projectId });
+      setInfo("Script mis en file");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur script");
+      setError(err instanceof Error ? err.message : "Erreur");
     } finally {
       setBusy(null);
     }
@@ -117,11 +213,12 @@ export default function ProjectPage() {
   async function onQueueAssets() {
     setError(null);
     setBusy("assets");
-    setEditing(false);
     try {
       await queueJobs({ projectId });
+      setInfo("Images + voix en file");
+      setPreferSoft(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur génération");
+      setError(err instanceof Error ? err.message : "Erreur");
     } finally {
       setBusy(null);
     }
@@ -138,25 +235,11 @@ export default function ProjectPage() {
         narrationText: draft.narrationText,
         imagePrompt: draft.imagePrompt,
       });
+      setInfo("Scène enregistrée");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur sauvegarde");
-      throw err;
+      setError(err instanceof Error ? err.message : "Erreur");
     } finally {
       setSavingId(null);
-    }
-  }
-
-  async function onDeleteScene(sceneId: Id<"scenes">) {
-    setError(null);
-    try {
-      await deleteScene({ sceneId });
-      setDrafts((prev) => {
-        const next = { ...prev };
-        delete next[sceneId];
-        return next;
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur suppression");
     }
   }
 
@@ -165,360 +248,489 @@ export default function ProjectPage() {
     kinds: Array<"image" | "voiceover">,
   ) {
     setError(null);
+    setPreferSoft(true);
     try {
-      await onSaveScene(sceneId);
       await queueSceneJobs({ sceneId, kinds });
+      setInfo(
+        kinds.length === 2
+          ? "Regen image + voix"
+          : kinds[0] === "image"
+            ? "Regen image"
+            : "Regen voix",
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur régénération");
+      setError(err instanceof Error ? err.message : "Erreur");
     }
   }
 
-  if (data === undefined) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-2/3" />
-        <Skeleton className="h-40 w-full" />
-      </div>
-    );
+  async function onDeleteScene(sceneId: Id<"scenes">) {
+    if (!confirm("Supprimer cette scène ?")) return;
+    setError(null);
+    try {
+      await deleteScene({ sceneId });
+      setInfo("Scène supprimée");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    }
   }
 
-  if (data === null) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Projet introuvable.{" "}
-        <Link href={`/dashboard/studios/${studioId}`} className="underline">
-          Retour
-        </Link>
-      </p>
-    );
+  async function onApplyLook(lookId: IllustrationLookId) {
+    const look = ILLUSTRATION_LOOKS.find((l) => l.id === lookId);
+    if (!look) return;
+    setError(null);
+    setBusy("style");
+    setPreferSoft(true);
+    try {
+      await updateStudio({
+        studioId,
+        visualStyle: look.prompt,
+        narrationTone: look.toneHint,
+      });
+      setInfo(
+        `Style « ${look.label} » enregistré — regen les images pour l’appliquer`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBusy(null);
+    }
   }
 
-  const { project, scenes } = data;
-  const autoPipeline = Boolean(project.autoGenerateAssets);
-  const pipelineRunning =
-    hasActiveScriptJob ||
-    hasActiveAssetJobs ||
-    project.status === "generating" ||
-    (project.status === "draft" && hasActiveScriptJob);
-
-  const canScript =
-    (project.status === "draft" || project.status === "script_ready") &&
-    !hasActiveScriptJob;
-  // Approuver : seulement si pas d'auto-pipeline, ou retry manuel
-  const showApproveCta =
-    !autoPipeline &&
-    scenes.length > 0 &&
-    (project.status === "script_ready" ||
-      (project.status === "draft" && scenes.length > 0));
-  const canQueue =
-    showApproveCta &&
-    !hasActiveAssetJobs &&
-    (project.status === "script_ready" ||
-      project.status === "generating" ||
-      project.status === "draft");
-
-  // Hide "Générer le script" while auto pipeline is already running from createAndStartReel
-  const hidePrimaryScript =
-    autoPipeline &&
-    (hasActiveScriptJob ||
-      (project.status === "draft" && scenes.length === 0) ||
-      project.status === "generating");
+  const draft = focused
+    ? (drafts[focused._id] ?? {
+        narrationText: focused.narrationText,
+        imagePrompt: focused.imagePrompt ?? "",
+      })
+    : null;
 
   return (
-    <div className="space-y-8">
-      <div>
+    <div
+      data-atelier-workspace
+      className="atelier-grain relative flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden"
+    >
+      {/* Top bar */}
+      <header className="relative z-[1] flex shrink-0 flex-wrap items-center gap-2 border-b border-border/70 bg-card/40 px-3 py-2 backdrop-blur-md md:px-4">
         <Link
           href="/dashboard"
-          className="text-xs text-muted-foreground hover:text-foreground"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
-          ← Dashboard
+          <ArrowLeft className="size-4" weight="bold" />
+          Atelier
         </Link>
-        <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="font-display text-3xl tracking-tight sm:text-4xl">
-                {project.title}
-              </h1>
-              <Badge variant="secondary">
-                {STATUS_LABEL[project.status] ?? project.status}
-              </Badge>
-            </div>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Sujet : {project.topic}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {!hidePrimaryScript && (
-              <Button
-                type="button"
-                variant="outline"
-                className="cursor-pointer"
-                disabled={!canScript || busy !== null || hasActiveScriptJob}
-                onClick={onGenerateScript}
-              >
-                {busy === "script" || hasActiveScriptJob
-                  ? "Script en file…"
-                  : scenes.length
-                    ? "Regénérer le script"
-                    : "Générer le script"}
-              </Button>
-            )}
-            {scenes.length > 0 && (
-              <Button
-                type="button"
-                variant={editing ? "secondary" : "outline"}
-                className="cursor-pointer"
-                disabled={hasActiveScriptJob}
-                onClick={() => setEditing((v) => !v)}
-              >
-                {editing ? "Fermer l’édition" : "Réviser le script"}
-              </Button>
-            )}
-            {showApproveCta && (
-              <Button
-                type="button"
-                className="cursor-pointer"
-                disabled={
-                  !canQueue ||
-                  busy !== null ||
-                  scenes.length === 0 ||
-                  hasActiveAssetJobs
-                }
-                onClick={onQueueAssets}
-              >
-                {busy === "assets" || hasActiveAssetJobs
-                  ? "Assets en file…"
-                  : "Générer images + voix"}
-              </Button>
-            )}
-            {autoPipeline &&
-              project.status === "script_ready" &&
-              !hasActiveAssetJobs &&
-              scenes.length > 0 && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="cursor-pointer"
-                  disabled={busy !== null}
-                  onClick={onQueueAssets}
-                >
-                  Relancer images + voix
-                </Button>
-              )}
-          </div>
-        </div>
-        {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
+        <span className="text-muted-foreground/40" aria-hidden>
+          /
+        </span>
+        <h1 className="min-w-0 truncate font-display text-lg tracking-tight">
+          {project.title}
+        </h1>
+        <span className="rounded-md bg-secondary/80 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+          {STATUS_LABEL[project.status] ?? project.status}
+        </span>
         {pipelineRunning && (
-          <p className="mt-3 text-sm text-muted-foreground">
-            Génération en cours — script, images, voix puis montage.
-          </p>
+          <span className="text-[11px] text-amber-600 dark:text-amber-300">
+            Pipeline en cours…
+          </span>
         )}
-      </div>
+        <div className="ml-auto flex flex-wrap gap-1.5">
+          {!hidePrimaryScript && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 cursor-pointer"
+              disabled={!canScript || busy !== null || hasActiveScriptJob}
+              onClick={() => void onGenerateScript()}
+            >
+              {busy === "script" || hasActiveScriptJob
+                ? "Script…"
+                : scenes.length
+                  ? "Re-script"
+                  : "Script"}
+            </Button>
+          )}
+          {(showApproveCta ||
+            (autoPipeline &&
+              project.status === "script_ready" &&
+              scenes.length > 0)) && (
+            <Button
+              type="button"
+              size="sm"
+              className="cta-signal h-8 cursor-pointer border-0 hover:bg-signal"
+              disabled={
+                busy !== null ||
+                scenes.length === 0 ||
+                hasActiveAssetJobs ||
+                (showApproveCta && !canQueue)
+              }
+              onClick={() => void onQueueAssets()}
+            >
+              <Sparkle className="size-3.5" weight="bold" />
+              {busy === "assets" || hasActiveAssetJobs
+                ? "Assets…"
+                : "Images + voix"}
+            </Button>
+          )}
+          {project.finalVideoUrl && (
+            <Button
+              type="button"
+              size="sm"
+              className="cta-signal h-8 cursor-pointer border-0 hover:bg-signal"
+              disabled={downloading}
+              onClick={() => {
+                setDownloading(true);
+                void downloadUrl(
+                  project.finalVideoUrl!,
+                  safeDownloadName(project.title, 1, "reels"),
+                )
+                  .then(() => setInfo("Téléchargement lancé"))
+                  .catch((err) =>
+                    setError(
+                      err instanceof Error
+                        ? err.message
+                        : "Téléchargement échoué",
+                    ),
+                  )
+                  .finally(() => setDownloading(false));
+              }}
+            >
+              <DownloadSimple className="size-3.5" weight="bold" />
+              {downloading ? "…" : "Export"}
+            </Button>
+          )}
+        </div>
+      </header>
 
-      {(pipelineRunning ||
-        project.status === "generating" ||
-        project.status === "draft" ||
-        jobs) && <GenerationProgress jobs={jobs} />}
-
-      {project.finalVideoUrl && (
-        <div className="space-y-3">
-          <div className="overflow-hidden rounded-xl border border-border bg-black">
-            <video
-              key={project.finalVideoUrl}
-              src={project.finalVideoUrl}
-              controls
-              playsInline
-              className="mx-auto max-h-[70vh] w-full max-w-sm object-contain"
-            />
-          </div>
-          <a
-            href={project.finalVideoUrl}
-            download
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex h-9 cursor-pointer items-center rounded-lg border border-border bg-background/40 px-4 text-sm font-medium transition-colors hover:bg-muted hover:text-foreground"
-          >
-            Télécharger le reel
-          </a>
+      {(error || info) && (
+        <div className="relative z-[1] shrink-0 border-b border-border/60 px-3 py-1.5 text-xs md:px-4">
+          {error ? (
+            <p className="text-destructive" role="alert">
+              {error}
+            </p>
+          ) : (
+            <p className="text-signal" role="status">
+              {info}
+            </p>
+          )}
         </div>
       )}
 
-      {scenes.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {hasActiveScriptJob || autoPipeline
-            ? "Script en cours — les scènes apparaîtront ici."
-            : "Pas encore de scènes. Lance la génération de script."}
-        </p>
-      ) : (
-        <ol className="space-y-6">
-          {scenes.map((scene, index) => {
-            const status = sceneAssetStatus(scene);
-            const imageHint = sceneJobHint(jobs, scene._id, "image");
-            const voiceHint = sceneJobHint(jobs, scene._id, "voiceover");
-            const draft = drafts[scene._id] ?? {
-              narrationText: scene.narrationText,
-              imagePrompt: scene.imagePrompt ?? "",
-            };
-            return (
-              <li
-                key={scene._id}
-                className="grid gap-4 border-t border-border pt-6 md:grid-cols-[140px_1fr]"
-              >
-                <div className="space-y-2">
-                  <p className="font-mono text-xs tracking-widest text-muted-foreground">
-                    SCÈNE {String(scene.order).padStart(2, "0")}
-                    <span className="ml-1 text-muted-foreground/60">
-                      ({index + 1}/{scenes.length})
-                    </span>
-                  </p>
-                  <Badge
+      {pipelineRunning && (
+        <div className="relative z-[1] max-h-28 shrink-0 overflow-y-auto border-b border-border/50 px-3 py-2 md:px-4">
+          <GenerationProgress jobs={jobs} />
+        </div>
+      )}
+
+      {/* Corps atelier */}
+      <div className="relative z-[1] grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_300px] xl:grid-cols-[240px_minmax(0,1fr)_320px]">
+        {/* Filmstrip scènes */}
+        <aside className="atelier-panel min-h-0 overflow-y-auto border-b border-border p-2 lg:border-b-0 lg:border-r">
+          <p className="atelier-label mb-2 px-1">Scènes</p>
+          {scenes.length === 0 ? (
+            <p className="px-1 text-xs text-muted-foreground">
+              {hasActiveScriptJob || autoPipeline
+                ? "Script en cours…"
+                : "Lance le script"}
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {scenes.map((scene, index) => {
+                const status = sceneAssetStatus(scene);
+                const active = focused?._id === scene._id;
+                return (
+                  <li key={scene._id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusedOrder(scene.order);
+                        setPreferSoft(true);
+                      }}
+                      className={
+                        active
+                          ? "flex w-full cursor-pointer gap-2 rounded-lg bg-signal/15 p-1.5 ring-1 ring-signal/40"
+                          : "flex w-full cursor-pointer gap-2 rounded-lg p-1.5 hover:bg-secondary/60"
+                      }
+                    >
+                      <div className="relative aspect-[9/16] w-12 shrink-0 overflow-hidden rounded-md bg-black">
+                        {scene.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={scene.imageUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-[9px] text-muted-foreground">
+                            {status.label}
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1 text-left">
+                        <p className="font-mono text-[10px] text-muted-foreground">
+                          {String(scene.order).padStart(2, "0")} · {index + 1}/
+                          {scenes.length}
+                        </p>
+                        <p className="line-clamp-2 text-[11px] leading-snug text-foreground">
+                          {scene.narrationText}
+                        </p>
+                        <span
+                          className={
+                            status.tone === "ok"
+                              ? "text-[10px] text-emerald-400"
+                              : status.tone === "mid"
+                                ? "text-[10px] text-amber-400"
+                                : "text-[10px] text-muted-foreground"
+                          }
+                        >
+                          {status.label === "OK"
+                            ? "Complet"
+                            : status.label === "…"
+                              ? "Partiel"
+                              : "Attente"}
+                        </span>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </aside>
+
+        {/* Stage */}
+        <main className="relative min-h-0 overflow-hidden bg-[color-mix(in_oklab,var(--background)_35%,#061a12)] p-3">
+          <StudioStagePreview
+            scene={focused}
+            sceneIndex={Math.max(0, focusedIndex)}
+            sceneCount={scenes.length || 1}
+            finalVideoUrl={project.finalVideoUrl}
+            softPreview={preferSoft}
+            imageHint={
+              focused
+                ? sceneJobHint(jobs, focused._id, "image")
+                : null
+            }
+            voiceHint={
+              focused
+                ? sceneJobHint(jobs, focused._id, "voiceover")
+                : null
+            }
+          />
+        </main>
+
+        {/* Outils */}
+        <aside className="atelier-panel hidden min-h-0 overflow-y-auto border-l border-border p-3 lg:block">
+          <p className="font-display text-[13px] tracking-tight text-foreground">
+            Style illustration
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Applique au studio · regen images pour voir le look
+          </p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {ILLUSTRATION_LOOKS.map((look) => {
+              const active = activeLook === look.id;
+              return (
+                <button
+                  key={look.id}
+                  type="button"
+                  title={look.hint}
+                  disabled={busy === "style"}
+                  onClick={() => void onApplyLook(look.id)}
+                  className={
+                    active
+                      ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/45"
+                      : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  }
+                >
+                  {look.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 border-t border-border pt-4">
+            <p className="atelier-label mb-2">Scène active</p>
+            {focused && draft ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={editing ? "secondary" : "outline"}
+                    className="h-8 cursor-pointer"
+                    onClick={() => setEditing((v) => !v)}
+                  >
+                    {editing ? "Fermer" : "Éditer"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
                     variant="outline"
-                    className={
-                      status.tone === "ok"
-                        ? "border-emerald-500/40 text-emerald-400"
-                        : status.tone === "mid"
-                          ? "border-amber-500/40 text-amber-400"
-                          : ""
+                    className="h-8 cursor-pointer"
+                    disabled={hasActiveAssetJobs}
+                    onClick={() =>
+                      void onRegenScene(focused._id, ["image"])
                     }
                   >
-                    {status.label}
-                  </Badge>
-                  {scene.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={scene.imageUrl}
-                      alt=""
-                      className="mt-2 aspect-[9/16] w-full max-w-[140px] rounded-md object-cover"
-                    />
-                  ) : (
-                    <div className="relative mt-2 flex aspect-[9/16] w-full max-w-[140px] items-center justify-center rounded-md bg-muted/40">
-                      {imageHint && (
-                        <span className="px-2 text-center text-[10px] leading-tight text-muted-foreground">
-                          {imageHint}
-                        </span>
-                      )}
+                    <ImageIcon className="size-3.5" weight="bold" />
+                    Image
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 cursor-pointer"
+                    disabled={hasActiveAssetJobs}
+                    onClick={() =>
+                      void onRegenScene(focused._id, ["voiceover"])
+                    }
+                  >
+                    <Microphone className="size-3.5" weight="bold" />
+                    Voix
+                  </Button>
+                </div>
+                {editing ? (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Narration</Label>
+                      <Textarea
+                        rows={4}
+                        value={draft.narrationText}
+                        onChange={(e) =>
+                          setDrafts((prev) => ({
+                            ...prev,
+                            [focused._id]: {
+                              ...draft,
+                              narrationText: e.target.value,
+                            },
+                          }))
+                        }
+                      />
                     </div>
-                  )}
-                </div>
-                <div className="space-y-3">
-                  {editing ? (
-                    <>
-                      <div className="space-y-2">
-                        <Label>Narration</Label>
-                        <Textarea
-                          rows={4}
-                          value={draft.narrationText}
-                          onChange={(e) =>
-                            setDrafts((prev) => ({
-                              ...prev,
-                              [scene._id]: {
-                                ...draft,
-                                narrationText: e.target.value,
-                              },
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Prompt image</Label>
-                        <Textarea
-                          rows={2}
-                          value={draft.imagePrompt}
-                          onChange={(e) =>
-                            setDrafts((prev) => ({
-                              ...prev,
-                              [scene._id]: {
-                                ...draft,
-                                imagePrompt: e.target.value,
-                              },
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={savingId === scene._id}
-                          onClick={() => onSaveScene(scene._id)}
-                        >
-                          {savingId === scene._id
-                            ? "Enregistrement…"
-                            : "Enregistrer"}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={hasActiveAssetJobs}
-                          onClick={() =>
-                            onRegenScene(scene._id, ["image", "voiceover"])
-                          }
-                        >
-                          Regen image + voix
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={hasActiveAssetJobs}
-                          onClick={() => onRegenScene(scene._id, ["image"])}
-                        >
-                          Regen image
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={hasActiveAssetJobs}
-                          onClick={() =>
-                            onRegenScene(scene._id, ["voiceover"])
-                          }
-                        >
-                          Regen voix
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="text-destructive"
-                          onClick={() => onDeleteScene(scene._id)}
-                        >
-                          Supprimer
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm leading-relaxed text-foreground">
-                        {scene.narrationText}
-                      </p>
-                      {scene.imagePrompt && (
-                        <p className="text-xs leading-relaxed text-muted-foreground">
-                          Prompt : {scene.imagePrompt}
-                        </p>
-                      )}
-                      {scene.audioUrl ? (
-                        <audio
-                          controls
-                          src={scene.audioUrl}
-                          className="w-full max-w-md"
-                        />
-                      ) : (
-                        voiceHint && (
-                          <p className="text-xs text-muted-foreground">
-                            Voix : {voiceHint}
-                          </p>
-                        )
-                      )}
-                    </>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-      )}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Prompt image</Label>
+                      <Textarea
+                        rows={3}
+                        value={draft.imagePrompt}
+                        onChange={(e) =>
+                          setDrafts((prev) => ({
+                            ...prev,
+                            [focused._id]: {
+                              ...draft,
+                              imagePrompt: e.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="cursor-pointer"
+                        disabled={savingId === focused._id}
+                        onClick={() => void onSaveScene(focused._id)}
+                      >
+                        {savingId === focused._id ? "…" : "Enregistrer"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="cursor-pointer"
+                        disabled={hasActiveAssetJobs}
+                        onClick={() =>
+                          void onRegenScene(focused._id, [
+                            "image",
+                            "voiceover",
+                          ])
+                        }
+                      >
+                        Regen tout
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="cursor-pointer text-destructive"
+                        onClick={() => void onDeleteScene(focused._id)}
+                      >
+                        Supprimer
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {focused.narrationText.slice(0, 160)}
+                    {focused.narrationText.length > 160 ? "…" : ""}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">Aucune scène</p>
+            )}
+          </div>
+
+          <div className="mt-6 border-t border-border pt-4">
+            <p className="atelier-label mb-2">Bientôt</p>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Musique bed, logo, captions karaoke — même pack que les clips.
+            </p>
+          </div>
+        </aside>
+      </div>
+
+      {/* Barre bas mobile outils */}
+      <footer className="relative z-[1] shrink-0 border-t border-border/70 bg-card/50 px-3 py-2 backdrop-blur-md lg:hidden">
+        <div className="flex gap-1.5 overflow-x-auto pb-1">
+          {ILLUSTRATION_LOOKS.map((look) => (
+            <button
+              key={look.id}
+              type="button"
+              onClick={() => void onApplyLook(look.id)}
+              className={
+                activeLook === look.id
+                  ? "shrink-0 cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1 text-xs font-semibold text-signal"
+                  : "shrink-0 cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1 text-xs text-muted-foreground"
+              }
+            >
+              {look.label}
+            </button>
+          ))}
+        </div>
+        {focused && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 cursor-pointer"
+              disabled={hasActiveAssetJobs}
+              onClick={() => void onRegenScene(focused._id, ["image"])}
+            >
+              Regen image
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 cursor-pointer"
+              disabled={hasActiveAssetJobs}
+              onClick={() => void onRegenScene(focused._id, ["voiceover"])}
+            >
+              Regen voix
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="h-8 cursor-pointer"
+              onClick={() => setEditing((v) => !v)}
+            >
+              {editing ? "Fermer" : "Éditer"}
+            </Button>
+          </div>
+        )}
+      </footer>
     </div>
   );
 }
