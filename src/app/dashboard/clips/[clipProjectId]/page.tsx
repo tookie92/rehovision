@@ -515,27 +515,29 @@ export default function ClipProjectPage() {
   return (
     <div
       data-atelier-workspace
-      className="fixed inset-x-0 bottom-0 top-14 z-30 flex flex-col bg-background"
+      className="atelier-grain fixed inset-x-0 bottom-0 top-14 z-30 flex flex-col bg-background"
     >
       {/* Chrome atelier compact */}
-      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-3 md:px-4">
+      <header className="relative z-[1] flex h-12 shrink-0 items-center gap-3 border-b border-border/70 bg-card/40 px-3 backdrop-blur-md md:px-4">
         <Link
           href="/dashboard"
-          className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" weight="bold" />
           Projets
         </Link>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-semibold tracking-tight">
+          <h1 className="font-display truncate text-sm tracking-tight">
             {project.title}
           </h1>
         </div>
-        <span className={`shrink-0 text-xs ${projectStatusTone(project.status)}`}>
+        <span
+          className={`shrink-0 font-mono text-[11px] tabular-nums ${projectStatusTone(project.status)}`}
+        >
           {readyCount}/{clips.length} prêts
         </span>
         <label
-          className="hidden cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground sm:flex"
+          className="hidden cursor-pointer items-center gap-1.5 rounded-full border border-border/80 bg-background/50 px-2.5 py-1 text-[11px] text-muted-foreground sm:flex"
           title="Aperçu navigateur immédiat (looks, captions, Split). Le MP4 final = Re-rendre."
         >
           <input
@@ -544,7 +546,7 @@ export default function ClipProjectPage() {
             onChange={(e) => setPreferSoft(e.target.checked)}
             className="size-3 accent-signal"
           />
-          Soft preview
+          Soft
         </label>
         {readyCount > 0 && (
           <Button
@@ -552,7 +554,7 @@ export default function ClipProjectPage() {
             size="sm"
             variant="outline"
             disabled={downloading}
-            className="hidden h-8 cursor-pointer sm:inline-flex"
+            className="hidden h-9 cursor-pointer border-signal/30 sm:inline-flex"
             onClick={() => {
               const pool =
                 selectedReady.length > 0
@@ -580,7 +582,7 @@ export default function ClipProjectPage() {
           size="sm"
           disabled={!canRerender || rerendering}
           onClick={() => void onApplyRerender()}
-          className="h-8 shrink-0 cursor-pointer"
+          className="cta-signal h-9 shrink-0 cursor-pointer border-0 px-4 shadow-[0_10px_28px_-10px_color-mix(in_oklab,var(--signal)_60%,transparent)] hover:bg-signal"
         >
           {rerendering
             ? "File…"
@@ -591,7 +593,7 @@ export default function ClipProjectPage() {
       </header>
 
       {(retryError || applyInfo) && (
-        <div className="shrink-0 border-b border-border px-3 py-1.5 text-xs">
+        <div className="relative z-[1] shrink-0 border-b border-border px-3 py-1.5 text-xs">
           {retryError && (
             <p className="text-destructive" role="alert">
               {retryError}
@@ -606,8 +608,8 @@ export default function ClipProjectPage() {
       )}
 
       {/* Corps : clips | stage | outils */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)_280px]">
-        <aside className="min-h-0 overflow-y-auto border-b border-border p-3 lg:border-b-0 lg:border-r">
+      <div className="relative z-[1] grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)_280px]">
+        <aside className="atelier-panel min-h-0 overflow-y-auto border-b border-border p-3 lg:border-b-0 lg:border-r">
           <ClipFilmstrip
             clips={clips}
             focusedId={focusedClipId}
@@ -626,7 +628,7 @@ export default function ClipProjectPage() {
           />
         </aside>
 
-        <main className="relative min-h-0 overflow-hidden bg-black/20 p-3">
+        <main className="relative min-h-0 overflow-hidden bg-[color-mix(in_oklab,var(--background)_35%,#061a12)] p-3">
           {focusedClip && (
             <ClipStagePreview
               clip={focusedClip}
@@ -669,7 +671,7 @@ export default function ClipProjectPage() {
       </div>
 
       {/* Barre bas : In/Out + actions clip + export plateforme */}
-      <footer className="shrink-0 border-t border-border bg-card/60 px-3 py-2 md:px-4">
+      <footer className="relative z-[1] shrink-0 border-t border-border/70 bg-card/50 px-3 py-2 backdrop-blur-md md:px-4">
         <div className="flex flex-wrap items-center gap-2">
           {focusedClip && hasSource && editingClipId !== focusedClip._id && (
             <Button
@@ -688,7 +690,7 @@ export default function ClipProjectPage() {
               type="button"
               size="sm"
               disabled={downloading}
-              className="h-8 cursor-pointer"
+              className="cta-signal h-8 cursor-pointer border-0 hover:bg-signal"
               onClick={() => {
                 const plat =
                   EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)

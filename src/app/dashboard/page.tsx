@@ -233,14 +233,16 @@ export default function DashboardPage() {
   })();
 
   return (
-    <div>
+    <div className="atelier-grain relative">
+      <div className="relative z-[1]">
       <DashboardNav />
 
       <header className="mb-8 max-w-2xl">
-        <h1 className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+        <p className="atelier-label mb-3 text-signal">Atelier clips</p>
+        <h1 className="font-display text-[clamp(1.85rem,4.5vw,2.75rem)] leading-[1.05] text-foreground">
           Transforme un vlog en clips
         </h1>
-        <p className="mt-2 text-base text-muted-foreground">
+        <p className="mt-3 max-w-lg text-base leading-relaxed text-muted-foreground">
           Importe une vidéo. L’IA coupe les meilleurs moments en 9:16 prêts à
           poster.
         </p>
@@ -302,8 +304,8 @@ export default function DashboardPage() {
             }}
             className={
               dragOver
-                ? "relative rounded-2xl border-2 border-dashed border-signal bg-signal/5 px-6 py-14 transition-colors"
-                : "relative rounded-2xl border-2 border-dashed border-border bg-card/40 px-6 py-14 transition-colors hover:border-muted-foreground/40"
+                ? "relative rounded-2xl border-2 border-dashed border-signal bg-signal/8 px-6 py-14 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--signal)_20%,transparent)] transition-colors"
+                : "relative rounded-2xl border-2 border-dashed border-border bg-card/50 px-6 py-14 shadow-[0_20px_50px_-32px_rgb(15_59_39_/_0.3)] transition-colors hover:border-signal/35 dark:shadow-[0_20px_50px_-28px_rgb(0_0_0_/_0.5)]"
             }
           >
             <input
@@ -411,7 +413,7 @@ export default function DashboardPage() {
             type="submit"
             disabled={pending || (mode === "file" && !file)}
             size="lg"
-            className="h-11 shrink-0 cursor-pointer px-8"
+            className="cta-signal h-11 shrink-0 cursor-pointer border-0 px-8 shadow-[0_12px_32px_-12px_color-mix(in_oklab,var(--signal)_55%,transparent)] hover:bg-signal"
           >
             {pending && (
               <SpinnerGap className="size-4 animate-spin" weight="bold" />
@@ -432,9 +434,9 @@ export default function DashboardPage() {
 
       <section>
         <div className="mb-4 flex items-baseline justify-between gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">Mes projets</h2>
+          <h2 className="font-display text-lg tracking-tight">Mes projets</h2>
           {projects && projects.length > 0 && (
-            <p className="text-xs text-muted-foreground">
+            <p className="font-mono text-[11px] text-muted-foreground">
               {projects.length} récent{projects.length > 1 ? "s" : ""}
             </p>
           )}
@@ -464,10 +466,10 @@ export default function DashboardPage() {
                 <li key={p._id}>
                   <Link
                     href={`/dashboard/clips/${p._id}`}
-                    className="group flex h-full flex-col rounded-xl border border-border bg-card/50 p-4 transition-colors hover:border-signal/35 hover:bg-card"
+                    className="group flex h-full flex-col rounded-xl border border-border bg-card/50 p-4 shadow-[0_16px_40px_-28px_rgb(15_59_39_/_0.28)] transition-all duration-200 hover:-translate-y-0.5 hover:border-signal/40 hover:bg-card dark:shadow-[0_16px_40px_-24px_rgb(0_0_0_/_0.45)]"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground group-hover:text-signal">
+                      <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground group-hover:text-signal">
                         {p.title}
                       </p>
                       <span
@@ -498,6 +500,7 @@ export default function DashboardPage() {
           </ul>
         )}
       </section>
+      </div>
     </div>
   );
 }

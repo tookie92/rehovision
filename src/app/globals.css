@@ -180,6 +180,60 @@ html.dark {
     letter-spacing: 0.04em;
     font-variant-numeric: tabular-nums;
   }
+  /* Même grain / glow que la landing — atelier = même atmosphère */
+  .atelier-grain {
+    position: relative;
+  }
+  .atelier-grain::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    opacity: 0.035;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  :is(html.dark) .atelier-grain::before {
+    opacity: 0.055;
+  }
+  .atelier-panel {
+    background: color-mix(in oklab, var(--card) 55%, transparent);
+    backdrop-filter: blur(8px);
+  }
+  .atelier-label {
+    font-family: var(--font-syne), var(--font-display), ui-sans-serif, system-ui,
+      sans-serif;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+  .cta-signal {
+    background: var(--signal);
+    color: var(--signal-foreground);
+    font-weight: 600;
+  }
+  .cta-signal:hover:not(:disabled) {
+    filter: brightness(1.06);
+  }
+  .cta-signal:disabled {
+    opacity: 0.45;
+  }
+  @keyframes atelier-rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  .atelier-rise {
+    animation: atelier-rise 0.28s ease-out both;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

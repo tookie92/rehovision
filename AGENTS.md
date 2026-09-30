@@ -10,7 +10,9 @@
 - After each shipped feature or étape, always say what to do on Ubuntu (`git pull` + restart Next/web and worker; plus `npm run convex:deploy:self-hosted` when Convex schema/functions change).
 - Clip project UI should be an Opus-like no-scroll single-viewport workspace (clips list | 9:16 stage | tools | bottom In/Out + export/re-render), not a long-scrolling settings page.
 - Soft-preview polish on the stage before re-render (look/LUT approx, captions including Off, punch, Split dual-pane with haut↔bas swap).
+- Split reframe: landscape framing dialog to position faces (two people / dual panes), not only a haut↔bas swap toggle.
 - Clip captions should look CapCut-like (karaoke / word-pop ASS with strong outline), with a real Off option — not plain burned text.
+- Once core ROADMAP étapes are done, leave voluntary hors-scope and optional items alone unless explicitly requested.
 
 ## Learned Workspace Facts
 

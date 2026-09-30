@@ -56,9 +56,7 @@ export function ClipFilmstrip({
   return (
     <div className="flex h-full flex-col">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Clips
-        </p>
+        <p className="atelier-label">Clips</p>
         <div className="flex flex-wrap gap-1">
           <button
             type="button"
@@ -115,8 +113,8 @@ export function ClipFilmstrip({
               <div
                 className={
                   focused
-                    ? "flex min-w-[200px] items-stretch gap-2 rounded-xl border border-signal/50 bg-signal/10 p-2 lg:min-w-0"
-                    : "flex min-w-[200px] items-stretch gap-2 rounded-xl border border-border bg-card/40 p-2 hover:border-border/80 lg:min-w-0"
+                    ? "flex min-w-[200px] items-stretch gap-2 rounded-xl border border-signal/50 bg-signal/15 p-2 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--signal)_25%,transparent)] transition-all duration-200 lg:min-w-0"
+                    : "flex min-w-[200px] items-stretch gap-2 rounded-xl border border-border bg-background/40 p-2 transition-all duration-200 hover:border-signal/25 lg:min-w-0"
                 }
               >
                 <label className="flex cursor-pointer items-center px-1">
@@ -136,16 +134,16 @@ export function ClipFilmstrip({
                   className="min-w-0 flex-1 cursor-pointer text-left"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <p className="truncate text-sm font-medium leading-snug">
-                      {clip.order}. {clip.title}
+                    <p className="truncate text-sm font-semibold leading-snug">
+                      {clip.title}
                     </p>
                     <span
                       className={
                         clip.status === "ready"
-                          ? "shrink-0 text-[10px] font-medium text-signal"
+                          ? "shrink-0 font-mono text-[10px] font-medium text-signal"
                           : clip.status === "failed"
-                            ? "shrink-0 text-[10px] font-medium text-destructive"
-                            : "shrink-0 text-[10px] text-muted-foreground"
+                            ? "shrink-0 font-mono text-[10px] font-medium text-destructive"
+                            : "shrink-0 font-mono text-[10px] text-muted-foreground"
                       }
                     >
                       {clip.status === "ready"
@@ -153,7 +151,8 @@ export function ClipFilmstrip({
                         : (CLIP_STATUS_LABEL[clip.status] ?? clip.status)}
                     </span>
                   </div>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                    {String(clip.order).padStart(2, "0")} ·{" "}
                     {formatTimecode(clip.startSec)} · {duration}
                     {typeof clip.viralScore === "number"
                       ? ` · ${Math.round(clip.viralScore)}`

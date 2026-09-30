@@ -274,23 +274,24 @@ export function SplitFrameDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-3 backdrop-blur-[2px]"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-[rgb(6_18_12_/_0.82)] p-3 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="Cadrer les visages Split"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[min(92dvh,900px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
+        className="atelier-rise flex max-h-[min(94dvh,920px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-signal/20 bg-[#0c1f16] shadow-[0_32px_80px_-24px_rgb(0_0_0_/_0.75),0_0_0_1px_color-mix(in_oklab,var(--signal)_18%,transparent)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/8 px-4 py-3.5">
           <div>
-            <h2 className="font-display text-lg font-bold tracking-tight">
+            <p className="atelier-label mb-1 text-signal">Split · landscape</p>
+            <h2 className="font-display text-xl tracking-tight text-[#f7f9f7]">
               Cadrer les visages
             </h2>
-            <p className="text-xs text-muted-foreground">
-              Source landscape — place Haut & Bas, puis Appliquer.
+            <p className="mt-0.5 text-xs text-white/55">
+              Glisse les cadres Haut & Bas sur la source, puis Appliquer.
             </p>
           </div>
           <div className="flex gap-1.5">
@@ -299,8 +300,8 @@ export function SplitFrameDialog({
               onClick={() => setActive("top")}
               className={
                 active === "top"
-                  ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/40"
-                  : "cursor-pointer rounded-lg bg-secondary px-2.5 py-1.5 text-xs text-muted-foreground"
+                  ? "cursor-pointer rounded-lg bg-signal/25 px-3 py-2 text-xs font-semibold text-signal ring-1 ring-signal/50"
+                  : "cursor-pointer rounded-lg bg-white/6 px-3 py-2 text-xs text-white/55 hover:text-white/85"
               }
             >
               Haut
@@ -310,8 +311,8 @@ export function SplitFrameDialog({
               onClick={() => setActive("bot")}
               className={
                 active === "bot"
-                  ? "cursor-pointer rounded-lg bg-[#8b5e3c]/25 px-2.5 py-1.5 text-xs font-semibold text-[#8b5e3c] ring-1 ring-[#8b5e3c]/50"
-                  : "cursor-pointer rounded-lg bg-secondary px-2.5 py-1.5 text-xs text-muted-foreground"
+                  ? "cursor-pointer rounded-lg bg-[#c4a484]/30 px-3 py-2 text-xs font-semibold text-[#e8d0b0] ring-1 ring-[#c4a484]/45"
+                  : "cursor-pointer rounded-lg bg-white/6 px-3 py-2 text-xs text-white/55 hover:text-white/85"
               }
             >
               Bas
@@ -321,7 +322,7 @@ export function SplitFrameDialog({
 
         <div
           ref={stageRef}
-          className="relative min-h-[240px] flex-1 bg-[#0a0a0a] sm:min-h-[420px]"
+          className="relative min-h-[260px] flex-1 bg-black sm:min-h-[460px]"
         >
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
           <video
@@ -353,7 +354,7 @@ export function SplitFrameDialog({
               />
               <CropBox
                 label="Bas"
-                color="#8b5e3c"
+                color="#c4a484"
                 box={boxBot}
                 videoRect={videoRect}
                 onChange={(b) => {
@@ -365,11 +366,11 @@ export function SplitFrameDialog({
           )}
         </div>
 
-        <footer className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border px-4 py-3">
+        <footer className="flex shrink-0 flex-wrap items-center gap-2 border-t border-white/8 px-4 py-3.5">
           <Button
             type="button"
             variant="ghost"
-            className="cursor-pointer"
+            className="cursor-pointer text-white/70 hover:bg-white/8 hover:text-white"
             onClick={onClose}
           >
             Fermer
@@ -377,19 +378,19 @@ export function SplitFrameDialog({
           <Button
             type="button"
             variant="outline"
-            className="cursor-pointer"
+            className="cursor-pointer border-white/15 bg-transparent text-white/80 hover:bg-white/8 hover:text-white"
             onClick={() => {
               onResetAuto();
               setBoxTop(focusToBox(DEFAULT_SPLIT_FOCUS_TOP, videoAspect));
               setBoxBot(focusToBox(DEFAULT_SPLIT_FOCUS_BOT, videoAspect));
             }}
           >
-            Reset
+            Reset IA
           </Button>
           <div className="ml-auto flex gap-2">
             <Button
               type="button"
-              className="cursor-pointer font-semibold"
+              className="cta-signal cursor-pointer border-0 px-5 hover:bg-signal"
               onClick={() => {
                 onApply(
                   boxToFocus(boxTop, videoAspect),

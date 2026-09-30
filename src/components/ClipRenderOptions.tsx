@@ -77,16 +77,27 @@ function ChipGroup<T extends string>({
   value,
   disabled,
   onChange,
+  emphasis = "primary",
 }: {
   label: string;
   options: ReadonlyArray<{ id: T; label: string; hint: string }>;
   value: T;
   disabled?: boolean;
   onChange: (v: T) => void;
+  /** primary = Look/Captions/Cadre ; muted = extras */
+  emphasis?: "primary" | "muted";
 }) {
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium text-foreground">{label}</p>
+      <p
+        className={
+          emphasis === "primary"
+            ? "font-display text-[13px] tracking-tight text-foreground"
+            : "text-xs font-medium text-muted-foreground"
+        }
+      >
+        {label}
+      </p>
       <div className="flex flex-wrap gap-1.5">
         {options.map((opt) => {
           const active = opt.id === value;
@@ -99,8 +110,12 @@ function ChipGroup<T extends string>({
               onClick={() => onChange(opt.id)}
               className={
                 active
-                  ? "cursor-pointer rounded-lg bg-signal/15 px-3 py-1.5 text-sm font-medium text-signal ring-1 ring-signal/40"
-                  : "cursor-pointer rounded-lg bg-secondary/80 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  ? emphasis === "primary"
+                    ? "cursor-pointer rounded-lg bg-signal/20 px-3 py-1.5 text-sm font-semibold text-signal ring-1 ring-signal/45 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--signal)_20%,transparent)]"
+                    : "cursor-pointer rounded-lg bg-signal/15 px-2.5 py-1 text-xs font-medium text-signal ring-1 ring-signal/35"
+                  : emphasis === "primary"
+                    ? "cursor-pointer rounded-lg bg-secondary/80 px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                    : "cursor-pointer rounded-lg bg-secondary/60 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
               }
             >
               {opt.label}
@@ -161,6 +176,7 @@ export function ClipRenderOptions({
   const musicRef = useRef<HTMLInputElement>(null);
   const lutRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(defaultOpen || variant === "drawer");
+  const [extrasOpen, setExtrasOpen] = useState(false);
   const [assetBusy, setAssetBusy] = useState(false);
   const [lutHint, setLutHint] = useState<string | null>(null);
   const isDrawer = variant === "drawer";
@@ -239,285 +255,310 @@ export function ClipRenderOptions({
 
   const body = (
         <div className={isDrawer ? "space-y-5 p-3" : "space-y-6 border-t border-border px-4 py-5"}>
-          <ChipGroup
-            label="Sous-titres"
-            options={CAPTION_STYLES}
-            value={captionStyle}
-            disabled={disabled}
-            onChange={withPreview(onCaptionStyle)}
-          />
-          <ChipGroup
-            label="Cadre"
-            options={LAYOUT_MODES}
-            value={layoutMode}
-            disabled={disabled}
-            onChange={withPreview(onLayoutMode)}
-          />
-          {layoutMode === "split" && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">Split — visages</p>
-              {onOpenSplitFrame && (
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => {
-                    onPreviewIntent?.();
-                    onOpenSplitFrame();
-                  }}
-                  className="w-full cursor-pointer rounded-lg bg-signal/15 px-3 py-2.5 text-sm font-semibold text-signal ring-1 ring-signal/40 hover:bg-signal/25 disabled:opacity-50"
-                >
-                  Cadrer les visages…
-                </button>
-              )}
-              {onSplitSwap && (
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => {
-                    onPreviewIntent?.();
-                    onSplitSwap(!splitSwap);
-                  }}
-                  className="w-full cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-sm text-foreground hover:bg-secondary disabled:opacity-50"
-                >
-                  {splitSwap
-                    ? "Échanger haut ↔ bas (actif)"
-                    : "Échanger haut ↔ bas"}
-                </button>
-              )}
-              {onClearSplitFocus && (
-                <button
-                  type="button"
-                  disabled={disabled || !hasManualSplitFocus}
-                  onClick={() => {
-                    onPreviewIntent?.();
-                    onClearSplitFocus();
-                  }}
-                  className="w-full cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-sm text-foreground hover:bg-secondary disabled:opacity-50"
-                >
-                  Reset auto (faces IA)
-                </button>
-              )}
-              <p className="text-[11px] text-muted-foreground">
-                Dialog landscape pour placer Haut & Bas. Re-rendre pour
-                l’export.
-              </p>
-            </div>
-          )}
-          <ChipGroup
-            label="Audio"
-            options={AUDIO_ENHANCE_MODES}
-            value={audioEnhance}
-            disabled={disabled}
-            onChange={withPreview(onAudioEnhance)}
-          />
-          <ChipGroup
-            label="Effet punch"
-            options={PUNCH_EFFECTS}
-            value={punchEffect}
-            disabled={disabled}
-            onChange={withPreview(onPunchEffect)}
-          />
-          <ChipGroup
-            label="Look"
-            options={LOOK_FILTERS}
-            value={lookFilter}
-            disabled={disabled}
-            onChange={withPreview(onLookFilter)}
-          />
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-foreground">LUT (.cube)</p>
-            <p className="text-xs text-muted-foreground">
-              Soft = approx. ; vrai grade .cube au Re-rendre. Exporte aussi Warm
-              / Cool / Contrast.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                ref={lutRef}
-                type="file"
-                accept=".cube,application/octet-stream,text/plain"
-                className="hidden"
-                onChange={(e) => void handleLut(e.target.files?.[0])}
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={disabled || assetBusy}
-                onClick={() => lutRef.current?.click()}
-                className="cursor-pointer"
-              >
-                {lutUrl ? "Changer la LUT" : "Importer .cube"}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={
-                  disabled ||
-                  assetBusy ||
-                  (!lutUrl && !isExportableLook(lookFilter))
-                }
-                onClick={() => void exportLut()}
-                className="cursor-pointer"
-              >
-                Exporter .cube
-              </Button>
-              {lutUrl && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={disabled || assetBusy}
-                  onClick={onClearLut}
-                  className="cursor-pointer"
-                >
-                  Retirer
-                </Button>
-              )}
-            </div>
-            {lutHint && (
-              <p className="text-xs text-destructive" role="alert">
-                {lutHint}
-              </p>
-            )}
-            {lutUrl && (
-              <p className="text-xs text-signal">
-                LUT active — soft approx. ; Re-rendre pour le vrai .cube
-              </p>
-            )}
-          </div>
-          <ChipGroup
-            label="Voiceover"
-            options={VOICEOVER_MODES}
-            value={voiceoverMode}
-            disabled={disabled}
-            onChange={withPreview(onVoiceoverMode)}
-          />
-
-          <div className="space-y-3 border-t border-border pt-4">
-            <p className="text-sm font-medium">Logo</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                ref={logoRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                className="hidden"
-                onChange={(e) => void handleLogo(e.target.files?.[0])}
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={disabled || assetBusy}
-                onClick={() => logoRef.current?.click()}
-                className="cursor-pointer"
-              >
-                {logoUrl ? "Changer" : "Ajouter un logo"}
-              </Button>
-              {logoUrl && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={disabled || assetBusy}
-                  onClick={onClearLogo}
-                  className="cursor-pointer"
-                >
-                  Retirer
-                </Button>
-              )}
-              {logoUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={logoUrl}
-                  alt=""
-                  className="h-8 w-8 rounded object-contain"
-                />
-              )}
-            </div>
-            {logoUrl && (
-              <>
-                <ChipGroup
-                  label="Position"
-                  options={LOGO_CORNERS}
-                  value={logoCorner}
-                  disabled={disabled}
-                  onChange={withPreview(onLogoCorner)}
-                />
-                <label className="flex items-center gap-3 text-sm text-muted-foreground">
-                  <span className="w-24 shrink-0">
-                    Opacité {Math.round(logoOpacity * 100)}%
-                  </span>
-                  <input
-                    type="range"
-                    min={20}
-                    max={100}
-                    value={Math.round(logoOpacity * 100)}
+          <div className="space-y-4">
+            <p className="atelier-label text-signal">Essentiel</p>
+            <ChipGroup
+              label="Sous-titres"
+              options={CAPTION_STYLES}
+              value={captionStyle}
+              disabled={disabled}
+              onChange={withPreview(onCaptionStyle)}
+            />
+            <ChipGroup
+              label="Cadre"
+              options={LAYOUT_MODES}
+              value={layoutMode}
+              disabled={disabled}
+              onChange={withPreview(onLayoutMode)}
+            />
+            {layoutMode === "split" && (
+              <div className="space-y-2 rounded-xl border border-signal/25 bg-signal/5 p-2.5">
+                <p className="font-display text-[13px] tracking-tight text-foreground">
+                  Split — visages
+                </p>
+                {onOpenSplitFrame && (
+                  <button
+                    type="button"
                     disabled={disabled}
-                    onChange={(e) => {
+                    onClick={() => {
                       onPreviewIntent?.();
-                      onLogoOpacity(Number(e.target.value) / 100);
+                      onOpenSplitFrame();
                     }}
-                    className="flex-1 accent-[var(--signal)]"
-                  />
-                </label>
-              </>
+                    className="w-full cursor-pointer rounded-lg bg-signal px-3 py-2.5 text-sm font-semibold text-signal-foreground transition-[filter] hover:brightness-105 disabled:opacity-50"
+                  >
+                    Cadrer les visages…
+                  </button>
+                )}
+                {onSplitSwap && (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      onPreviewIntent?.();
+                      onSplitSwap(!splitSwap);
+                    }}
+                    className="w-full cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-xs text-foreground hover:bg-secondary disabled:opacity-50"
+                  >
+                    {splitSwap
+                      ? "Échanger haut ↔ bas (actif)"
+                      : "Échanger haut ↔ bas"}
+                  </button>
+                )}
+                {onClearSplitFocus && (
+                  <button
+                    type="button"
+                    disabled={disabled || !hasManualSplitFocus}
+                    onClick={() => {
+                      onPreviewIntent?.();
+                      onClearSplitFocus();
+                    }}
+                    className="w-full cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-xs text-foreground hover:bg-secondary disabled:opacity-50"
+                  >
+                    Reset auto (faces IA)
+                  </button>
+                )}
+              </div>
             )}
+            <ChipGroup
+              label="Look"
+              options={LOOK_FILTERS}
+              value={lookFilter}
+              disabled={disabled}
+              onChange={withPreview(onLookFilter)}
+            />
           </div>
 
-          <div className="space-y-3 border-t border-border pt-4">
-            <p className="text-sm font-medium">Musique de fond</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                ref={musicRef}
-                type="file"
-                accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/*"
-                className="hidden"
-                onChange={(e) => void handleMusic(e.target.files?.[0])}
+          <div className="border-t border-border pt-3">
+            <button
+              type="button"
+              onClick={() => setExtrasOpen((v) => !v)}
+              className="flex w-full cursor-pointer items-center justify-between gap-2 py-1 text-left"
+              aria-expanded={extrasOpen}
+            >
+              <span className="atelier-label">Plus · punch / audio / marque</span>
+              <CaretDown
+                className={`size-4 shrink-0 text-muted-foreground transition-transform ${extrasOpen ? "rotate-180" : ""}`}
+                weight="bold"
               />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={disabled || assetBusy}
-                onClick={() => musicRef.current?.click()}
-                className="cursor-pointer"
-              >
-                {musicUrl ? "Changer" : "Ajouter un MP3"}
-              </Button>
-              {musicUrl && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={disabled || assetBusy}
-                  onClick={onClearMusic}
-                  className="cursor-pointer"
-                >
-                  Retirer
-                </Button>
-              )}
-              {musicUrl && (
-                <span className="text-xs text-signal">Prêt (ducking auto)</span>
-              )}
-            </div>
-            {musicUrl && (
-              <label className="flex items-center gap-3 text-sm text-muted-foreground">
-                <span className="w-24 shrink-0">
-                  Volume {Math.round(musicVolume * 100)}%
-                </span>
-                <input
-                  type="range"
-                  min={5}
-                  max={40}
-                  value={Math.round(musicVolume * 100)}
+            </button>
+            {extrasOpen && (
+              <div className="mt-3 space-y-4">
+                <ChipGroup
+                  label="Effet punch"
+                  options={PUNCH_EFFECTS}
+                  value={punchEffect}
                   disabled={disabled}
-                  onChange={(e) =>
-                    onMusicVolume(Number(e.target.value) / 100)
-                  }
-                  className="flex-1 accent-[var(--signal)]"
+                  onChange={withPreview(onPunchEffect)}
+                  emphasis="muted"
                 />
-              </label>
+                <ChipGroup
+                  label="Audio"
+                  options={AUDIO_ENHANCE_MODES}
+                  value={audioEnhance}
+                  disabled={disabled}
+                  onChange={withPreview(onAudioEnhance)}
+                  emphasis="muted"
+                />
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    LUT (.cube)
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Soft = approx. ; vrai grade au Re-rendre.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      ref={lutRef}
+                      type="file"
+                      accept=".cube,application/octet-stream,text/plain"
+                      className="hidden"
+                      onChange={(e) => void handleLut(e.target.files?.[0])}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={disabled || assetBusy}
+                      onClick={() => lutRef.current?.click()}
+                      className="cursor-pointer"
+                    >
+                      {lutUrl ? "Changer" : "Importer"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        disabled ||
+                        assetBusy ||
+                        (!lutUrl && !isExportableLook(lookFilter))
+                      }
+                      onClick={() => void exportLut()}
+                      className="cursor-pointer"
+                    >
+                      Exporter
+                    </Button>
+                    {lutUrl && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={disabled || assetBusy}
+                        onClick={onClearLut}
+                        className="cursor-pointer"
+                      >
+                        Retirer
+                      </Button>
+                    )}
+                  </div>
+                  {lutHint && (
+                    <p className="text-xs text-destructive" role="alert">
+                      {lutHint}
+                    </p>
+                  )}
+                  {lutUrl && (
+                    <p className="text-xs text-signal">LUT active</p>
+                  )}
+                </div>
+                <ChipGroup
+                  label="Voiceover"
+                  options={VOICEOVER_MODES}
+                  value={voiceoverMode}
+                  disabled={disabled}
+                  onChange={withPreview(onVoiceoverMode)}
+                  emphasis="muted"
+                />
+
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">Logo</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      ref={logoRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={(e) => void handleLogo(e.target.files?.[0])}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={disabled || assetBusy}
+                      onClick={() => logoRef.current?.click()}
+                      className="cursor-pointer"
+                    >
+                      {logoUrl ? "Changer" : "Ajouter"}
+                    </Button>
+                    {logoUrl && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={disabled || assetBusy}
+                        onClick={onClearLogo}
+                        className="cursor-pointer"
+                      >
+                        Retirer
+                      </Button>
+                    )}
+                    {logoUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={logoUrl}
+                        alt=""
+                        className="h-8 w-8 rounded object-contain"
+                      />
+                    )}
+                  </div>
+                  {logoUrl && (
+                    <>
+                      <ChipGroup
+                        label="Position"
+                        options={LOGO_CORNERS}
+                        value={logoCorner}
+                        disabled={disabled}
+                        onChange={withPreview(onLogoCorner)}
+                        emphasis="muted"
+                      />
+                      <label className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span className="w-24 shrink-0">
+                          Opacité {Math.round(logoOpacity * 100)}%
+                        </span>
+                        <input
+                          type="range"
+                          min={20}
+                          max={100}
+                          value={Math.round(logoOpacity * 100)}
+                          disabled={disabled}
+                          onChange={(e) => {
+                            onPreviewIntent?.();
+                            onLogoOpacity(Number(e.target.value) / 100);
+                          }}
+                          className="flex-1 accent-[var(--signal)]"
+                        />
+                      </label>
+                    </>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Musique
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      ref={musicRef}
+                      type="file"
+                      accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/*"
+                      className="hidden"
+                      onChange={(e) => void handleMusic(e.target.files?.[0])}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={disabled || assetBusy}
+                      onClick={() => musicRef.current?.click()}
+                      className="cursor-pointer"
+                    >
+                      {musicUrl ? "Changer" : "MP3"}
+                    </Button>
+                    {musicUrl && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={disabled || assetBusy}
+                        onClick={onClearMusic}
+                        className="cursor-pointer"
+                      >
+                        Retirer
+                      </Button>
+                    )}
+                    {musicUrl && (
+                      <span className="text-[11px] text-signal">Ducking</span>
+                    )}
+                  </div>
+                  {musicUrl && (
+                    <label className="flex items-center gap-3 text-xs text-muted-foreground">
+                      <span className="w-24 shrink-0">
+                        Volume {Math.round(musicVolume * 100)}%
+                      </span>
+                      <input
+                        type="range"
+                        min={5}
+                        max={40}
+                        value={Math.round(musicVolume * 100)}
+                        disabled={disabled}
+                        onChange={(e) =>
+                          onMusicVolume(Number(e.target.value) / 100)
+                        }
+                        className="flex-1 accent-[var(--signal)]"
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
             )}
           </div>
 
@@ -527,7 +568,7 @@ export function ClipRenderOptions({
                 type="button"
                 disabled={applyDisabled || saving}
                 onClick={onApplyRerender}
-                className="cursor-pointer"
+                className="cta-signal cursor-pointer border-0 hover:bg-signal"
               >
                 {saving ? "Re-rendu en cours…" : "Appliquer sur tous les clips"}
               </Button>
@@ -546,10 +587,11 @@ export function ClipRenderOptions({
 
   if (isDrawer) {
     return (
-      <div className="flex h-full flex-col overflow-hidden border-l border-border bg-card/40">
-        <div className="shrink-0 border-b border-border px-3 py-2.5">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            Outils
+      <div className="atelier-panel flex h-full flex-col overflow-hidden border-l border-border">
+        <div className="shrink-0 border-b border-border/70 px-3 py-2.5">
+          <p className="atelier-label">Outils</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Soft live → puis Re-rendre
           </p>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>

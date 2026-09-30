@@ -19,7 +19,7 @@ export function DashboardNav() {
           href="/dashboard"
           className={
             onHome && !onProject
-              ? "rounded-lg bg-secondary px-3 py-2 text-sm font-medium text-foreground"
+              ? "rounded-lg bg-secondary px-3 py-2 text-sm font-semibold text-foreground"
               : "rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
           }
         >
@@ -39,7 +39,7 @@ export function DashboardNav() {
       {!onHome || onProject ? (
         <Link
           href="/dashboard"
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          className="cta-signal inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm transition-[filter] hover:brightness-105"
         >
           <Plus className="size-4" weight="bold" />
           Nouveau
