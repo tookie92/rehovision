@@ -7,6 +7,8 @@ import {
   buildCubeLut,
   downloadCubeFile,
   isExportableLook,
+  LUT_PACKS,
+  type LutPackId,
 } from "@/lib/lutCubes";
 import {
   AUDIO_ENHANCE_MODES,
@@ -69,6 +71,8 @@ type Props = {
   onClearMusic: () => void;
   onUploadLut: (file: File) => Promise<void>;
   onClearLut: () => void;
+  /** Applique un pack LUT préchargé (.cube + look lut). */
+  onApplyLutPack?: (packId: LutPackId) => Promise<void>;
   onApplyRerender: () => void;
   /** Force le stage en mode soft preview (live look / captions). */
   onPreviewIntent?: () => void;
@@ -175,6 +179,7 @@ export function ClipRenderOptions({
   onClearMusic,
   onUploadLut,
   onClearLut,
+  onApplyLutPack,
   onApplyRerender,
   onPreviewIntent,
 }: Props) {
@@ -404,6 +409,39 @@ export function ClipRenderOptions({
                   <p className="text-[11px] text-muted-foreground">
                     Soft = approx. ; vrai grade au Re-rendre.
                   </p>
+                  {onApplyLutPack && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {LUT_PACKS.map((pack) => (
+                        <button
+                          key={pack.id}
+                          type="button"
+                          title={pack.hint}
+                          disabled={disabled || assetBusy}
+                          onClick={() => {
+                            onPreviewIntent?.();
+                            void (async () => {
+                              setAssetBusy(true);
+                              setLutHint(null);
+                              try {
+                                await onApplyLutPack(pack.id);
+                              } catch (err) {
+                                setLutHint(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Pack LUT échoué",
+                                );
+                              } finally {
+                                setAssetBusy(false);
+                              }
+                            })();
+                          }}
+                          className="cursor-pointer rounded-lg bg-secondary/60 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                        >
+                          {pack.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-2">
                     <input
                       ref={lutRef}

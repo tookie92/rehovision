@@ -77,8 +77,20 @@ Soit **Import → Fichier** (recommandé pour valider le parcours).
 4. Changer captions / look → **Re-rendre N clips** → jobs en file  
 5. Trim manuel ou Ajuster → re-télécharger  
 6. Export TikTok/Reels/Shorts → fichier nommé `01-reels-….mp4`
+7. **Smart/Fill** → **Cadrer le sujet…** → Soft OK → **Re-rendre** = même crop Final  
+8. Multi-select 2–3 clips → **Assembler** → 1 reel téléchargeable  
 
 Si tout ça passe : coche **Étape 0** dans `ROADMAP.md`.
+
+## 7. Après `smartFocus` / schema clips
+
+```bash
+git pull
+npm run convex:deploy:self-hosted   # machine avec ADMIN_KEY
+# restart Next + worker
+```
+
+Sans deploy : `clearSmartFocus` / `smartFocus` → `ArgumentValidationError`.
 
 ## Dépannage
 

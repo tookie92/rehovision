@@ -5,6 +5,39 @@
 
 export type ExportableLookId = "warm" | "cool" | "contrast";
 
+/** Packs préchargés (Étape 6 optionnel) — appliqués via lookFilter=lut + .cube. */
+export type LutPackId = "cinema_warm" | "teal_cool" | "noir_punch";
+
+export const LUT_PACKS: ReadonlyArray<{
+  id: LutPackId;
+  label: string;
+  hint: string;
+  look: ExportableLookId;
+  title: string;
+}> = [
+  {
+    id: "cinema_warm",
+    label: "Cinéma warm",
+    hint: "Ambre soft, peaux chaudes",
+    look: "warm",
+    title: "Rehovision Cinéma Warm",
+  },
+  {
+    id: "teal_cool",
+    label: "Teal cool",
+    hint: "Bleus froids, contrast léger",
+    look: "cool",
+    title: "Rehovision Teal Cool",
+  },
+  {
+    id: "noir_punch",
+    label: "Noir punch",
+    hint: "Contraste net, shorts dark",
+    look: "contrast",
+    title: "Rehovision Noir Punch",
+  },
+];
+
 const SIZE = 17;
 
 function clamp01(n: number): number {
@@ -77,6 +110,12 @@ export function buildCubeLut(
 
 export function isExportableLook(id: string): id is ExportableLookId {
   return id === "warm" || id === "cool" || id === "contrast";
+}
+
+export function buildLutPackCube(packId: LutPackId): string {
+  const pack = LUT_PACKS.find((p) => p.id === packId);
+  if (!pack) throw new Error("Pack LUT inconnu");
+  return buildCubeLut(pack.look, pack.title);
 }
 
 /** Déclenche le téléchargement navigateur d’une LUT .cube. */

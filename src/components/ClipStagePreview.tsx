@@ -546,8 +546,8 @@ export function ClipStagePreview({
     <div
       className={
         compact
-          ? "phone-frame relative mx-auto aspect-[9/16] h-[min(100%,calc(100dvh-14rem))] w-auto max-w-full border border-border bg-black shadow-[0_0_0_1px_rgba(61,214,198,0.12)]"
-          : "phone-frame relative mx-auto aspect-[9/16] w-full max-w-[320px] border border-border bg-black shadow-[0_0_0_1px_rgba(61,214,198,0.12)] lg:mx-0"
+          ? "phone-frame relative mx-auto aspect-[9/16] h-[min(100%,calc(100dvh-14rem))] w-auto max-w-full overflow-hidden border border-border bg-black shadow-[0_0_0_1px_rgba(61,214,198,0.12)]"
+          : "phone-frame relative mx-auto aspect-[9/16] w-full max-w-[320px] overflow-hidden border border-border bg-black shadow-[0_0_0_1px_rgba(61,214,198,0.12)] lg:mx-0"
       }
     >
       {activeMode === "final" && clip.resultUrl ? (

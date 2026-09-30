@@ -10,6 +10,7 @@ import {
   LinkSimple,
   UploadSimple,
   SpinnerGap,
+  Sparkle,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ import {
 } from "@/lib/clipStatus";
 
 type Mode = "youtube" | "file";
+type DashTab = "clips" | "faceless";
 
 function uploadWithProgress(
   uploadUrl: string,
@@ -103,6 +105,7 @@ export default function DashboardPage() {
     api.clipProjects.createFromLocalUpload,
   );
   const createFromYoutube = useMutation(api.clipProjects.createFromYoutube);
+  const createAndStartReel = useMutation(api.videoProjects.createAndStartReel);
 
   const useWorkerUpload =
     process.env.NEXT_PUBLIC_WORKER_UPLOAD === "1" ||
@@ -110,8 +113,11 @@ export default function DashboardPage() {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<Mode>("file");
+  const [dashTab, setDashTab] = useState<DashTab>("clips");
   const [title, setTitle] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [facelessTopic, setFacelessTopic] = useState("");
+  const [facelessPending, setFacelessPending] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [pending, setPending] = useState(false);
@@ -132,6 +138,24 @@ export default function DashboardPage() {
     setFile(f);
     setMode("file");
   }, []);
+
+  async function onFacelessSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const topic = facelessTopic.trim();
+    if (!topic) {
+      setError("Écris un sujet pour le reel faceless");
+      return;
+    }
+    setFacelessPending(true);
+    try {
+      const { projectId, studioId } = await createAndStartReel({ topic });
+      router.push(`/dashboard/studios/${studioId}/projects/${projectId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+      setFacelessPending(false);
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -238,16 +262,102 @@ export default function DashboardPage() {
       <DashboardNav />
 
       <header className="mb-8 max-w-2xl">
-        <p className="atelier-label mb-3 text-signal">Atelier clips</p>
+        <p className="atelier-label mb-3 text-signal">Atelier</p>
         <h1 className="font-display text-[clamp(1.85rem,4.5vw,2.75rem)] leading-[1.05] text-foreground">
-          Transforme un vlog en clips
+          {dashTab === "clips"
+            ? "Transforme un vlog en clips"
+            : "Reel faceless depuis un sujet"}
         </h1>
         <p className="mt-3 max-w-lg text-base leading-relaxed text-muted-foreground">
-          Importe une vidéo. L’IA coupe les meilleurs moments en 9:16 prêts à
-          poster.
+          {dashTab === "clips"
+            ? "Importe une vidéo. L’IA coupe les meilleurs moments en 9:16 prêts à poster."
+            : "Sujet → script Ollama → images Flux → voix → montage 9:16. Pipeline séparé des clips."}
         </p>
+        <div
+          role="tablist"
+          aria-label="Mode atelier"
+          className="mt-5 inline-flex rounded-xl border border-border bg-card/60 p-1"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={dashTab === "clips"}
+            onClick={() => {
+              setDashTab("clips");
+              setError(null);
+            }}
+            className={
+              dashTab === "clips"
+                ? "inline-flex cursor-pointer items-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-medium text-foreground"
+                : "inline-flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm text-muted-foreground hover:text-foreground"
+            }
+          >
+            <FilmStrip className="size-4" weight="bold" />
+            Clips
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={dashTab === "faceless"}
+            onClick={() => {
+              setDashTab("faceless");
+              setError(null);
+            }}
+            className={
+              dashTab === "faceless"
+                ? "inline-flex cursor-pointer items-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-medium text-foreground"
+                : "inline-flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm text-muted-foreground hover:text-foreground"
+            }
+          >
+            <Sparkle className="size-4" weight="bold" />
+            Faceless
+          </button>
+        </div>
       </header>
 
+      {dashTab === "faceless" ? (
+        <form onSubmit={onFacelessSubmit} className="mb-14 max-w-xl space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="faceless-topic">Sujet du reel</Label>
+            <Input
+              id="faceless-topic"
+              value={facelessTopic}
+              onChange={(e) => setFacelessTopic(e.target.value)}
+              placeholder="ex. L’affaire du train de nuit en 1892"
+              disabled={facelessPending}
+              className="h-11"
+            />
+          </div>
+          <Button
+            type="submit"
+            disabled={facelessPending}
+            className="cta-signal h-11 cursor-pointer border-0 px-6 hover:bg-signal"
+          >
+            {facelessPending ? (
+              <>
+                <SpinnerGap className="size-4 animate-spin" weight="bold" />
+                Lancement…
+              </>
+            ) : (
+              "Générer le reel"
+            )}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Styles avancés :{" "}
+            <Link
+              href="/dashboard/studios"
+              className="text-signal underline-offset-2 hover:underline"
+            >
+              Studios
+            </Link>
+          </p>
+          {error && (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+        </form>
+      ) : (
       <form onSubmit={onSubmit} className="mb-14">
         <div
           role="tablist"
@@ -431,6 +541,7 @@ export default function DashboardPage() {
           </p>
         )}
       </form>
+      )}
 
       <section>
         <div className="mb-4 flex items-baseline justify-between gap-3">

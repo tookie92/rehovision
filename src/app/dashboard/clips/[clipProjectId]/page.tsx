@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
-import { ArrowLeft, DownloadSimple, Stack } from "@phosphor-icons/react";
+import { ArrowLeft, DownloadSimple, ShareNetwork, Stack } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ClipPipelineProgress } from "@/components/ClipPipelineProgress";
@@ -24,6 +24,8 @@ import {
   projectStatusTone,
   safeDownloadName,
 } from "@/lib/clipStatus";
+import { shareOrCopyMedia } from "@/lib/shareMedia";
+import { buildLutPackCube, type LutPackId } from "@/lib/lutCubes";
 import {
   EXPORT_PLATFORMS,
   type ExportPlatformId,
@@ -201,6 +203,28 @@ export default function ClipProjectPage() {
       clipProjectId,
       storageId: storageId as never,
     });
+  }
+
+  async function applyLutPack(packId: LutPackId) {
+    const cube = buildLutPackCube(packId);
+    const file = new File([cube], `rehovision-${packId}.cube`, {
+      type: "application/octet-stream",
+    });
+    await uploadLut(file);
+  }
+
+  async function onShareMedia(url: string, title: string) {
+    setRetryError(null);
+    const result = await shareOrCopyMedia({ url, title });
+    if (!result.ok) {
+      if (result.reason !== "Annulé") setRetryError(result.reason);
+      return;
+    }
+    setApplyInfo(
+      result.mode === "clipboard"
+        ? "Lien copié — colle dans TikTok / Reels"
+        : "Partage ouvert",
+    );
   }
 
   async function onApplyRerender() {
@@ -499,6 +523,10 @@ export default function ClipProjectPage() {
         setRetryError(err instanceof Error ? err.message : "Erreur");
       }
     },
+    onApplyLutPack: async (packId: LutPackId) => {
+      setPreferSoft(true);
+      await applyLutPack(packId);
+    },
     onClearLut: () => void persistOption({ clearLut: true }),
     onApplyRerender: () => void onApplyRerender(),
   };
@@ -686,34 +714,52 @@ export default function ClipProjectPage() {
             </span>
           ) : null}
           {latestStitch.status === "ready" && latestStitch.resultUrl ? (
-            <Button
-              type="button"
-              size="sm"
-              className="cta-signal ml-auto h-7 cursor-pointer border-0 px-3 hover:bg-signal"
-              disabled={downloading}
-              onClick={() => {
-                const plat =
-                  EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
-                    ?.fileSlug ?? exportPlatform;
-                setDownloading(true);
-                void downloadUrl(
-                  latestStitch.resultUrl!,
-                  safeDownloadName(latestStitch.title, 1, plat),
-                )
-                  .then(() => setApplyInfo("Assemblage téléchargé"))
-                  .catch((err) =>
-                    setRetryError(
-                      err instanceof Error
-                        ? err.message
-                        : "Téléchargement échoué",
-                    ),
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="ml-auto h-7 cursor-pointer"
+                disabled={downloading}
+                onClick={() =>
+                  void onShareMedia(
+                    latestStitch.resultUrl!,
+                    latestStitch.title,
                   )
-                  .finally(() => setDownloading(false));
-              }}
-            >
-              <DownloadSimple className="size-3.5" weight="bold" />
-              {downloading ? "…" : "Télécharger le reel"}
-            </Button>
+                }
+              >
+                <ShareNetwork className="size-3.5" weight="bold" />
+                Partager
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="cta-signal h-7 cursor-pointer border-0 px-3 hover:bg-signal"
+                disabled={downloading}
+                onClick={() => {
+                  const plat =
+                    EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
+                      ?.fileSlug ?? exportPlatform;
+                  setDownloading(true);
+                  void downloadUrl(
+                    latestStitch.resultUrl!,
+                    safeDownloadName(latestStitch.title, 1, plat),
+                  )
+                    .then(() => setApplyInfo("Assemblage téléchargé"))
+                    .catch((err) =>
+                      setRetryError(
+                        err instanceof Error
+                          ? err.message
+                          : "Téléchargement échoué",
+                      ),
+                    )
+                    .finally(() => setDownloading(false));
+                }}
+              >
+                <DownloadSimple className="size-3.5" weight="bold" />
+                {downloading ? "…" : "Télécharger le reel"}
+              </Button>
+            </>
           ) : null}
         </div>
       )}
@@ -835,39 +881,57 @@ export default function ClipProjectPage() {
             </Button>
           )}
           {focusedClip?.resultUrl && (
-            <Button
-              type="button"
-              size="sm"
-              disabled={downloading}
-              className="cta-signal h-8 cursor-pointer border-0 hover:bg-signal"
-              onClick={() => {
-                const plat =
-                  EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
-                    ?.fileSlug ?? exportPlatform;
-                setRetryError(null);
-                setDownloading(true);
-                void downloadUrl(
-                  focusedClip.resultUrl!,
-                  safeDownloadName(
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={downloading}
+                className="h-8 cursor-pointer"
+                onClick={() =>
+                  void onShareMedia(
+                    focusedClip.resultUrl!,
                     focusedClip.title,
-                    focusedClip.order,
-                    plat,
-                  ),
-                )
-                  .then(() => setApplyInfo("Téléchargement lancé"))
-                  .catch((err) =>
-                    setRetryError(
-                      err instanceof Error
-                        ? err.message
-                        : "Téléchargement échoué",
+                  )
+                }
+              >
+                <ShareNetwork className="size-3.5" weight="bold" />
+                Partager
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={downloading}
+                className="cta-signal h-8 cursor-pointer border-0 hover:bg-signal"
+                onClick={() => {
+                  const plat =
+                    EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
+                      ?.fileSlug ?? exportPlatform;
+                  setRetryError(null);
+                  setDownloading(true);
+                  void downloadUrl(
+                    focusedClip.resultUrl!,
+                    safeDownloadName(
+                      focusedClip.title,
+                      focusedClip.order,
+                      plat,
                     ),
                   )
-                  .finally(() => setDownloading(false));
-              }}
-            >
-              <DownloadSimple className="size-3.5" weight="bold" />
-              {downloading ? "…" : "Ce clip"}
-            </Button>
+                    .then(() => setApplyInfo("Téléchargement lancé"))
+                    .catch((err) =>
+                      setRetryError(
+                        err instanceof Error
+                          ? err.message
+                          : "Téléchargement échoué",
+                      ),
+                    )
+                    .finally(() => setDownloading(false));
+                }}
+              >
+                <DownloadSimple className="size-3.5" weight="bold" />
+                {downloading ? "…" : "Ce clip"}
+              </Button>
+            </>
           )}
           <div
             className="flex flex-wrap gap-1"

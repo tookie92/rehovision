@@ -13,6 +13,7 @@ const TYPE_LABEL: Record<Job["type"], string> = {
   transcribe: "Transcription",
   propose_clips: "Hooks",
   render_clip: "Rendu clip",
+  stitch_clips: "Assemblage",
 };
 
 const STATUS_LABEL: Record<Job["status"], string> = {

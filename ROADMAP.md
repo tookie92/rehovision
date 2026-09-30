@@ -115,7 +115,7 @@ Objectif : un clic = fichier prêt TikTok/Reels/Shorts.
 - [x] Presets plateforme (TikTok / Reels / Shorts) — label + nom de fichier
 - [x] Noms de fichier clairs (`01-reels-titre.mp4`)
 - [x] Bandeau **Export** : badge « Prêt à poster » + Télécharger / Télécharger tout
-- [ ] (Plus tard) deep-link share — optionnel
+- [x] Partager (Web Share / copie lien MP4) — pas de deep-link app store
 
 **Critère de done :** « Télécharger » = MP4 9:16 nommé pour la plateforme, sans retouche CapCut.
 
@@ -136,7 +136,7 @@ Objectif : un clic = fichier prêt TikTok/Reels/Shorts.
 - [x] Styles captions : Viral, Bold green, Yellow pop, Minimal, **Neon pink**, **Impact**
 - [x] 4 looks ffmpeg : Warm / Cool / Contrast / Soft grain (+ Off)
 - [x] LUT `.cube` : upload + apply (`lut3d`) + export preset / custom
-- [ ] (Optionnel) packs LUT pro préchargés
+- [x] Packs LUT préchargés (Cinéma warm / Teal cool / Noir punch)
 
 **Critère de done :** looks distincts au clic, pas une UI filtre CapCut.
 
@@ -144,8 +144,8 @@ Objectif : un clic = fichier prêt TikTok/Reels/Shorts.
 
 ## Prochaine étape (ordre)
 
-Core ROADMAP clips terminé (0–8). Optionnels restants seulement si demandés :
-deep-link share (étape 4), packs LUT préchargés (étape 6).
+Core ROADMAP clips terminé (0–8) + optionnels export/share + LUT packs.
+Studio faceless : entrée dashboard (sujet → reel) + nav Faceless.
 
 ---
 
@@ -171,8 +171,6 @@ Boîtes Haut/Bas (pan + zoom) type CapCut, sans barre de ratios (9:16 only).
 
 **Critère de done :** 2 visages bien cadrés en soft, puis Re-rendre = même crop.
 
-Optionnels restants (plus bas priorité) : deep-link share (étape 4), packs LUT préchargés (étape 6).
-
 ---
 
 ## Hors scope (pour l’instant)
@@ -190,8 +188,8 @@ Optionnels restants (plus bas priorité) : deep-link share (étape 4), packs LUT
 ## Studio faceless (piste parallèle)
 
 Pipeline séparé (script → images → voix → assemble).  
-Ne pas mélanger avec le funnel vlog/clips.  
-Y revenir seulement si le clipping Opus est stable en prod (Étape 0 ✅).
+Entrée : dashboard onglet **Faceless** → `createAndStartReel` → page projet.  
+Styles : `/dashboard/studios`.
 
 ---
 
