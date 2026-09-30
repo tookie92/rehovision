@@ -407,8 +407,20 @@ export function ClipStagePreview({
     captionText.length > 90 ? `${captionText.slice(0, 87)}…` : captionText;
 
   const stage = (
-    <div className={compact ? "mx-auto w-full max-w-[280px]" : "mx-auto w-full max-w-[320px] shrink-0 lg:mx-0"}>
-      <div className="relative aspect-[9/16] overflow-hidden rounded-xl border border-border bg-black shadow-[0_0_0_1px_rgba(61,214,198,0.12)]">
+    <div
+      className={
+        compact
+          ? "mx-auto aspect-[9/16] h-[min(100%,calc(100dvh-13rem))] w-auto max-w-full"
+          : "mx-auto w-full max-w-[320px] shrink-0 lg:mx-0"
+      }
+    >
+      <div
+        className={
+          compact
+            ? "relative h-full w-full overflow-hidden rounded-xl border border-border bg-black shadow-[0_0_0_1px_rgba(61,214,198,0.12)]"
+            : "relative aspect-[9/16] overflow-hidden rounded-xl border border-border bg-black shadow-[0_0_0_1px_rgba(61,214,198,0.12)]"
+        }
+      >
         {activeMode === "final" && clip.resultUrl ? (
           <video
             key={`final-${clip.resultUrl}`}
@@ -563,13 +575,13 @@ export function ClipStagePreview({
 
   if (compact) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3">
+      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 overflow-hidden px-1">
         {stage}
-        <div className="w-full max-w-[280px] space-y-1 text-center">
+        <div className="w-full max-w-sm shrink-0 space-y-0.5 text-center">
           <h3 className="truncate text-sm font-semibold tracking-tight">
             {clip.title}
           </h3>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="font-mono text-[11px] text-muted-foreground">
             {formatTimecode(clip.startSec)}–{formatTimecode(clip.endSec)} ·{" "}
             {duration}
             {typeof clip.viralScore === "number"

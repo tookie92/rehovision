@@ -515,7 +515,7 @@ export default function ClipProjectPage() {
   return (
     <div
       data-atelier-workspace
-      className="atelier-grain fixed inset-x-0 bottom-0 top-14 z-30 flex flex-col bg-background"
+      className="atelier-grain fixed inset-x-0 bottom-0 top-14 z-30 flex h-[calc(100dvh-3.5rem)] max-h-[calc(100dvh-3.5rem)] flex-col overflow-hidden bg-background"
     >
       {/* Chrome atelier compact */}
       <header className="relative z-[1] flex h-12 shrink-0 items-center gap-3 border-b border-border/70 bg-card/40 px-3 backdrop-blur-md md:px-4">
@@ -608,7 +608,7 @@ export default function ClipProjectPage() {
       )}
 
       {/* Corps : clips | stage | outils */}
-      <div className="relative z-[1] grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)_280px]">
+      <div className="relative z-[1] grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)_300px] xl:grid-cols-[300px_minmax(0,1fr)_340px] 2xl:grid-cols-[320px_minmax(0,1fr)_360px]">
         <aside className="atelier-panel min-h-0 overflow-y-auto border-b border-border p-3 lg:border-b-0 lg:border-r">
           <ClipFilmstrip
             clips={clips}

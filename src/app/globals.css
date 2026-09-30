@@ -180,10 +180,9 @@ html.dark {
     letter-spacing: 0.04em;
     font-variant-numeric: tabular-nums;
   }
-  /* Même grain / glow que la landing — atelier = même atmosphère */
-  .atelier-grain {
-    position: relative;
-  }
+  /* Même grain / glow que la landing — atelier = même atmosphère.
+   * Ne PAS mettre position:relative ici : ça écrase `fixed` Tailwind
+   * (specificity égale) et casse le plein viewport laptop/4K. */
   .atelier-grain::before {
     content: "";
     pointer-events: none;
