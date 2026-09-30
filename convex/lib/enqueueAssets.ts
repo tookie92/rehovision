@@ -35,22 +35,16 @@ export async function enqueueAssetJobsForProject(
 
   for (const scene of scenes) {
     const beat = scene.visualBeat?.trim() || scene.narrationText;
-    const prompt = hasRef
-      ? buildImagePrompt({
-          visualBeat: beat,
-          visualStyle: studio.visualStyle,
-          narrationTone: studio.narrationTone,
-          topic: project.topic,
-          hasStyleReference: true,
-        })
-      : scene.imagePrompt?.trim() ||
-        buildImagePrompt({
-          visualBeat: beat,
-          visualStyle: studio.visualStyle,
-          narrationTone: studio.narrationTone,
-          topic: project.topic,
-          hasStyleReference: false,
-        });
+    // Toujours reconstruire avec le visualStyle *actuel* du studio
+    // (sinon un imagePrompt figé au script ignore les chips Style).
+    const prompt = buildImagePrompt({
+      visualBeat: beat,
+      visualStyle: studio.visualStyle,
+      narrationTone: studio.narrationTone,
+      topic: project.topic,
+      hasStyleReference: hasRef,
+    });
+    await ctx.db.patch(scene._id, { imagePrompt: prompt });
 
     await ctx.db.insert("generationJobs", {
       type: "image",

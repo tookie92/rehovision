@@ -506,24 +506,15 @@ export const queueSceneJobs = mutation({
       const beat =
         scene.visualBeat?.trim() || scene.narrationText;
       const hasRef = Boolean(studio.referenceImageUrl);
-      // Avec référence dessin : toujours reconstruire (évite conflit avec vieux presets).
-      // Sinon : respecter un imagePrompt édité à la main.
-      const prompt = hasRef
-        ? buildImagePrompt({
-            visualBeat: beat,
-            visualStyle: studio.visualStyle,
-            narrationTone: studio.narrationTone,
-            topic: project.topic,
-            hasStyleReference: true,
-          })
-        : scene.imagePrompt?.trim() ||
-          buildImagePrompt({
-            visualBeat: beat,
-            visualStyle: studio.visualStyle,
-            narrationTone: studio.narrationTone,
-            topic: project.topic,
-            hasStyleReference: false,
-          });
+      // Toujours le style studio courant (chips Style) — pas l’ancien imagePrompt.
+      const prompt = buildImagePrompt({
+        visualBeat: beat,
+        visualStyle: studio.visualStyle,
+        narrationTone: studio.narrationTone,
+        topic: project.topic,
+        hasStyleReference: hasRef,
+      });
+      await ctx.db.patch(scene._id, { imagePrompt: prompt });
 
       await ctx.db.insert("generationJobs", {
         type: "image",

@@ -1,16 +1,29 @@
 /**
  * Construction des prompts d'image cohérents avec le style du Studio.
  *
- * Hiérarchie :
- * - Si référence de dessin uploadée → elle PRIME pour le medium/trait/couleurs.
- *   Le preset d'illustration ne sert plus qu'à l'ambiance (évite le conflit anime vs "3D réaliste").
- * - Sinon → le preset `visualStyle` définit le style.
+ * SDXL CLIP ≈ 77 tokens : le DÉBUT du prompt compte le plus.
+ * → Style illustration EN PREMIER, beat court ensuite.
  *
- * SDXL CLIP ≈ 77 tokens : garder le prompt COURT, scène en premier.
+ * Hiérarchie :
+ * - Si référence uploadée → consignes ref (IP-Adapter / prompt).
+ * - Sinon → `visualStyle` du studio (chips Anime/Comic/…).
  */
 
 const ANTI_BIAS_SHORT =
-  "Respect place and people described; no default European faces or settings";
+  "no default European faces; match the scene described";
+
+/** Garde le style assez court pour CLIP (évite que le beat mange le style). */
+function shortenStyle(preset: string, maxChars = 160): string {
+  const t = preset.trim();
+  if (t.length <= maxChars) return t;
+  return `${t.slice(0, maxChars).replace(/,\s*$/, "")}…`;
+}
+
+function shortenBeat(beat: string, maxChars = 140): string {
+  const t = beat.trim();
+  if (t.length <= maxChars) return t;
+  return `${t.slice(0, maxChars).replace(/\s+\S*$/, "")}…`;
+}
 
 export function buildImagePrompt(args: {
   visualBeat: string;
@@ -20,32 +33,32 @@ export function buildImagePrompt(args: {
   /** Studio a une image de référence de style de dessin */
   hasStyleReference?: boolean;
 }): string {
-  const beat = args.visualBeat.trim();
+  const beat = shortenBeat(args.visualBeat);
   const topic = args.topic?.trim();
   const mood = args.narrationTone.trim();
-  const preset = args.visualStyle.trim();
+  const preset = shortenStyle(args.visualStyle);
 
   if (args.hasStyleReference) {
-    // Référence = style de dessin. Preset = ambiance seulement (pas de medium concurrent).
     return [
+      "Match studio style-reference linework medium and palette",
       beat,
       topic ? `Topic: ${topic}` : null,
-      "Drawing style from studio style-reference (linework, medium, palette)",
-      "New scene and characters — do not copy the reference subjects or composition",
+      "New scene — do not copy reference subjects",
       mood ? `Mood: ${mood}` : null,
-      "vertical 9:16, no text watermark",
+      "vertical 9:16, no text, no watermark",
     ]
       .filter(Boolean)
       .join(". ");
   }
 
+  // Style FIRST — sinon SDXL Turbo ignore les chips (CLIP truncates the end).
   return [
+    preset ? `Illustration style: ${preset}` : null,
     beat,
     topic ? `Topic: ${topic}` : null,
-    preset ? `Illustration style: ${preset}` : null,
     mood ? `Mood: ${mood}` : null,
     ANTI_BIAS_SHORT,
-    "vertical 9:16, no text watermark",
+    "vertical 9:16, no text, no watermark",
   ]
     .filter(Boolean)
     .join(". ");

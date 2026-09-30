@@ -286,9 +286,19 @@ export default function ProjectPage() {
         visualStyle: look.prompt,
         narrationTone: look.toneHint,
       });
-      setInfo(
-        `Style « ${look.label} » enregistré — regen les images pour l’appliquer`,
-      );
+      if (focused && !hasActiveAssetJobs) {
+        await queueSceneJobs({
+          sceneId: focused._id,
+          kinds: ["image"],
+        });
+        setInfo(
+          `Style « ${look.label} » → regen image scène ${focused.order}`,
+        );
+      } else {
+        setInfo(
+          `Style « ${look.label} » enregistré — clique Regen image`,
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally {
