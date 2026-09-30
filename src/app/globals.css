@@ -233,6 +233,32 @@ html.dark {
   .atelier-rise {
     animation: atelier-rise 0.28s ease-out both;
   }
+  /* Soft captions CapCut-like (preview navigateur) */
+  @keyframes soft-word-pop {
+    0% {
+      opacity: 0.35;
+      transform: scale(0.86);
+    }
+    35% {
+      opacity: 1;
+      transform: scale(1.12);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  .soft-word-pop {
+    display: inline-block;
+    animation: soft-word-pop 0.38s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+  }
+  .phone-frame {
+    overflow: hidden;
+    border-radius: 1rem;
+    isolation: isolate;
+    /* Force le clip même si un enfant a transform (punch zoom) */
+    clip-path: inset(0 round 1rem);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

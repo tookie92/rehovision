@@ -403,172 +403,247 @@ export function ClipStagePreview({
   const captionText = caption?.uppercase
     ? captionRaw.toUpperCase()
     : captionRaw;
-  const captionShown =
-    captionText.length > 90 ? `${captionText.slice(0, 87)}…` : captionText;
+  const captionWords = captionText.split(/\s+/).filter(Boolean).slice(0, 14);
 
-  const stage = (
+  /** Soft Smart/Fill : object-position face (FaceDetector) ou biais talking-head. */
+  const [objectPos, setObjectPos] = useState("50% 35%");
+  useEffect(() => {
+    if (activeMode !== "soft" || softSplit) return;
+    if (layoutMode === "fit") {
+      setObjectPos("50% 50%");
+      return;
+    }
+    if (layoutMode !== "smart" && layoutMode !== "fill") {
+      setObjectPos("50% 50%");
+      return;
+    }
+    const el = videoRef.current;
+    if (!el) {
+      setObjectPos("50% 35%");
+      return;
+    }
+
+    let cancelled = false;
+    const run = async () => {
+      type FaceBox = { boundingBox: DOMRectReadOnly };
+      type FaceDetectorLike = {
+        detect: (src: ImageBitmapSource) => Promise<FaceBox[]>;
+      };
+      const FD = (
+        window as unknown as {
+          FaceDetector?: new (o?: { fastMode?: boolean }) => FaceDetectorLike;
+        }
+      ).FaceDetector;
+      if (!FD || el.videoWidth < 2) {
+        if (!cancelled) setObjectPos("50% 35%");
+        return;
+      }
+      try {
+        const detector = new FD({ fastMode: true });
+        const faces = await detector.detect(el);
+        if (cancelled || faces.length === 0) {
+          if (!cancelled) setObjectPos("50% 35%");
+          return;
+        }
+        const best = faces.reduce((a, b) =>
+          a.boundingBox.width * a.boundingBox.height >=
+          b.boundingBox.width * b.boundingBox.height
+            ? a
+            : b,
+        );
+        const box = best.boundingBox;
+        const cx = ((box.x + box.width / 2) / el.videoWidth) * 100;
+        const cy = ((box.y + box.height * 0.35) / el.videoHeight) * 100;
+        if (!cancelled) {
+          setObjectPos(
+            `${Math.min(92, Math.max(8, cx)).toFixed(1)}% ${Math.min(75, Math.max(18, cy)).toFixed(1)}%`,
+          );
+        }
+      } catch {
+        if (!cancelled) setObjectPos("50% 35%");
+      }
+    };
+
+    const onReady = () => void run();
+    el.addEventListener("loadeddata", onReady);
+    el.addEventListener("seeked", onReady);
+    if (el.readyState >= 2) onReady();
+    const id = window.setInterval(() => void run(), 2500);
+    return () => {
+      cancelled = true;
+      el.removeEventListener("loadeddata", onReady);
+      el.removeEventListener("seeked", onReady);
+      window.clearInterval(id);
+    };
+  }, [
+    activeMode,
+    softSplit,
+    layoutMode,
+    sourceUrl,
+    clip.startSec,
+    clip.endSec,
+  ]);
+
+  const modeToggle = (canSoft || canFinal) && (
+    <div
+      className="flex shrink-0 gap-1.5"
+      role="radiogroup"
+      aria-label="Mode preview"
+    >
+      {canSoft && (
+        <button
+          type="button"
+          role="radio"
+          aria-checked={activeMode === "soft"}
+          onClick={() => setMode("soft")}
+          className={
+            activeMode === "soft"
+              ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1 text-[11px] font-medium text-signal ring-1 ring-signal/40"
+              : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+          }
+        >
+          Soft
+        </button>
+      )}
+      {canFinal && (
+        <button
+          type="button"
+          role="radio"
+          aria-checked={activeMode === "final"}
+          onClick={() => setMode("final")}
+          className={
+            activeMode === "final"
+              ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1 text-[11px] font-medium text-signal ring-1 ring-signal/40"
+              : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+          }
+        >
+          Final
+        </button>
+      )}
+    </div>
+  );
+
+  const phone = (
     <div
       className={
         compact
-          ? "mx-auto aspect-[9/16] h-[min(100%,calc(100dvh-13rem))] w-auto max-w-full"
-          : "mx-auto w-full max-w-[320px] shrink-0 lg:mx-0"
+          ? "phone-frame relative mx-auto aspect-[9/16] h-[min(100%,calc(100dvh-14rem))] w-auto max-w-full border border-border bg-black shadow-[0_0_0_1px_rgba(61,214,198,0.12)]"
+          : "phone-frame relative mx-auto aspect-[9/16] w-full max-w-[320px] border border-border bg-black shadow-[0_0_0_1px_rgba(61,214,198,0.12)] lg:mx-0"
       }
     >
-      <div
-        className={
-          compact
-            ? "relative h-full w-full overflow-hidden rounded-xl border border-border bg-black shadow-[0_0_0_1px_rgba(61,214,198,0.12)]"
-            : "relative aspect-[9/16] overflow-hidden rounded-xl border border-border bg-black shadow-[0_0_0_1px_rgba(61,214,198,0.12)]"
-        }
-      >
-        {activeMode === "final" && clip.resultUrl ? (
-          <video
-            key={`final-${clip.resultUrl}`}
-            src={clip.resultUrl}
-            controls
-            playsInline
-            preload="metadata"
-            className="h-full w-full object-contain"
-          />
-        ) : sourceUrl ? (
-          <>
-            {softSplit ? (
-              <SoftSplitVideos
-                sourceUrl={sourceUrl}
-                startSec={clip.startSec}
-                endSec={clip.endSec}
-                swap={splitSwap}
-                filterCss={lookFilterCss}
-                scale={scale}
-                focusTop={focusTop}
-                focusBot={focusBot}
-                editable={Boolean(onSplitFocusChange)}
-                onFocusChange={onSplitFocusChange}
-              />
-            ) : (
-              <video
-                ref={videoRef}
-                key={`soft-${sourceUrl}-${clip.startSec}-${clip.endSec}`}
-                src={sourceUrl}
-                controls={!compact}
-                playsInline
-                muted
-                loop={false}
-                preload="metadata"
-                className="h-full w-full object-cover transition-transform duration-200"
+      {activeMode === "final" && clip.resultUrl ? (
+        <video
+          key={`final-${clip.resultUrl}`}
+          src={clip.resultUrl}
+          controls
+          playsInline
+          preload="metadata"
+          className="h-full w-full object-contain"
+        />
+      ) : sourceUrl ? (
+        <>
+          {softSplit ? (
+            <SoftSplitVideos
+              sourceUrl={sourceUrl}
+              startSec={clip.startSec}
+              endSec={clip.endSec}
+              swap={splitSwap}
+              filterCss={lookFilterCss}
+              scale={scale}
+              focusTop={focusTop}
+              focusBot={focusBot}
+              editable={Boolean(onSplitFocusChange)}
+              onFocusChange={onSplitFocusChange}
+            />
+          ) : (
+            <video
+              ref={videoRef}
+              key={`soft-${sourceUrl}-${clip.startSec}-${clip.endSec}`}
+              src={sourceUrl}
+              controls={!compact}
+              playsInline
+              muted
+              loop={false}
+              preload="metadata"
+              className={
+                layoutMode === "fit"
+                  ? "h-full w-full object-contain transition-[object-position] duration-300"
+                  : "h-full w-full object-cover transition-[object-position] duration-300"
+              }
+              style={{
+                objectPosition: objectPos,
+                filter: lookFilterCss === "none" ? undefined : lookFilterCss,
+                transform: scale !== 1 ? `scale(${scale})` : undefined,
+              }}
+            />
+          )}
+          {showGrain && (
+            <div
+              className="pointer-events-none absolute inset-0 opacity-[0.18] mix-blend-overlay"
+              style={{
+                backgroundImage:
+                  "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
+              }}
+              aria-hidden
+            />
+          )}
+          {showFlash && (
+            <div
+              key={`flash-${punchEffect}`}
+              className="pointer-events-none absolute inset-0 animate-pulse bg-white/40"
+              aria-hidden
+            />
+          )}
+          {logoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={logoUrl}
+              alt=""
+              className={`pointer-events-none absolute h-9 w-9 object-contain ${logoCornerClass(logoCorner)}`}
+              style={{ opacity: logoOpacity }}
+            />
+          )}
+          {caption && (
+            <div className="pointer-events-none absolute inset-x-2 bottom-10 text-center">
+              <p
+                className={`${caption.sizeClass} ${caption.weight} ${caption.tracking} leading-tight`}
                 style={{
-                  filter: lookFilterCss === "none" ? undefined : lookFilterCss,
-                  transform: scale !== 1 ? `scale(${scale})` : undefined,
+                  color: caption.color,
+                  WebkitTextStroke:
+                    caption.stroke === "transparent"
+                      ? undefined
+                      : `2.5px ${caption.stroke}`,
+                  paintOrder: "stroke fill",
+                  textShadow:
+                    caption.stroke === "transparent"
+                      ? "0 2px 10px rgba(0,0,0,0.75)"
+                      : "0 2px 0 rgba(0,0,0,0.85)",
                 }}
-              />
-            )}
-            {showGrain && (
-              <div
-                className="pointer-events-none absolute inset-0 opacity-[0.18] mix-blend-overlay"
-                style={{
-                  backgroundImage:
-                    "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
-                }}
-                aria-hidden
-              />
-            )}
-            {showFlash && (
-              <div
-                key={`flash-${punchEffect}`}
-                className="pointer-events-none absolute inset-0 animate-pulse bg-white/40"
-                aria-hidden
-              />
-            )}
-            {logoUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={logoUrl}
-                alt=""
-                className={`pointer-events-none absolute h-9 w-9 object-contain ${logoCornerClass(logoCorner)}`}
-                style={{ opacity: logoOpacity }}
-              />
-            )}
-            {caption && (
-              <div className="pointer-events-none absolute inset-x-2 bottom-12 text-center">
-                <p
-                  className={`${caption.sizeClass} ${caption.weight} ${caption.tracking} leading-tight`}
-                  style={{
-                    color: caption.color,
-                    WebkitTextStroke:
-                      caption.stroke === "transparent"
-                        ? undefined
-                        : `2px ${caption.stroke}`,
-                    paintOrder: "stroke fill",
-                    textShadow:
-                      caption.stroke === "transparent"
-                        ? "0 2px 10px rgba(0,0,0,0.75)"
-                        : "0 2px 0 rgba(0,0,0,0.85)",
-                  }}
-                >
-                  {captionShown}
-                </p>
-              </div>
-            )}
-            <div className="pointer-events-none absolute left-2 top-2 rounded-md bg-black/60 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-white/90">
-              Soft
-              {layoutMode === "split" ? " · Split" : ""}
-              {lookFilter !== "off" ? ` · ${lookFilter}` : ""}
-              {captionStyle !== "off" ? ` · ${captionStyle}` : " · no caps"}
+              >
+                {captionWords.map((w, i) => (
+                  <span
+                    key={`${w}-${i}`}
+                    className="soft-word-pop mr-[0.28em] last:mr-0"
+                    style={{ animationDelay: `${(i % 6) * 0.09}s` }}
+                  >
+                    {w}
+                  </span>
+                ))}
+              </p>
             </div>
-          </>
-        ) : (
-          <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
-            Pas de source pour prévisualiser
+          )}
+          <div className="pointer-events-none absolute left-2 top-2 rounded-md bg-black/60 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-white/90">
+            Soft
+            {layoutMode === "split" ? " · Split" : ""}
+            {layoutMode === "smart" ? " · face≈" : ""}
+            {lookFilter !== "off" ? ` · ${lookFilter}` : ""}
+            {captionStyle !== "off" ? ` · ${captionStyle}` : " · no caps"}
           </div>
-        )}
-      </div>
-
-      {(canSoft || canFinal) && (
-        <div
-          className="mt-2 flex gap-1.5"
-          role="radiogroup"
-          aria-label="Mode preview"
-        >
-          {canSoft && (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={activeMode === "soft"}
-              onClick={() => setMode("soft")}
-              className={
-                activeMode === "soft"
-                  ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1 text-[11px] font-medium text-signal ring-1 ring-signal/40"
-                  : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground"
-              }
-            >
-              Soft
-            </button>
-          )}
-          {canFinal && (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={activeMode === "final"}
-              onClick={() => setMode("final")}
-              className={
-                activeMode === "final"
-                  ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1 text-[11px] font-medium text-signal ring-1 ring-signal/40"
-                  : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground"
-              }
-            >
-              Final
-            </button>
-          )}
+        </>
+      ) : (
+        <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
+          Pas de source pour prévisualiser
         </div>
-      )}
-      {activeMode === "soft" && !compact && (
-        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-          Soft ≈ navigateur ; export = Re-rendre.
-          {lutHint ? " LUT : approx. soft, vrai grade au re-rendu." : ""}
-          {softSplit
-            ? " Cadre via « Cadrer les visages… » (dialog landscape)."
-            : ""}
-        </p>
       )}
     </div>
   );
@@ -576,8 +651,9 @@ export function ClipStagePreview({
   if (compact) {
     return (
       <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 overflow-hidden px-1">
-        {stage}
-        <div className="w-full max-w-sm shrink-0 space-y-0.5 text-center">
+        {phone}
+        <div className="flex w-full max-w-sm shrink-0 flex-col items-center gap-1.5">
+          {modeToggle}
           <h3 className="truncate text-sm font-semibold tracking-tight">
             {clip.title}
           </h3>
@@ -588,6 +664,11 @@ export function ClipStagePreview({
               ? ` · ${Math.round(clip.viralScore)}`
               : ""}
           </p>
+          {activeMode === "soft" && layoutMode === "smart" && (
+            <p className="text-center text-[10px] text-muted-foreground">
+              Soft ≈ visage navigateur · Final = OpenCV après Re-rendre
+            </p>
+          )}
           {clip.hookReason && (
             <p className="line-clamp-2 text-[11px] text-muted-foreground">
               {clip.hookReason}
@@ -601,7 +682,21 @@ export function ClipStagePreview({
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-      {stage}
+      <div className="flex w-full max-w-[320px] shrink-0 flex-col gap-2 lg:mx-0">
+        {phone}
+        {modeToggle}
+        {activeMode === "soft" && (
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            Soft ≈ navigateur ; export = Re-rendre.
+            {lutHint ? " LUT : approx. soft, vrai grade au re-rendu." : ""}
+            {softSplit
+              ? " Cadre via « Cadrer les visages… » (dialog landscape)."
+              : layoutMode === "smart"
+                ? " Soft suit le visage si le navigateur le permet."
+                : ""}
+          </p>
+        )}
+      </div>
       <div className="min-w-0 flex-1 space-y-3">
         <div>
           <h3 className="text-lg font-semibold tracking-tight">{clip.title}</h3>

@@ -93,10 +93,21 @@ def _detect_face_center(image_path: Path) -> tuple[float, float, float] | None:
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     faces = _get_cascade().detectMultiScale(
         gray,
-        scaleFactor=1.1,
-        minNeighbors=5,
-        minSize=(max(24, w // 40), max(24, h // 40)),
+        scaleFactor=1.08,
+        minNeighbors=3,
+        minSize=(max(20, w // 50), max(20, h // 50)),
     )
+    if len(faces) == 0:
+        # Fallback cascade (lunettes / angle léger)
+        alt_path = cv2.data.haarcascades + "haarcascade_frontalface_alt2.xml"
+        alt = cv2.CascadeClassifier(alt_path)
+        if not alt.empty():
+            faces = alt.detectMultiScale(
+                gray,
+                scaleFactor=1.08,
+                minNeighbors=3,
+                minSize=(max(20, w // 50), max(20, h // 50)),
+            )
     if len(faces) == 0:
         return None
     # Plus grande face
@@ -118,7 +129,7 @@ def estimate_subject_center(
     Échantillonne des frames et retourne (cx, cy) normalisés [0,1].
     Centre image si aucun visage.
     """
-    n = max(3, int(os.getenv("REFRAME_SAMPLES", "8")))
+    n = max(5, int(os.getenv("REFRAME_SAMPLES", "12")))
     duration = max(0.2, float(end_sec) - float(start_sec))
     # Évite les extrémités (fade / coupe)
     margin = min(0.35, duration * 0.08)
