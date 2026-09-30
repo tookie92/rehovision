@@ -27,6 +27,7 @@ from generators.image import generate_image
 from generators.propose_clips import propose_clips
 from generators.render_clip import render_clip
 from generators.script import generate_script
+from generators.stitch_clips import stitch_clips
 from generators.transcribe import download_source, transcribe_video
 from generators.video import assemble_video
 from generators.voiceover import generate_voiceover
@@ -475,6 +476,31 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
                 ),
             )
             submit_file_result(site_url, job_id, path, "video/mp4")
+            return
+
+        if job_type == "stitch_clips":
+            clip_urls = payload.get("clipUrls") or []
+            if not isinstance(clip_urls, list) or len(clip_urls) < 2:
+                raise ValueError("stitch_clips: clipUrls (2–3) requis")
+            out = work_dir / "stitched.mp4"
+            path, duration = stitch_clips(
+                [str(u) for u in clip_urls],
+                out,
+                work_dir=work_dir,
+                resolve_local_file=resolve_local_file,
+            )
+            submit_file_result(
+                site_url,
+                job_id,
+                path,
+                "video/mp4",
+                duration_seconds=duration,
+            )
+            log.info(
+                "Stitch %s clips → %.1fs",
+                len(clip_urls),
+                duration,
+            )
             return
 
         raise ValueError(f"Type de job inconnu: {job_type}")

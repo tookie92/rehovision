@@ -155,6 +155,28 @@ const clipDoc = v.object({
   createdAt: v.number(),
 });
 
+const stitchedReelDoc = v.object({
+  _id: v.id("stitchedReels"),
+  _creationTime: v.number(),
+  clipProjectId: v.id("clipProjects"),
+  userId: v.string(),
+  clipIds: v.array(v.id("clips")),
+  title: v.string(),
+  status: v.union(
+    v.literal("pending"),
+    v.literal("rendering"),
+    v.literal("ready"),
+    v.literal("failed"),
+  ),
+  resultUrl: v.optional(v.string()),
+  durationSeconds: v.optional(v.number()),
+  errorMessage: v.optional(v.string()),
+  createdAt: v.number(),
+});
+
+const MIN_STITCH_CLIPS = 2;
+const MAX_STITCH_CLIPS = 3;
+
 function normalizeYoutubeUrl(raw: string): string {
   const trimmed = raw.trim();
   let url: URL;
@@ -405,6 +427,7 @@ export const getById = query({
     v.object({
       project: clipProjectDoc,
       clips: v.array(clipDoc),
+      stitches: v.array(stitchedReelDoc),
     }),
     v.null(),
   ),
@@ -421,7 +444,15 @@ export const getById = query({
       .collect();
     clips.sort((a, b) => a.order - b.order);
 
-    return { project, clips };
+    const stitches = await ctx.db
+      .query("stitchedReels")
+      .withIndex("by_clipProjectId", (q) =>
+        q.eq("clipProjectId", args.clipProjectId),
+      )
+      .collect();
+    stitches.sort((a, b) => b.createdAt - a.createdAt);
+
+    return { project, clips, stitches };
   },
 });
 
@@ -1115,5 +1146,114 @@ export const updateClipTrim = mutation({
     });
 
     return args.clipId;
+  },
+});
+
+/**
+ * Étape 7 — assemble 2–3 clips ready en un seul reel 9:16 (hard cuts).
+ * Ordre = ordre du tableau clipIds (sélection atelier).
+ */
+export const stitchClips = mutation({
+  args: {
+    clipProjectId: v.id("clipProjects"),
+    clipIds: v.array(v.id("clips")),
+    title: v.optional(v.string()),
+  },
+  returns: v.id("stitchedReels"),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.clipProjectId);
+    if (!project || project.userId !== userId) {
+      throw new Error("Projet introuvable");
+    }
+    if (
+      args.clipIds.length < MIN_STITCH_CLIPS ||
+      args.clipIds.length > MAX_STITCH_CLIPS
+    ) {
+      throw new Error(
+        `Sélectionne ${MIN_STITCH_CLIPS} à ${MAX_STITCH_CLIPS} clips prêts`,
+      );
+    }
+
+    const all = await ctx.db
+      .query("clips")
+      .withIndex("by_clipProjectId", (q) =>
+        q.eq("clipProjectId", args.clipProjectId),
+      )
+      .collect();
+    const byId = new Map(all.map((c) => [c._id, c]));
+    const ordered: Doc<"clips">[] = [];
+    for (const id of args.clipIds) {
+      const clip = byId.get(id);
+      if (!clip) throw new Error("Clip introuvable");
+      if (clip.status !== "ready" || !clip.resultUrl) {
+        throw new Error(`« ${clip.title} » n’est pas prêt à assembler`);
+      }
+      ordered.push(clip);
+    }
+
+    const now = Date.now();
+    const durationSeconds = ordered.reduce(
+      (sum, c) => sum + Math.max(0, c.endSec - c.startSec),
+      0,
+    );
+    const title =
+      args.title?.trim() ||
+      `Assemblage ${ordered.length} clips · ${project.title}`.slice(0, 80);
+
+    // Annuler stitches encore en file sur ce projet
+    const jobs = await ctx.db
+      .query("generationJobs")
+      .withIndex("by_clipProjectId", (q) =>
+        q.eq("clipProjectId", args.clipProjectId),
+      )
+      .collect();
+    for (const job of jobs) {
+      if (
+        job.type === "stitch_clips" &&
+        (job.status === "pending" || job.status === "processing")
+      ) {
+        await ctx.db.patch(job._id, {
+          status: "failed",
+          errorMessage: "Annulé pour nouvel assemblage",
+          updatedAt: now,
+        });
+        const payload = job.payload as { stitchedReelId?: string } | null;
+        if (payload?.stitchedReelId) {
+          await ctx.db.patch(payload.stitchedReelId as never, {
+            status: "failed",
+            errorMessage: "Annulé pour nouvel assemblage",
+          });
+        }
+      }
+    }
+
+    const reelId = await ctx.db.insert("stitchedReels", {
+      clipProjectId: args.clipProjectId,
+      userId,
+      clipIds: ordered.map((c) => c._id),
+      title,
+      status: "rendering",
+      durationSeconds,
+      createdAt: now,
+    });
+
+    await ctx.db.insert("generationJobs", {
+      type: "stitch_clips",
+      clipProjectId: args.clipProjectId,
+      status: "pending",
+      provider: "local",
+      payload: {
+        stitchedReelId: reelId,
+        title,
+        clipUrls: ordered.map((c) => c.resultUrl!),
+        clipTitles: ordered.map((c) => c.title),
+        expectedDurationSec: durationSeconds,
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return reelId;
   },
 });

@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
-import { ArrowLeft, DownloadSimple } from "@phosphor-icons/react";
+import { ArrowLeft, DownloadSimple, Stack } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ClipPipelineProgress } from "@/components/ClipPipelineProgress";
@@ -61,8 +61,10 @@ export default function ClipProjectPage() {
   const rerenderClips = useMutation(api.clipProjects.rerenderClips);
   const createManualClip = useMutation(api.clipProjects.createManualClip);
   const updateClipTrim = useMutation(api.clipProjects.updateClipTrim);
+  const stitchClips = useMutation(api.clipProjects.stitchClips);
   const [retrying, setRetrying] = useState(false);
   const [rerendering, setRerendering] = useState(false);
+  const [stitching, setStitching] = useState(false);
   const [creatingManual, setCreatingManual] = useState(false);
   const [editingClipId, setEditingClipId] = useState<Id<"clips"> | null>(null);
   const [savingTrim, setSavingTrim] = useState(false);
@@ -220,6 +222,22 @@ export default function ClipProjectPage() {
     }
   }
 
+  async function onStitchSelected(clipIds: Id<"clips">[]) {
+    setRetryError(null);
+    setApplyInfo(null);
+    setStitching(true);
+    try {
+      await stitchClips({ clipProjectId, clipIds });
+      setApplyInfo(
+        `Assemblage de ${clipIds.length} clips en file — soft preview puis export.`,
+      );
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setStitching(false);
+    }
+  }
+
   async function onExportReady(
     pool: Array<{ resultUrl: string; title: string; order: number }>,
   ) {
@@ -326,7 +344,8 @@ export default function ClipProjectPage() {
     );
   }
 
-  const { project, clips } = data;
+  const { project, clips, stitches } = data;
+  const latestStitch = stitches[0] ?? null;
   const readyCount = clips.filter((c) => c.status === "ready").length;
   const failedCount = clips.filter((c) => c.status === "failed").length;
   const canRetryPipeline =
@@ -364,6 +383,18 @@ export default function ClipProjectPage() {
 
   const selectedReady = clips.filter(
     (c) => selectedIds.has(c._id) && c.resultUrl && c.status === "ready",
+  );
+  /** Ordre stitch = tri filmstrip courant (Ordre / Score). */
+  const stitchQueue = [...selectedReady].sort((a, b) => {
+    if (sortMode === "score") {
+      return (b.viralScore ?? 0) - (a.viralScore ?? 0);
+    }
+    return a.order - b.order;
+  });
+  const canStitch = stitchQueue.length >= 2 && stitchQueue.length <= 3;
+  const stitchTotalSec = stitchQueue.reduce(
+    (sum, c) => sum + Math.max(0, c.endSec - c.startSec),
+    0,
   );
 
   function toggleSelect(id: Id<"clips">) {
@@ -604,6 +635,102 @@ export default function ClipProjectPage() {
               {applyInfo}
             </p>
           )}
+        </div>
+      )}
+
+      {latestStitch && (
+        <div className="relative z-[1] flex shrink-0 flex-wrap items-center gap-2 border-b border-border/70 bg-signal/5 px-3 py-2 text-xs md:px-4">
+          <Stack className="size-3.5 text-signal" weight="bold" aria-hidden />
+          <span className="font-medium text-foreground">
+            {latestStitch.title}
+          </span>
+          <span className="font-mono text-muted-foreground">
+            {latestStitch.clipIds.length} clips
+            {typeof latestStitch.durationSeconds === "number"
+              ? ` · ~${Math.round(latestStitch.durationSeconds)}s`
+              : ""}
+          </span>
+          {latestStitch.status === "rendering" ||
+          latestStitch.status === "pending" ? (
+            <span className="text-amber-600 dark:text-amber-300">
+              Assemblage en cours…
+            </span>
+          ) : null}
+          {latestStitch.status === "failed" ? (
+            <span className="text-destructive">
+              Échec
+              {latestStitch.errorMessage
+                ? ` — ${latestStitch.errorMessage}`
+                : ""}
+            </span>
+          ) : null}
+          {latestStitch.status === "ready" && latestStitch.resultUrl ? (
+            <Button
+              type="button"
+              size="sm"
+              className="cta-signal ml-auto h-7 cursor-pointer border-0 px-3 hover:bg-signal"
+              disabled={downloading}
+              onClick={() => {
+                const plat =
+                  EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)
+                    ?.fileSlug ?? exportPlatform;
+                setDownloading(true);
+                void downloadUrl(
+                  latestStitch.resultUrl!,
+                  safeDownloadName(latestStitch.title, 1, plat),
+                )
+                  .then(() => setApplyInfo("Assemblage téléchargé"))
+                  .catch((err) =>
+                    setRetryError(
+                      err instanceof Error
+                        ? err.message
+                        : "Téléchargement échoué",
+                    ),
+                  )
+                  .finally(() => setDownloading(false));
+              }}
+            >
+              <DownloadSimple className="size-3.5" weight="bold" />
+              {downloading ? "…" : "Télécharger le reel"}
+            </Button>
+          ) : null}
+        </div>
+      )}
+
+      {canStitch && (
+        <div className="relative z-[1] flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 bg-card/50 px-3 py-2 text-xs backdrop-blur-sm md:px-4">
+          <p className="atelier-label text-signal">Assembler</p>
+          <ol className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+            {stitchQueue.map((c, i) => (
+              <li
+                key={c._id}
+                className="inline-flex max-w-[10rem] items-center gap-1 rounded-md bg-secondary/80 px-2 py-1"
+              >
+                <span className="font-mono text-[10px] text-signal">
+                  {i + 1}
+                </span>
+                <span className="truncate font-medium">{c.title}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {Math.round(c.endSec - c.startSec)}s
+                </span>
+              </li>
+            ))}
+          </ol>
+          <span className="font-mono text-muted-foreground">
+            Total ~{Math.round(stitchTotalSec)}s
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            disabled={stitching}
+            onClick={() =>
+              void onStitchSelected(stitchQueue.map((c) => c._id))
+            }
+            className="cta-signal h-8 cursor-pointer border-0 hover:bg-signal"
+          >
+            <Stack className="size-3.5" weight="bold" />
+            {stitching ? "File…" : "Assembler"}
+          </Button>
         </div>
       )}
 

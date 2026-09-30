@@ -184,6 +184,24 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_clipProjectId", ["clipProjectId"]),
 
+  /** Étape 7 — assemblage 2–3 clips ready → 1 reel 9:16 */
+  stitchedReels: defineTable({
+    clipProjectId: v.id("clipProjects"),
+    userId: v.string(),
+    clipIds: v.array(v.id("clips")),
+    title: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("rendering"),
+      v.literal("ready"),
+      v.literal("failed"),
+    ),
+    resultUrl: v.optional(v.string()),
+    durationSeconds: v.optional(v.number()),
+    errorMessage: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_clipProjectId", ["clipProjectId"]),
+
   generationJobs: defineTable({
     type: v.union(
       v.literal("script"),
@@ -194,6 +212,7 @@ export default defineSchema({
       v.literal("transcribe"),
       v.literal("propose_clips"),
       v.literal("render_clip"),
+      v.literal("stitch_clips"),
     ),
     sceneId: v.optional(v.id("scenes")),
     videoProjectId: v.optional(v.id("videoProjects")),

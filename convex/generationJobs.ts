@@ -26,6 +26,7 @@ const jobType = v.union(
   v.literal("transcribe"),
   v.literal("propose_clips"),
   v.literal("render_clip"),
+  v.literal("stitch_clips"),
 );
 
 const jobDoc = v.object({
@@ -225,6 +226,15 @@ export const applyJobResult = internalMutation({
           await refreshClipProjectStatus(ctx, job.clipProjectId);
         }
       }
+      if (job.type === "stitch_clips") {
+        const reelId = stitchReelIdFromPayload(job.payload);
+        if (reelId) {
+          await ctx.db.patch(reelId, {
+            status: "failed",
+            errorMessage: args.errorMessage,
+          });
+        }
+      }
       return null;
     }
 
@@ -258,6 +268,16 @@ export const applyJobResult = internalMutation({
       if (job.clipProjectId) {
         await refreshClipProjectStatus(ctx, job.clipProjectId);
       }
+    } else if (job.type === "stitch_clips") {
+      const reelId = stitchReelIdFromPayload(job.payload);
+      if (reelId) {
+        await ctx.db.patch(reelId, {
+          status: "ready",
+          resultUrl: args.resultUrl,
+          durationSeconds: args.durationSeconds,
+          errorMessage: undefined,
+        });
+      }
     }
     // type "script" / "transcribe" / "propose_clips" : JSON via apply*Result
 
@@ -267,6 +287,20 @@ export const applyJobResult = internalMutation({
     return null;
   },
 });
+
+function stitchReelIdFromPayload(
+  payload: unknown,
+): Id<"stitchedReels"> | null {
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    "stitchedReelId" in payload &&
+    typeof (payload as { stitchedReelId: unknown }).stitchedReelId === "string"
+  ) {
+    return (payload as { stitchedReelId: Id<"stitchedReels"> }).stitchedReelId;
+  }
+  return null;
+}
 
 /**
  * Applique le JSON script renvoyé par Ollama (worker local).

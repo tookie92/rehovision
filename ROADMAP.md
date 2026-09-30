@@ -144,14 +144,19 @@ Objectif : un clic = fichier prêt TikTok/Reels/Shorts.
 
 ## Prochaine étape (ordre)
 
-### Étape 7 — Assembler 2–3 clips (stitch)
+Core ROADMAP clips terminé (0–8). Optionnels restants seulement si demandés :
+deep-link share (étape 4), packs LUT préchargés (étape 6).
+
+---
+
+### Étape 7 — Assembler 2–3 clips (stitch) ✅
 
 Sans NLE : sélectionner 2–3 hooks → un seul reel 9:16 (hard cuts + captions/polish du projet).
 
-- [ ] Multi-select → CTA « Assembler »
-- [ ] Job worker : concat ffmpeg des segments (ordre choisi)
-- [ ] Soft preview de l’ordre + durée totale
-- [ ] Export 1 MP4 nommé plateforme
+- [x] Multi-select → CTA « Assembler »
+- [x] Job worker : concat ffmpeg des segments (ordre choisi)
+- [x] Soft preview de l’ordre + durée totale
+- [x] Export 1 MP4 nommé plateforme
 
 **Critère de done :** 3 hooks → 1 reel postable, sans CapCut.
 
@@ -193,7 +198,7 @@ Y revenir seulement si le clipping Opus est stable en prod (Étape 0 ✅).
 ## Comment avancer
 
 1. ~~Cocher **Étape 0** en prod Ubuntu.~~ ✅  
-2. Dire en Agent mode : `go étape 7` (stitch) — Étape 8 Split cadrage ✅.  
+2. Core clips 1–8 livré (stitch ✅, Split cadrage ✅).  
 3. Une PR / un push par étape.  
 4. Pas de batch « tout Muse + tout Opus + tout Viblo ».
 
