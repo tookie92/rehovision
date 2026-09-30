@@ -23,15 +23,16 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
-from generators.image import generate_image
+from generators.image import generate_image, unload_pipeline as unload_image_pipeline
 from generators.propose_clips import propose_clips
 from generators.render_clip import render_clip
 from generators.script import generate_script
 from generators.stitch_clips import stitch_clips
-from generators.transcribe import download_source, transcribe_video
+from generators.transcribe import download_source, transcribe_video, unload_whisper
 from generators.video import assemble_video
 from generators.voiceover import generate_voiceover
 from generators.youtube import download_youtube
+from generators.gpu_mem import empty_cuda, ensure_alloc_conf, log_vram
 from upload_server import (
     resolve_local_file,
     start_upload_server,
@@ -335,6 +336,14 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
     payload = job.get("payload") or {}
     log.info("Traitement job %s (%s)", job_id, job_type)
 
+    # Un modèle GPU à la fois (Whisper ↔ Flux/SDXL)
+    if job_type in ("image", "render_clip", "voiceover"):
+        unload_whisper()
+    if job_type in ("transcribe",):
+        unload_image_pipeline()
+    empty_cuda()
+    log_vram(f"before {job_type}")
+
     work_dir = Path(tempfile.mkdtemp(prefix=f"reho-{job_type}-"))
 
     try:
@@ -515,9 +524,16 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
             submit_job_error(site_url, job_id, str(e), job_type)
         except Exception:
             log.exception("Impossible de signaler l'échec du job %s", job_id)
+    finally:
+        empty_cuda()
+        try:
+            shutil.rmtree(work_dir, ignore_errors=True)
+        except Exception:
+            pass
 
 
 def main() -> None:
+    ensure_alloc_conf()
     site_url = _env("CONVEX_SITE_URL").rstrip("/")
     _env("WORKER_SECRET_KEY")
     interval = float(os.getenv("POLL_INTERVAL_SECONDS", "3"))
@@ -526,11 +542,13 @@ def main() -> None:
 
     log.info("Worker démarré — poll %ss sur %s", interval, site_url)
     log.info(
-        "Ollama: %s model=%s | Whisper: %s",
+        "Ollama: %s model=%s | Whisper: %s | SD_CPU_OFFLOAD=%s",
         os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
         os.getenv("OLLAMA_MODEL", "llama3.2"),
         os.getenv("WHISPER_MODEL", "base"),
+        os.getenv("SD_CPU_OFFLOAD", "1"),
     )
+    log_vram("startup")
 
     while True:
         try:

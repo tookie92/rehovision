@@ -16,6 +16,26 @@ log = logging.getLogger("rehovision-worker.transcribe")
 _model = None
 
 
+def unload_whisper() -> None:
+    """Libère faster-whisper de la VRAM avant Flux/SDXL."""
+    global _model
+    if _model is None:
+        return
+    try:
+        del _model
+    except Exception:
+        pass
+    _model = None
+    try:
+        from generators.gpu_mem import empty_cuda, log_vram
+
+        empty_cuda()
+        log.info("Whisper déchargé")
+        log_vram("after whisper unload")
+    except Exception:
+        pass
+
+
 def _get_model():
     global _model
     if _model is not None:

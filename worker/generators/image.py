@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
+from generators.gpu_mem import empty_cuda, log_vram
+
 log = logging.getLogger("rehovision-worker.image")
 
 _pipeline: Any = None
@@ -32,6 +34,23 @@ DEFAULT_MODEL = "black-forest-labs/FLUX.1-schnell"
 STYLE_ONLY_SUFFIX = (
     "Drawing style from studio style-reference. New scene — do not copy reference subjects."
 )
+
+
+def unload_pipeline() -> None:
+    """Libère Flux/SDXL de la VRAM (avant Whisper / autre job lourd)."""
+    global _pipeline, _pipeline_kind, _ip_adapter_loaded
+    if _pipeline is None:
+        return
+    try:
+        del _pipeline
+    except Exception:
+        pass
+    _pipeline = None
+    _pipeline_kind = None
+    _ip_adapter_loaded = False
+    empty_cuda()
+    log.info("Pipeline image déchargé")
+    log_vram("after image unload")
 
 
 def _is_flux(model_id: str) -> bool:
@@ -68,9 +87,15 @@ def _harden_vae(pipe: Any) -> None:
 
 
 def _apply_device(pipe: Any, device: str) -> Any:
+    if device == "cuda" and not _cpu_offload_enabled():
+        log.warning(
+            "SD_CPU_OFFLOAD=0 — risque OOM sur RTX 3060 12GB. "
+            "Passe SD_CPU_OFFLOAD=1 dans worker/.env"
+        )
     if device == "cuda" and _cpu_offload_enabled():
         try:
             pipe.enable_model_cpu_offload()
+            _harden_vae(pipe)
             return pipe
         except Exception as exc:
             log.warning("cpu_offload indisponible (%s) — .to(cuda)", exc)
@@ -295,19 +320,53 @@ def generate_image(
     try:
         result = pipe(**gen_kwargs)
     except torch.cuda.OutOfMemoryError:
-        torch.cuda.empty_cache()
+        empty_cuda()
+        log_vram("oom-1")
         if used_ip:
             log.warning("OOM avec IP-Adapter — retry txt2img + prompt style")
             _set_ip_scale(pipe, 0.0)
             gen_kwargs.pop("ip_adapter_image", None)
-            result = pipe(**gen_kwargs)
+            try:
+                result = pipe(**gen_kwargs)
+            except torch.cuda.OutOfMemoryError:
+                empty_cuda()
+                result = _retry_smaller(pipe, gen_kwargs)
         else:
-            raise
+            result = _retry_smaller(pipe, gen_kwargs)
     finally:
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        empty_cuda()
 
     image = result.images[0]
     image.save(out, format="PNG")
     log.info("Image sauvée → %s (%d bytes)", out, out.stat().st_size)
     return out
+
+
+def _retry_smaller(pipe: Any, gen_kwargs: dict[str, Any]) -> Any:
+    """Dernier recours OOM : résolution plus basse + empty_cache."""
+    import torch
+
+    w = int(gen_kwargs.get("width") or 576)
+    h = int(gen_kwargs.get("height") or 1024)
+    # Alignement multiple de 8
+    nw = max(384, (w * 3 // 4) // 8 * 8)
+    nh = max(640, (h * 3 // 4) // 8 * 8)
+    log.warning(
+        "OOM — retry %dx%d → %dx%d (active SD_CPU_OFFLOAD=1 si pas déjà)",
+        w,
+        h,
+        nw,
+        nh,
+    )
+    gen_kwargs = {**gen_kwargs, "width": nw, "height": nh}
+    empty_cuda()
+    log_vram("oom-retry")
+    try:
+        return pipe(**gen_kwargs)
+    except torch.cuda.OutOfMemoryError:
+        unload_pipeline()
+        empty_cuda()
+        raise RuntimeError(
+            "CUDA OOM image — mets SD_CPU_OFFLOAD=1, baisse SD_WIDTH/HEIGHT "
+            "(ex. 512×896), BROLL_ENABLED=0 si clips, puis restart worker"
+        ) from None
