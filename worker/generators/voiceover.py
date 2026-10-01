@@ -102,6 +102,7 @@ def _generate_omnivoice(
     tone: str,
     output_path: Path,
     voice_instruct: str = "",
+    speed: float | None = None,
 ) -> tuple[Path, float | None]:
     import numpy as np
     import soundfile as sf
@@ -109,7 +110,8 @@ def _generate_omnivoice(
 
     model = _get_omni()
     num_step = int(os.getenv("OMNIVOICE_NUM_STEP", "32"))
-    speed = float(os.getenv("OMNIVOICE_SPEED", "1.0"))
+    env_speed = float(os.getenv("OMNIVOICE_SPEED", "1.0"))
+    use_speed = float(speed) if speed is not None and speed > 0 else env_speed
     sample_rate = int(os.getenv("OMNIVOICE_SAMPLE_RATE", "24000"))
 
     ref_audio = os.getenv("OMNIVOICE_REF_AUDIO", "").strip()
@@ -119,7 +121,7 @@ def _generate_omnivoice(
     kwargs: dict[str, Any] = {
         "text": text.strip(),
         "num_step": num_step,
-        "speed": speed,
+        "speed": use_speed,
     }
 
     if prompt_path and Path(prompt_path).is_file():
@@ -136,10 +138,10 @@ def _generate_omnivoice(
     else:
         instruct = (voice_instruct or "").strip() or _tone_to_instruct(tone)
         log.info(
-            "OmniVoice voice-design instruct=%r (tone=%r voiceInstruct=%r)",
+            "OmniVoice voice-design instruct=%r speed=%.2f (tone=%r)",
             instruct,
+            use_speed,
             tone,
-            voice_instruct,
         )
         kwargs["instruct"] = instruct
 
@@ -218,15 +220,16 @@ def generate_voiceover(
     tone: str = "",
     output_path: Path | None = None,
     voice_instruct: str = "",
+    speed: float | None = None,
 ) -> tuple[Path, float | None]:
     """
     Génère un WAV et renvoie (chemin, durée_secondes).
 
     TTS_ENGINE=omnivoice (défaut) | piper
     OmniVoice :
-      - OMNIVOICE_REF_AUDIO (+ optionnel REF_TEXT) → clone
+      - OMNIVOICE_REF_AUDIO (+ optionnel REF_TEXT) → clone (ignore instruct)
       - OMNIVOICE_VOICE_PROMPT (.pt) → clone pré-encodé
-      - sinon voice-design via `voice_instruct` / `tone` / OMNIVOICE_INSTRUCT
+      - sinon voice-design via `voice_instruct` / `tone` + `speed`
     """
     if not text or not text.strip():
         raise ValueError("Texte de narration vide")
@@ -238,6 +241,12 @@ def generate_voiceover(
     if engine in ("piper", "piper-tts"):
         return _generate_piper(text, tone, out)
     if engine in ("omnivoice", "omni", "omni-voice"):
-        return _generate_omnivoice(text, tone, out, voice_instruct=voice_instruct)
+        return _generate_omnivoice(
+            text,
+            tone,
+            out,
+            voice_instruct=voice_instruct,
+            speed=speed,
+        )
 
     raise RuntimeError(f"TTS_ENGINE inconnu: {engine!r} (omnivoice|piper)")

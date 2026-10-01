@@ -368,10 +368,16 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
 
         if job_type == "voiceover":
             out = work_dir / "scene.wav"
+            raw_speed = payload.get("speed")
+            try:
+                speed_val = float(raw_speed) if raw_speed is not None else None
+            except (TypeError, ValueError):
+                speed_val = None
             path, duration = generate_voiceover(
                 text=payload.get("text", ""),
                 tone=payload.get("tone", ""),
                 voice_instruct=payload.get("voiceInstruct") or "",
+                speed=speed_val,
                 output_path=out,
             )
             submit_file_result(

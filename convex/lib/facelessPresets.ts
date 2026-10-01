@@ -36,8 +36,10 @@ export type FacelessVoice = {
   id: FacelessVoiceId;
   label: string;
   hint: string;
-  /** Instruct OmniVoice voice-design (markers explicites) */
+  /** Instruct OmniVoice voice-design — doit être très distinct entre presets */
   instruct: string;
+  /** Vitesse TTS (audible même si le timbre est proche) */
+  speed: number;
 };
 
 export const FACELESS_LOOKS: FacelessLook[] = [
@@ -119,44 +121,58 @@ export const FACELESS_VOICES: FacelessVoice[] = [
   {
     id: "narrator_m",
     label: "Narrateur grave",
-    hint: "Homme, grave — true crime",
-    instruct: "male, low pitch",
+    hint: "Homme grave, lent — true crime",
+    instruct:
+      "deep gravelly adult male narrator, very low pitch, slow deliberate pace, serious documentary",
+    speed: 0.88,
   },
   {
     id: "narrator_f",
     label: "Narratrice claire",
-    hint: "Femme, medium",
-    instruct: "female, medium pitch",
+    hint: "Femme claire, news",
+    instruct:
+      "clear adult female narrator, medium pitch, crisp diction, professional newsreader tone",
+    speed: 1.0,
   },
   {
     id: "docu",
     label: "Docu posé",
-    hint: "Homme, documentaire",
-    instruct: "male, medium pitch",
+    hint: "Homme neutre, documentaire",
+    instruct:
+      "calm adult male documentary host, medium-low pitch, neutral measured delivery",
+    speed: 0.95,
   },
   {
     id: "intense",
     label: "Intense",
-    hint: "Hooks énergiques",
-    instruct: "male, high pitch",
+    hint: "Hooks énergiques, rapide",
+    instruct:
+      "energetic adult male voice, higher pitch, fast urgent pace, dramatic trailer style",
+    speed: 1.14,
   },
   {
     id: "whisper",
     label: "Chuchotement",
     hint: "Suspense ASMR-light",
-    instruct: "whisper, low pitch",
+    instruct:
+      "soft intimate whisper, very quiet breathy voice, low pitch, suspenseful ASMR style",
+    speed: 0.84,
   },
   {
     id: "young_f",
     label: "Jeune / kids",
-    hint: "Femme, aiguë",
-    instruct: "female, high pitch",
+    hint: "Femme jeune, enjouée",
+    instruct:
+      "young cheerful female voice, high pitch, bright playful tone, kids storytelling",
+    speed: 1.08,
   },
   {
     id: "story",
     label: "Conte",
-    hint: "Chaleureux storytime",
-    instruct: "female, medium pitch, warm",
+    hint: "Storytime chaleureux",
+    instruct:
+      "warm storytelling female voice, soft medium pitch, gentle bedtime story cadence",
+    speed: 0.9,
   },
 ];
 

@@ -549,7 +549,10 @@ export const queueSceneJobs = mutation({
         topic: project.topic,
         hasStyleReference: hasRef,
       });
-      await ctx.db.patch(scene._id, { imagePrompt: prompt });
+      await ctx.db.patch(scene._id, {
+        imagePrompt: prompt,
+        imageUrl: undefined,
+      });
 
       await ctx.db.insert("generationJobs", {
         type: "image",
@@ -570,11 +573,14 @@ export const queueSceneJobs = mutation({
     }
 
     if (args.kinds.includes("voiceover")) {
+      const voice = project.voiceId
+        ? getFacelessVoice(project.voiceId)
+        : null;
       const voiceInstruct =
+        voice?.instruct ??
         studio.voiceInstruct ??
-        (project.voiceId
-          ? getFacelessVoice(project.voiceId).instruct
-          : studio.narrationTone);
+        studio.narrationTone;
+      await ctx.db.patch(scene._id, { audioUrl: undefined });
       await ctx.db.insert("generationJobs", {
         type: "voiceover",
         sceneId: scene._id,
@@ -585,6 +591,8 @@ export const queueSceneJobs = mutation({
           text: scene.narrationText,
           tone: studio.narrationTone,
           voiceInstruct,
+          speed: voice?.speed ?? 1.0,
+          voiceId: project.voiceId,
         },
         createdAt: now,
         updatedAt: now,
@@ -770,5 +778,57 @@ export const applyVoiceAndRegen = mutation({
     });
 
     return { jobCount };
+  },
+});
+
+/**
+ * Supprime un projet faceless + scènes + jobs.
+ * Supprime le studio s’il n’a plus d’autres projets (sauf « Défaut »).
+ */
+export const deleteVideoProject = mutation({
+  args: { projectId: v.id("videoProjects") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Projet introuvable");
+
+    const studio = await ctx.db.get(project.studioId);
+    if (!studio || studio.userId !== userId) {
+      throw new Error("Non autorisé");
+    }
+
+    const scenes = await ctx.db
+      .query("scenes")
+      .withIndex("by_videoProjectId", (q) =>
+        q.eq("videoProjectId", args.projectId),
+      )
+      .collect();
+    for (const scene of scenes) {
+      await ctx.db.delete(scene._id);
+    }
+
+    const jobs = await ctx.db
+      .query("generationJobs")
+      .withIndex("by_videoProjectId", (q) =>
+        q.eq("videoProjectId", args.projectId),
+      )
+      .collect();
+    for (const job of jobs) {
+      await ctx.db.delete(job._id);
+    }
+
+    const studioId = project.studioId;
+    await ctx.db.delete(args.projectId);
+
+    const siblings = await ctx.db
+      .query("videoProjects")
+      .withIndex("by_studioId", (q) => q.eq("studioId", studioId))
+      .take(1);
+    if (siblings.length === 0 && studio.name !== DEFAULT_STUDIO_NAME) {
+      await ctx.db.delete(studioId);
+    }
+
+    return null;
   },
 });

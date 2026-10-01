@@ -11,6 +11,7 @@ import {
   UploadSimple,
   SpinnerGap,
   Sparkle,
+  Trash,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -120,6 +121,7 @@ export default function DashboardPage() {
   );
   const createFromYoutube = useMutation(api.clipProjects.createFromYoutube);
   const createAndStartReel = useMutation(api.videoProjects.createAndStartReel);
+  const deleteVideoProject = useMutation(api.videoProjects.deleteVideoProject);
 
   const useWorkerUpload =
     process.env.NEXT_PUBLIC_WORKER_UPLOAD === "1" ||
@@ -750,10 +752,10 @@ export default function DashboardPage() {
               {facelessProjects.map(({ project: p, studioName }) => {
                 const active = isFacelessPipelineActive(p.status);
                 return (
-                  <li key={p._id}>
+                  <li key={p._id} className="relative">
                     <Link
                       href={`/dashboard/studios/${p.studioId}/projects/${p._id}`}
-                      className="group flex h-full flex-col rounded-xl border border-border bg-card/50 p-4 shadow-[0_16px_40px_-28px_rgb(15_59_39_/_0.28)] transition-all duration-200 hover:-translate-y-0.5 hover:border-signal/40 hover:bg-card dark:shadow-[0_16px_40px_-24px_rgb(0_0_0_/_0.45)]"
+                      className="group flex h-full flex-col rounded-xl border border-border bg-card/50 p-4 pr-10 shadow-[0_16px_40px_-28px_rgb(15_59_39_/_0.28)] transition-all duration-200 hover:-translate-y-0.5 hover:border-signal/40 hover:bg-card dark:shadow-[0_16px_40px_-24px_rgb(0_0_0_/_0.45)]"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground group-hover:text-signal">
@@ -773,6 +775,31 @@ export default function DashboardPage() {
                         {p.finalVideoUrl ? " · vidéo prête" : ""}
                       </p>
                     </Link>
+                    <button
+                      type="button"
+                      aria-label="Supprimer le reel"
+                      className="absolute right-2 top-2 inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (
+                          !confirm(
+                            `Supprimer « ${p.title || p.topic} » ? Irréversible.`,
+                          )
+                        ) {
+                          return;
+                        }
+                        void deleteVideoProject({ projectId: p._id }).catch(
+                          (err: unknown) => {
+                            setError(
+                              err instanceof Error ? err.message : "Erreur",
+                            );
+                          },
+                        );
+                      }}
+                    >
+                      <Trash className="size-3.5" weight="bold" />
+                    </button>
                   </li>
                 );
               })}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { Doc, Id } from "@convex/_generated/dataModel";
@@ -12,6 +12,7 @@ import {
   Image as ImageIcon,
   Microphone,
   Sparkle,
+  Trash,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -65,6 +66,7 @@ function sceneJobHint(
  * Atelier faceless Opus-like : scènes | stage 9:16 | outils Style.
  */
 export default function ProjectPage() {
+  const router = useRouter();
   const params = useParams<{ studioId: string; projectId: string }>();
   const studioId = params.studioId as Id<"studios">;
   const projectId = params.projectId as Id<"videoProjects">;
@@ -85,9 +87,10 @@ export default function ProjectPage() {
     api.videoProjects.applyLookAndRegenImages,
   );
   const applyVoiceAndRegen = useMutation(api.videoProjects.applyVoiceAndRegen);
+  const deleteVideoProject = useMutation(api.videoProjects.deleteVideoProject);
 
   const [busy, setBusy] = useState<
-    "script" | "assets" | "style" | "voice" | null
+    "script" | "assets" | "style" | "voice" | "delete" | null
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -317,11 +320,30 @@ export default function ProjectPage() {
       });
       const voice = FACELESS_VOICES.find((v) => v.id === voiceId);
       setInfo(
-        `Voix « ${voice?.label ?? voiceId} » → ${jobCount} scène${jobCount > 1 ? "s" : ""} en file`,
+        `Voix « ${voice?.label ?? voiceId} » → ${jobCount} scène${jobCount > 1 ? "s" : ""} en file (écoute Soft après regen)`,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onDeleteProject() {
+    if (
+      !confirm(
+        "Supprimer ce reel faceless et toutes ses scènes ? Irréversible.",
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setBusy("delete");
+    try {
+      await deleteVideoProject({ projectId });
+      router.push("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
       setBusy(null);
     }
   }
@@ -362,6 +384,20 @@ export default function ProjectPage() {
           </span>
         )}
         <div className="ml-auto flex flex-wrap gap-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 cursor-pointer text-destructive hover:bg-destructive/10 hover:text-destructive"
+            disabled={busy !== null}
+            onClick={() => void onDeleteProject()}
+            aria-label="Supprimer le projet"
+          >
+            <Trash className="size-4" weight="bold" />
+            <span className="hidden sm:inline">
+              {busy === "delete" ? "…" : "Supprimer"}
+            </span>
+          </Button>
           {!hidePrimaryScript && (
             <Button
               type="button"
@@ -550,12 +586,12 @@ export default function ProjectPage() {
         {/* Outils */}
         <aside className="atelier-panel hidden min-h-0 overflow-y-auto border-l border-border p-3 lg:block">
           <p className="font-display text-[13px] tracking-tight text-foreground">
-            Style illustration
+            Style
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Change → regen <strong>toutes</strong> les images
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Regen toutes les images
           </p>
-          <div className="mt-3 flex flex-wrap gap-1.5">
+          <div className="mt-3 grid grid-cols-2 gap-1.5">
             {FACELESS_LOOKS.map((look) => {
               const active = activeLook === look.id;
               return (
@@ -567,23 +603,34 @@ export default function ProjectPage() {
                   onClick={() => void onApplyLook(look.id)}
                   className={
                     active
-                      ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/45"
-                      : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      ? "flex min-h-14 cursor-pointer flex-col items-start justify-center rounded-xl border border-signal/50 bg-signal/15 px-2.5 py-2 text-left"
+                      : "flex min-h-14 cursor-pointer flex-col items-start justify-center rounded-xl border border-border/80 bg-card/40 px-2.5 py-2 text-left hover:border-signal/30 disabled:opacity-50"
                   }
                 >
-                  {look.label}
+                  <span
+                    className={
+                      active
+                        ? "text-xs font-semibold text-signal"
+                        : "text-xs font-medium text-foreground"
+                    }
+                  >
+                    {look.label}
+                  </span>
+                  <span className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground">
+                    {look.hint}
+                  </span>
                 </button>
               );
             })}
           </div>
 
           <p className="mt-5 font-display text-[13px] tracking-tight text-foreground">
-            Voix OmniVoice
+            Voix
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Change → regen <strong>toutes</strong> les voix
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Regen toutes les voiceovers — attends la fin du job puis Soft
           </p>
-          <div className="mt-3 flex flex-wrap gap-1.5">
+          <div className="mt-3 space-y-1.5">
             {FACELESS_VOICES.map((voice) => {
               const active = activeVoice === voice.id;
               return (
@@ -595,18 +642,40 @@ export default function ProjectPage() {
                   onClick={() => void onApplyVoice(voice.id)}
                   className={
                     active
-                      ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/45"
-                      : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      ? "flex w-full min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-signal/50 bg-signal/15 px-3 py-2 text-left"
+                      : "flex w-full min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-border/80 bg-card/40 px-3 py-2 text-left hover:border-signal/30 disabled:opacity-50"
                   }
                 >
-                  {voice.label}
+                  <Microphone
+                    className={
+                      active
+                        ? "size-3.5 shrink-0 text-signal"
+                        : "size-3.5 shrink-0 text-muted-foreground"
+                    }
+                    weight="bold"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={
+                        active
+                          ? "block text-xs font-semibold text-signal"
+                          : "block text-xs font-medium text-foreground"
+                      }
+                    >
+                      {voice.label}
+                    </span>
+                    <span className="block text-[10px] text-muted-foreground">
+                      {voice.hint} · ×{voice.speed.toFixed(2)}
+                    </span>
+                  </span>
                 </button>
               );
             })}
           </div>
 
           <div className="mt-6 border-t border-border pt-4">
-            <p className="atelier-label mb-2">Scène active</p>            {focused && draft ? (
+            <p className="atelier-label mb-2">Scène active</p>
+            {focused && draft ? (
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-1.5">
                   <Button

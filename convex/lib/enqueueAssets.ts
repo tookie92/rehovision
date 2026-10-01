@@ -21,6 +21,7 @@ function resolveStyle(studio: Doc<"studios">, project: Doc<"videoProjects">) {
       voice?.instruct ??
       studio.voiceInstruct ??
       studio.narrationTone,
+    voiceSpeed: voice?.speed ?? 1.0,
   };
 }
 
@@ -52,10 +53,8 @@ export async function enqueueAssetJobsForProject(
   const now = Date.now();
   let jobCount = 0;
   const hasRef = Boolean(studio.referenceImageUrl);
-  const { visualStyle, narrationTone, voiceInstruct } = resolveStyle(
-    studio,
-    project,
-  );
+  const { visualStyle, narrationTone, voiceInstruct, voiceSpeed } =
+    resolveStyle(studio, project);
 
   // Annule jobs actifs des kinds demandés sur ce projet
   const existing = await ctx.db
@@ -88,7 +87,7 @@ export async function enqueueAssetJobsForProject(
         topic: project.topic,
         hasStyleReference: hasRef,
       });
-      await ctx.db.patch(scene._id, { imagePrompt: prompt });
+      await ctx.db.patch(scene._id, { imagePrompt: prompt, imageUrl: undefined });
 
       await ctx.db.insert("generationJobs", {
         type: "image",
@@ -108,6 +107,9 @@ export async function enqueueAssetJobsForProject(
     }
 
     if (wantVoice) {
+      // Retire l’ancienne URL pour forcer le UI à attendre la nouvelle voix
+      await ctx.db.patch(scene._id, { audioUrl: undefined });
+
       await ctx.db.insert("generationJobs", {
         type: "voiceover",
         sceneId: scene._id,
@@ -118,6 +120,8 @@ export async function enqueueAssetJobsForProject(
           text: scene.narrationText,
           tone: narrationTone,
           voiceInstruct,
+          speed: voiceSpeed,
+          voiceId: project.voiceId,
         },
         createdAt: now,
         updatedAt: now,
