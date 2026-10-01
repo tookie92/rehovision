@@ -371,6 +371,7 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
             path, duration = generate_voiceover(
                 text=payload.get("text", ""),
                 tone=payload.get("tone", ""),
+                voice_instruct=payload.get("voiceInstruct") or "",
                 output_path=out,
             )
             submit_file_result(

@@ -25,6 +25,14 @@ import {
   projectStatusTone,
   facelessStatusTone,
 } from "@/lib/clipStatus";
+import {
+  FACELESS_LOOKS,
+  FACELESS_VOICES,
+  DEFAULT_FACELESS_LOOK_ID,
+  DEFAULT_FACELESS_VOICE_ID,
+  type FacelessLookId,
+  type FacelessVoiceId,
+} from "@/lib/facelessPresets";
 
 type Mode = "youtube" | "file";
 type DashTab = "clips" | "faceless";
@@ -123,6 +131,12 @@ export default function DashboardPage() {
   const [title, setTitle] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [facelessTopic, setFacelessTopic] = useState("");
+  const [facelessLookId, setFacelessLookId] = useState<FacelessLookId>(
+    DEFAULT_FACELESS_LOOK_ID,
+  );
+  const [facelessVoiceId, setFacelessVoiceId] = useState<FacelessVoiceId>(
+    DEFAULT_FACELESS_VOICE_ID,
+  );
   const [facelessPending, setFacelessPending] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -155,7 +169,11 @@ export default function DashboardPage() {
     }
     setFacelessPending(true);
     try {
-      const { projectId, studioId } = await createAndStartReel({ topic });
+      const { projectId, studioId } = await createAndStartReel({
+        topic,
+        lookId: facelessLookId,
+        voiceId: facelessVoiceId,
+      });
       router.push(`/dashboard/studios/${studioId}/projects/${projectId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -322,7 +340,86 @@ export default function DashboardPage() {
       </header>
 
       {dashTab === "faceless" ? (
-        <form onSubmit={onFacelessSubmit} className="mb-14 max-w-xl space-y-4">
+        <form onSubmit={onFacelessSubmit} className="mb-14 max-w-2xl space-y-5">
+          <div className="space-y-2">
+            <Label>Style illustration</Label>
+            <p className="text-xs text-muted-foreground">
+              Choisi avant génération — s’applique à toutes les scènes.
+            </p>
+            <div
+              role="listbox"
+              aria-label="Style illustration"
+              className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+            >
+              {FACELESS_LOOKS.map((look) => {
+                const active = facelessLookId === look.id;
+                return (
+                  <button
+                    key={look.id}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    disabled={facelessPending}
+                    title={look.hint}
+                    onClick={() => setFacelessLookId(look.id)}
+                    className={
+                      active
+                        ? "cursor-pointer rounded-xl border border-signal/50 bg-signal/15 px-3 py-2.5 text-left transition-colors"
+                        : "cursor-pointer rounded-xl border border-border bg-card/50 px-3 py-2.5 text-left hover:border-signal/30 disabled:opacity-50"
+                    }
+                  >
+                    <span
+                      className={
+                        active
+                          ? "block text-sm font-semibold text-signal"
+                          : "block text-sm font-medium text-foreground"
+                      }
+                    >
+                      {look.label}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+                      {look.hint}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Voix OmniVoice</Label>
+            <p className="text-xs text-muted-foreground">
+              Voice-design — regen toutes les scènes si tu changes plus tard.
+            </p>
+            <div
+              role="listbox"
+              aria-label="Voix"
+              className="flex flex-wrap gap-1.5"
+            >
+              {FACELESS_VOICES.map((voice) => {
+                const active = facelessVoiceId === voice.id;
+                return (
+                  <button
+                    key={voice.id}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    disabled={facelessPending}
+                    title={voice.hint}
+                    onClick={() => setFacelessVoiceId(voice.id)}
+                    className={
+                      active
+                        ? "cursor-pointer rounded-lg bg-signal/20 px-3 py-2 text-xs font-semibold text-signal ring-1 ring-signal/45"
+                        : "cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                    }
+                  >
+                    {voice.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="faceless-topic">Sujet du reel</Label>
             <Input
@@ -349,7 +446,7 @@ export default function DashboardPage() {
             )}
           </Button>
           <p className="text-xs text-muted-foreground">
-            Styles avancés :{" "}
+            Styles avancés / référence :{" "}
             <Link
               href="/dashboard/studios"
               className="text-signal underline-offset-2 hover:underline"

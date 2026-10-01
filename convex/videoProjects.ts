@@ -6,7 +6,9 @@ import { buildScriptUserPrompt } from "./lib/scriptPrompt";
 import { buildImagePrompt } from "./lib/imagePrompt";
 import { bumpUsage, checkUsageLimit, checkStudioLimit } from "./usage";
 import { DEFAULT_STUDIO, DEFAULT_STUDIO_NAME } from "./lib/studioDefaults";
+import { getFacelessLook, getFacelessVoice } from "./lib/facelessPresets";
 import { enqueueAssetJobsForProject } from "./lib/enqueueAssets";
+import type { Id } from "./_generated/dataModel";
 
 const projectStatus = v.union(
   v.literal("draft"),
@@ -36,6 +38,8 @@ const projectDoc = v.object({
   title: v.string(),
   topic: v.string(),
   status: projectStatus,
+  lookId: v.optional(v.string()),
+  voiceId: v.optional(v.string()),
   autoGenerateAssets: v.optional(v.boolean()),
   finalVideoUrl: v.optional(v.string()),
   createdAt: v.number(),
@@ -76,11 +80,13 @@ export const createVideoProject = mutation({
 });
 
 /**
- * Flux sujet → reel : studio défaut + projet + job script (assets auto après).
+ * Flux sujet → reel : look + voix choisis avant génération.
  */
 export const createAndStartReel = mutation({
   args: {
     topic: v.string(),
+    lookId: v.optional(v.string()),
+    voiceId: v.optional(v.string()),
     planSlug: v.optional(v.string()),
   },
   returns: v.object({
@@ -94,25 +100,51 @@ export const createAndStartReel = mutation({
 
     await checkUsageLimit(ctx, userId, args.planSlug ?? "solo");
 
+    const look = getFacelessLook(args.lookId);
+    const voice = getFacelessVoice(args.voiceId);
+
     const studios = await ctx.db
       .query("studios")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
 
-    let studioId = studios.find((s) => s.name === DEFAULT_STUDIO_NAME)?._id;
-    if (!studioId && studios.length > 0) {
-      studioId = studios[0]._id;
-    }
-    if (!studioId) {
+    // Studio dédié à ce reel (évite de polluer les autres projets)
+    let studioId: Id<"studios"> | undefined;
+    try {
       await checkStudioLimit(ctx, userId, args.planSlug ?? "solo");
       studioId = await ctx.db.insert("studios", {
         userId,
-        name: DEFAULT_STUDIO.name,
-        visualStyle: DEFAULT_STUDIO.visualStyle,
-        narrationTone: DEFAULT_STUDIO.narrationTone,
-        genre: DEFAULT_STUDIO.genre,
+        name: `${look.label} · ${topic.slice(0, 36)}`,
+        visualStyle: look.prompt,
+        narrationTone: look.toneHint,
+        voiceInstruct: voice.instruct,
+        genre: look.genre,
         createdAt: Date.now(),
       });
+    } catch {
+      // Quota studios : réutilise / met à jour le Défaut
+      studioId = studios.find((s) => s.name === DEFAULT_STUDIO_NAME)?._id;
+      if (!studioId && studios.length > 0) {
+        studioId = studios[0]!._id;
+      }
+      if (!studioId) {
+        studioId = await ctx.db.insert("studios", {
+          userId,
+          name: DEFAULT_STUDIO.name,
+          visualStyle: look.prompt,
+          narrationTone: look.toneHint,
+          voiceInstruct: voice.instruct,
+          genre: look.genre,
+          createdAt: Date.now(),
+        });
+      } else {
+        await ctx.db.patch(studioId, {
+          visualStyle: look.prompt,
+          narrationTone: look.toneHint,
+          voiceInstruct: voice.instruct,
+          genre: look.genre,
+        });
+      }
     }
 
     const studio = await ctx.db.get(studioId);
@@ -124,19 +156,21 @@ export const createAndStartReel = mutation({
       title: topic,
       topic,
       status: "draft",
+      lookId: look.id,
+      voiceId: voice.id,
       autoGenerateAssets: true,
       createdAt: now,
     });
 
     await bumpUsage(ctx, userId, { videosGenerated: 1 });
 
-    const systemPrompt = getScriptSystemPrompt(studio.genre);
+    const systemPrompt = getScriptSystemPrompt(look.genre);
     const userPrompt = buildScriptUserPrompt({
       topic,
       title: topic,
-      narrationTone: studio.narrationTone,
-      visualStyle: studio.visualStyle,
-      genre: studio.genre ?? "true_crime",
+      narrationTone: look.toneHint,
+      visualStyle: look.prompt,
+      genre: look.genre,
     });
 
     await ctx.db.insert("generationJobs", {
@@ -147,9 +181,10 @@ export const createAndStartReel = mutation({
       payload: {
         systemPrompt,
         userPrompt,
-        visualStyle: studio.visualStyle,
-        narrationTone: studio.narrationTone,
-        genre: studio.genre ?? "true_crime",
+        visualStyle: look.prompt,
+        narrationTone: look.toneHint,
+        voiceInstruct: voice.instruct,
+        genre: look.genre,
         topic,
         title: topic,
       },
@@ -535,6 +570,11 @@ export const queueSceneJobs = mutation({
     }
 
     if (args.kinds.includes("voiceover")) {
+      const voiceInstruct =
+        studio.voiceInstruct ??
+        (project.voiceId
+          ? getFacelessVoice(project.voiceId).instruct
+          : studio.narrationTone);
       await ctx.db.insert("generationJobs", {
         type: "voiceover",
         sceneId: scene._id,
@@ -544,6 +584,7 @@ export const queueSceneJobs = mutation({
         payload: {
           text: scene.narrationText,
           tone: studio.narrationTone,
+          voiceInstruct,
         },
         createdAt: now,
         updatedAt: now,
@@ -610,10 +651,16 @@ export const applyGeneratedScript = internalMutation({
 });
 
 /**
- * File des jobs image + voiceover pour chaque scène (provider local).
+ * File des jobs image et/ou voiceover pour chaque scène (provider local).
+ * `kinds` permet de regenerer seulement les images ou seulement les voix.
  */
 export const queueGenerationJobs = mutation({
-  args: { projectId: v.id("videoProjects") },
+  args: {
+    projectId: v.id("videoProjects"),
+    kinds: v.optional(
+      v.array(v.union(v.literal("image"), v.literal("voiceover"))),
+    ),
+  },
   returns: v.object({ jobCount: v.number() }),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
@@ -628,7 +675,9 @@ export const queueGenerationJobs = mutation({
     if (
       project.status !== "script_ready" &&
       project.status !== "draft" &&
-      project.status !== "generating"
+      project.status !== "generating" &&
+      project.status !== "ready" &&
+      project.status !== "exported"
     ) {
       throw new Error(
         `Impossible de lancer la génération depuis le statut ${project.status}`,
@@ -639,6 +688,85 @@ export const queueGenerationJobs = mutation({
       project,
       studio,
       userId,
+      kinds: args.kinds,
+    });
+
+    return { jobCount };
+  },
+});
+
+/**
+ * Applique un look à tout le projet puis regen toutes les images.
+ */
+export const applyLookAndRegenImages = mutation({
+  args: {
+    projectId: v.id("videoProjects"),
+    lookId: v.string(),
+  },
+  returns: v.object({ jobCount: v.number() }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Projet introuvable");
+
+    const studio = await ctx.db.get(project.studioId);
+    if (!studio || studio.userId !== userId) {
+      throw new Error("Non autorisé");
+    }
+
+    const look = getFacelessLook(args.lookId);
+    await ctx.db.patch(studio._id, {
+      visualStyle: look.prompt,
+      narrationTone: look.toneHint,
+      genre: look.genre,
+    });
+    await ctx.db.patch(project._id, { lookId: look.id });
+
+    const updatedProject = (await ctx.db.get(project._id))!;
+    const updatedStudio = (await ctx.db.get(studio._id))!;
+
+    const jobCount = await enqueueAssetJobsForProject(ctx, {
+      project: updatedProject,
+      studio: updatedStudio,
+      userId,
+      kinds: ["image"],
+    });
+
+    return { jobCount };
+  },
+});
+
+/**
+ * Applique une voix à tout le projet puis regen toutes les voiceovers.
+ */
+export const applyVoiceAndRegen = mutation({
+  args: {
+    projectId: v.id("videoProjects"),
+    voiceId: v.string(),
+  },
+  returns: v.object({ jobCount: v.number() }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Projet introuvable");
+
+    const studio = await ctx.db.get(project.studioId);
+    if (!studio || studio.userId !== userId) {
+      throw new Error("Non autorisé");
+    }
+
+    const voice = getFacelessVoice(args.voiceId);
+    await ctx.db.patch(studio._id, { voiceInstruct: voice.instruct });
+    await ctx.db.patch(project._id, { voiceId: voice.id });
+
+    const updatedProject = (await ctx.db.get(project._id))!;
+    const updatedStudio = (await ctx.db.get(studio._id))!;
+
+    const jobCount = await enqueueAssetJobsForProject(ctx, {
+      project: updatedProject,
+      studio: updatedStudio,
+      userId,
+      kinds: ["voiceover"],
     });
 
     return { jobCount };

@@ -19,6 +19,7 @@ const studioDoc = v.object({
   name: v.string(),
   visualStyle: v.string(),
   narrationTone: v.string(),
+  voiceInstruct: v.optional(v.string()),
   genre: v.optional(genreValidator),
   referenceImageUrl: v.optional(v.string()),
   referenceStorageId: v.optional(v.id("_storage")),
@@ -82,6 +83,7 @@ export const getOrCreateDefaultStudio = mutation({
       name: DEFAULT_STUDIO.name,
       visualStyle: DEFAULT_STUDIO.visualStyle,
       narrationTone: DEFAULT_STUDIO.narrationTone,
+      voiceInstruct: DEFAULT_STUDIO.voiceInstruct,
       genre: DEFAULT_STUDIO.genre,
       createdAt: Date.now(),
     });
@@ -142,6 +144,7 @@ export const updateStudio = mutation({
     name: v.optional(v.string()),
     visualStyle: v.optional(v.string()),
     narrationTone: v.optional(v.string()),
+    voiceInstruct: v.optional(v.string()),
     genre: v.optional(v.string()),
     referenceImageUrl: v.optional(v.string()),
   },
@@ -157,6 +160,7 @@ export const updateStudio = mutation({
       name?: string;
       visualStyle?: string;
       narrationTone?: string;
+      voiceInstruct?: string;
       genre?: "true_crime" | "kids" | "history" | "custom";
       referenceImageUrl?: string;
     } = {};
@@ -167,6 +171,9 @@ export const updateStudio = mutation({
     }
     if (args.narrationTone !== undefined) {
       patch.narrationTone = args.narrationTone.trim();
+    }
+    if (args.voiceInstruct !== undefined) {
+      patch.voiceInstruct = args.voiceInstruct.trim();
     }
     if (args.genre !== undefined) {
       patch.genre = normalizeGenre(args.genre);

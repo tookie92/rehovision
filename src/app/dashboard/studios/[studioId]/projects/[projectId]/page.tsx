@@ -20,10 +20,13 @@ import { Label } from "@/components/ui/label";
 import { GenerationProgress } from "@/components/GenerationProgress";
 import { StudioStagePreview } from "@/components/StudioStagePreview";
 import {
-  ILLUSTRATION_LOOKS,
-  matchIllustrationLook,
-  type IllustrationLookId,
-} from "@/lib/stylePresets";
+  FACELESS_LOOKS,
+  FACELESS_VOICES,
+  matchFacelessLookId,
+  matchFacelessVoiceId,
+  type FacelessLookId,
+  type FacelessVoiceId,
+} from "@/lib/facelessPresets";
 import { downloadUrl, safeDownloadName } from "@/lib/clipStatus";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -78,9 +81,14 @@ export default function ProjectPage() {
   const updateScene = useMutation(api.videoProjects.updateScene);
   const deleteScene = useMutation(api.videoProjects.deleteScene);
   const queueSceneJobs = useMutation(api.videoProjects.queueSceneJobs);
-  const updateStudio = useMutation(api.studios.updateStudio);
+  const applyLookAndRegenImages = useMutation(
+    api.videoProjects.applyLookAndRegenImages,
+  );
+  const applyVoiceAndRegen = useMutation(api.videoProjects.applyVoiceAndRegen);
 
-  const [busy, setBusy] = useState<"script" | "assets" | "style" | null>(null);
+  const [busy, setBusy] = useState<
+    "script" | "assets" | "style" | "voice" | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -195,7 +203,12 @@ export default function ProjectPage() {
       (project.status === "draft" && scenes.length === 0) ||
       project.status === "generating");
 
-  const activeLook = matchIllustrationLook(studio.visualStyle);
+  const activeLook =
+    (project.lookId as FacelessLookId | undefined) ??
+    matchFacelessLookId(studio.visualStyle);
+  const activeVoice =
+    (project.voiceId as FacelessVoiceId | undefined) ??
+    matchFacelessVoiceId(studio.voiceInstruct ?? studio.narrationTone);
 
   async function onGenerateScript() {
     setError(null);
@@ -274,31 +287,38 @@ export default function ProjectPage() {
     }
   }
 
-  async function onApplyLook(lookId: IllustrationLookId) {
-    const look = ILLUSTRATION_LOOKS.find((l) => l.id === lookId);
-    if (!look) return;
+  async function onApplyLook(lookId: FacelessLookId) {
     setError(null);
     setBusy("style");
     setPreferSoft(true);
     try {
-      await updateStudio({
-        studioId,
-        visualStyle: look.prompt,
-        narrationTone: look.toneHint,
+      const { jobCount } = await applyLookAndRegenImages({
+        projectId,
+        lookId,
       });
-      if (focused && !hasActiveAssetJobs) {
-        await queueSceneJobs({
-          sceneId: focused._id,
-          kinds: ["image"],
-        });
-        setInfo(
-          `Style « ${look.label} » → regen image scène ${focused.order}`,
-        );
-      } else {
-        setInfo(
-          `Style « ${look.label} » enregistré — clique Regen image`,
-        );
-      }
+      const look = FACELESS_LOOKS.find((l) => l.id === lookId);
+      setInfo(
+        `Style « ${look?.label ?? lookId} » → ${jobCount} image${jobCount > 1 ? "s" : ""} en file`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onApplyVoice(voiceId: FacelessVoiceId) {
+    setError(null);
+    setBusy("voice");
+    try {
+      const { jobCount } = await applyVoiceAndRegen({
+        projectId,
+        voiceId,
+      });
+      const voice = FACELESS_VOICES.find((v) => v.id === voiceId);
+      setInfo(
+        `Voix « ${voice?.label ?? voiceId} » → ${jobCount} scène${jobCount > 1 ? "s" : ""} en file`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally {
@@ -533,17 +553,17 @@ export default function ProjectPage() {
             Style illustration
           </p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Applique au studio · regen images pour voir le look
+            Change → regen <strong>toutes</strong> les images
           </p>
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {ILLUSTRATION_LOOKS.map((look) => {
+            {FACELESS_LOOKS.map((look) => {
               const active = activeLook === look.id;
               return (
                 <button
                   key={look.id}
                   type="button"
                   title={look.hint}
-                  disabled={busy === "style"}
+                  disabled={busy === "style" || hasActiveAssetJobs}
                   onClick={() => void onApplyLook(look.id)}
                   className={
                     active
@@ -557,9 +577,36 @@ export default function ProjectPage() {
             })}
           </div>
 
+          <p className="mt-5 font-display text-[13px] tracking-tight text-foreground">
+            Voix OmniVoice
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Change → regen <strong>toutes</strong> les voix
+          </p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {FACELESS_VOICES.map((voice) => {
+              const active = activeVoice === voice.id;
+              return (
+                <button
+                  key={voice.id}
+                  type="button"
+                  title={voice.hint}
+                  disabled={busy === "voice" || hasActiveAssetJobs}
+                  onClick={() => void onApplyVoice(voice.id)}
+                  className={
+                    active
+                      ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/45"
+                      : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  }
+                >
+                  {voice.label}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="mt-6 border-t border-border pt-4">
-            <p className="atelier-label mb-2">Scène active</p>
-            {focused && draft ? (
+            <p className="atelier-label mb-2">Scène active</p>            {focused && draft ? (
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-1.5">
                   <Button
@@ -692,18 +739,36 @@ export default function ProjectPage() {
       {/* Barre bas mobile outils */}
       <footer className="relative z-[1] shrink-0 border-t border-border/70 bg-card/50 px-3 py-2 backdrop-blur-md lg:hidden">
         <div className="flex gap-1.5 overflow-x-auto pb-1">
-          {ILLUSTRATION_LOOKS.map((look) => (
+          {FACELESS_LOOKS.map((look) => (
             <button
               key={look.id}
               type="button"
+              disabled={busy === "style" || hasActiveAssetJobs}
               onClick={() => void onApplyLook(look.id)}
               className={
                 activeLook === look.id
                   ? "shrink-0 cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1 text-xs font-semibold text-signal"
-                  : "shrink-0 cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1 text-xs text-muted-foreground"
+                  : "shrink-0 cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1 text-xs text-muted-foreground disabled:opacity-50"
               }
             >
               {look.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1">
+          {FACELESS_VOICES.map((voice) => (
+            <button
+              key={voice.id}
+              type="button"
+              disabled={busy === "voice" || hasActiveAssetJobs}
+              onClick={() => void onApplyVoice(voice.id)}
+              className={
+                activeVoice === voice.id
+                  ? "shrink-0 cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1 text-xs font-semibold text-signal"
+                  : "shrink-0 cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1 text-xs text-muted-foreground disabled:opacity-50"
+              }
+            >
+              {voice.label}
             </button>
           ))}
         </div>

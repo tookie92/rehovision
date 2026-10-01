@@ -27,6 +27,12 @@ _TONE_INSTRUCT: dict[str, str] = {
     "rythmé": "male, medium pitch",
     "froid": "male, low pitch",
     "narratif": "male, medium pitch",
+    "expressif": "male, medium pitch",
+    "clair": "female, medium pitch",
+    "chaleureux": "female, medium pitch, warm",
+    "joyeux": "female, high pitch",
+    "intrigant": "male, low pitch",
+    "enjoué": "female, medium pitch",
 }
 
 
@@ -57,6 +63,7 @@ def _tone_to_instruct(tone: str) -> str:
         "elderly",
         "british",
         "american",
+        "warm",
     )
     if any(m in lower for m in omni_markers):
         return raw
@@ -94,6 +101,7 @@ def _generate_omnivoice(
     text: str,
     tone: str,
     output_path: Path,
+    voice_instruct: str = "",
 ) -> tuple[Path, float | None]:
     import numpy as np
     import soundfile as sf
@@ -126,8 +134,13 @@ def _generate_omnivoice(
             kwargs["ref_text"] = ref_text
         # sinon Whisper ASR auto-transcrit
     else:
-        instruct = _tone_to_instruct(tone)
-        log.info("OmniVoice voice-design instruct=%r (tone=%r)", instruct, tone)
+        instruct = (voice_instruct or "").strip() or _tone_to_instruct(tone)
+        log.info(
+            "OmniVoice voice-design instruct=%r (tone=%r voiceInstruct=%r)",
+            instruct,
+            tone,
+            voice_instruct,
+        )
         kwargs["instruct"] = instruct
 
     log.info("OmniVoice → %s (%d chars, steps=%d)", output_path.name, len(text), num_step)
@@ -204,6 +217,7 @@ def generate_voiceover(
     text: str,
     tone: str = "",
     output_path: Path | None = None,
+    voice_instruct: str = "",
 ) -> tuple[Path, float | None]:
     """
     Génère un WAV et renvoie (chemin, durée_secondes).
@@ -212,7 +226,7 @@ def generate_voiceover(
     OmniVoice :
       - OMNIVOICE_REF_AUDIO (+ optionnel REF_TEXT) → clone
       - OMNIVOICE_VOICE_PROMPT (.pt) → clone pré-encodé
-      - sinon voice-design via `tone` / OMNIVOICE_INSTRUCT
+      - sinon voice-design via `voice_instruct` / `tone` / OMNIVOICE_INSTRUCT
     """
     if not text or not text.strip():
         raise ValueError("Texte de narration vide")
@@ -224,6 +238,6 @@ def generate_voiceover(
     if engine in ("piper", "piper-tts"):
         return _generate_piper(text, tone, out)
     if engine in ("omnivoice", "omni", "omni-voice"):
-        return _generate_omnivoice(text, tone, out)
+        return _generate_omnivoice(text, tone, out, voice_instruct=voice_instruct)
 
     raise RuntimeError(f"TTS_ENGINE inconnu: {engine!r} (omnivoice|piper)")

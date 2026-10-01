@@ -10,6 +10,8 @@ export default defineSchema({
     name: v.string(),
     visualStyle: v.string(),
     narrationTone: v.string(),
+    /** Instruct OmniVoice explicite (ex. "female, medium pitch") */
+    voiceInstruct: v.optional(v.string()),
     genre: v.optional(
       v.union(
         v.literal("true_crime"),
@@ -34,6 +36,10 @@ export default defineSchema({
       v.literal("ready"),
       v.literal("exported"),
     ),
+    /** Preset look choisi avant génération */
+    lookId: v.optional(v.string()),
+    /** Preset voix OmniVoice choisi avant génération */
+    voiceId: v.optional(v.string()),
     autoGenerateAssets: v.optional(v.boolean()),
     finalVideoUrl: v.optional(v.string()),
     createdAt: v.number(),
