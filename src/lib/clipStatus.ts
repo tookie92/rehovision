@@ -10,6 +10,25 @@ export const PROJECT_STATUS_LABEL: Record<string, string> = {
   failed: "Échec",
 };
 
+/** Statuts pipeline studio / faceless (`videoProjects`). */
+export const FACELESS_STATUS_LABEL: Record<string, string> = {
+  draft: "Brouillon",
+  script_ready: "Script",
+  generating: "Génération",
+  ready: "Prêt",
+  exported: "Exporté",
+};
+
+export function isFacelessPipelineActive(status: string): boolean {
+  return status === "generating" || status === "script_ready";
+}
+
+export function facelessStatusTone(status: string): string {
+  if (status === "ready" || status === "exported") return "text-signal";
+  if (isFacelessPipelineActive(status)) return "text-amber-400";
+  return "text-muted-foreground";
+}
+
 export const CLIP_STATUS_LABEL: Record<string, string> = {
   proposed: "En file",
   rendering: "Export…",

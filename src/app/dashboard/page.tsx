@@ -19,8 +19,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardNav } from "@/components/DashboardNav";
 import {
   PROJECT_STATUS_LABEL,
+  FACELESS_STATUS_LABEL,
   isPipelineActive,
+  isFacelessPipelineActive,
   projectStatusTone,
+  facelessStatusTone,
 } from "@/lib/clipStatus";
 
 type Mode = "youtube" | "file";
@@ -98,7 +101,10 @@ function formatBytes(n: number): string {
  */
 export default function DashboardPage() {
   const router = useRouter();
-  const projects = useQuery(api.clipProjects.listMine, { limit: 30 });
+  const clipProjects = useQuery(api.clipProjects.listMine, { limit: 30 });
+  const facelessProjects = useQuery(api.videoProjects.getRecentProjects, {
+    limit: 30,
+  });
   const generateUploadUrl = useMutation(api.clipProjects.generateUploadUrl);
   const createFromUpload = useMutation(api.clipProjects.createFromUpload);
   const createFromLocalUpload = useMutation(
@@ -545,15 +551,25 @@ export default function DashboardPage() {
 
       <section>
         <div className="mb-4 flex items-baseline justify-between gap-3">
-          <h2 className="font-display text-lg tracking-tight">Mes projets</h2>
-          {projects && projects.length > 0 && (
+          <h2 className="font-display text-lg tracking-tight">
+            {dashTab === "faceless" ? "Mes reels faceless" : "Mes projets clips"}
+          </h2>
+          {dashTab === "clips" && clipProjects && clipProjects.length > 0 && (
             <p className="font-mono text-[11px] text-muted-foreground">
-              {projects.length} récent{projects.length > 1 ? "s" : ""}
+              {clipProjects.length} récent{clipProjects.length > 1 ? "s" : ""}
             </p>
           )}
+          {dashTab === "faceless" &&
+            facelessProjects &&
+            facelessProjects.length > 0 && (
+              <p className="font-mono text-[11px] text-muted-foreground">
+                {facelessProjects.length} récent
+                {facelessProjects.length > 1 ? "s" : ""}
+              </p>
+            )}
         </div>
 
-        {projects === undefined && (
+        {dashTab === "clips" && clipProjects === undefined && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <Skeleton className="h-28 rounded-xl" />
             <Skeleton className="h-28 rounded-xl" />
@@ -561,17 +577,35 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {projects && projects.length === 0 && (
+        {dashTab === "faceless" && facelessProjects === undefined && (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <Skeleton className="h-28 rounded-xl" />
+            <Skeleton className="h-28 rounded-xl" />
+            <Skeleton className="h-28 rounded-xl" />
+          </div>
+        )}
+
+        {dashTab === "clips" && clipProjects && clipProjects.length === 0 && (
           <div className="rounded-2xl border border-dashed border-border px-6 py-12 text-center">
             <p className="text-sm text-muted-foreground">
-              Aucun projet pour l’instant. Importe une vidéo ci-dessus.
+              Aucun clip pour l’instant. Importe une vidéo ci-dessus.
             </p>
           </div>
         )}
 
-        {projects && projects.length > 0 && (
+        {dashTab === "faceless" &&
+          facelessProjects &&
+          facelessProjects.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-border px-6 py-12 text-center">
+              <p className="text-sm text-muted-foreground">
+                Aucun reel faceless encore. Lance un sujet ci-dessus.
+              </p>
+            </div>
+          )}
+
+        {dashTab === "clips" && clipProjects && clipProjects.length > 0 && (
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {projects.map((p) => {
+            {clipProjects.map((p) => {
               const active = isPipelineActive(p.status);
               return (
                 <li key={p._id}>
@@ -593,13 +627,14 @@ export default function DashboardPage() {
                       </span>
                     </div>
                     <p className="mt-3 text-xs text-muted-foreground">
+                      Clip
                       {p.clipCount > 0
-                        ? `${p.readyClipCount}/${p.clipCount} clips prêts`
+                        ? ` · ${p.readyClipCount}/${p.clipCount} prêts`
                         : p.sourceYoutubeUrl
-                          ? "YouTube"
+                          ? " · YouTube"
                           : p.durationSeconds
-                            ? `${Math.round(p.durationSeconds)}s`
-                            : "Fichier"}
+                            ? ` · ${Math.round(p.durationSeconds)}s`
+                            : " · Fichier"}
                       {p.failedClipCount > 0
                         ? ` · ${p.failedClipCount} échec${p.failedClipCount > 1 ? "s" : ""}`
                         : ""}
@@ -610,6 +645,42 @@ export default function DashboardPage() {
             })}
           </ul>
         )}
+
+        {dashTab === "faceless" &&
+          facelessProjects &&
+          facelessProjects.length > 0 && (
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {facelessProjects.map(({ project: p, studioName }) => {
+                const active = isFacelessPipelineActive(p.status);
+                return (
+                  <li key={p._id}>
+                    <Link
+                      href={`/dashboard/studios/${p.studioId}/projects/${p._id}`}
+                      className="group flex h-full flex-col rounded-xl border border-border bg-card/50 p-4 shadow-[0_16px_40px_-28px_rgb(15_59_39_/_0.28)] transition-all duration-200 hover:-translate-y-0.5 hover:border-signal/40 hover:bg-card dark:shadow-[0_16px_40px_-24px_rgb(0_0_0_/_0.45)]"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground group-hover:text-signal">
+                          {p.title || p.topic}
+                        </p>
+                        <span
+                          className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium ${facelessStatusTone(p.status)}`}
+                        >
+                          {active && (
+                            <span className="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-amber-400 align-middle" />
+                          )}
+                          {FACELESS_STATUS_LABEL[p.status] ?? p.status}
+                        </span>
+                      </div>
+                      <p className="mt-3 line-clamp-1 text-xs text-muted-foreground">
+                        Faceless · {studioName}
+                        {p.finalVideoUrl ? " · vidéo prête" : ""}
+                      </p>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
       </section>
       </div>
     </div>
