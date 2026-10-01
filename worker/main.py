@@ -30,9 +30,9 @@ from generators.script import generate_script
 from generators.stitch_clips import stitch_clips
 from generators.transcribe import download_source, transcribe_video, unload_whisper
 from generators.video import assemble_video
-from generators.voiceover import generate_voiceover
+from generators.voiceover import generate_voiceover, unload_omnivoice
 from generators.youtube import download_youtube
-from generators.gpu_mem import empty_cuda, ensure_alloc_conf, log_vram
+from generators.gpu_mem import empty_cuda, ensure_alloc_conf, log_vram, unload_ollama
 from upload_server import (
     resolve_local_file,
     start_upload_server,
@@ -336,11 +336,16 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
     payload = job.get("payload") or {}
     log.info("Traitement job %s (%s)", job_id, job_type)
 
-    # Un modèle GPU à la fois (Whisper ↔ Flux/SDXL)
+    # Un modèle GPU à la fois (Whisper ↔ Flux/SDXL ↔ OmniVoice ↔ Ollama)
     if job_type in ("image", "render_clip", "voiceover"):
         unload_whisper()
-    if job_type in ("transcribe",):
+    if job_type in ("image",):
+        unload_ollama()
+        unload_omnivoice()
+    if job_type in ("voiceover", "transcribe", "render_clip"):
         unload_image_pipeline()
+    if job_type in ("transcribe", "render_clip"):
+        unload_omnivoice()
     empty_cuda()
     log_vram(f"before {job_type}")
 

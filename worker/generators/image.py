@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
-from generators.gpu_mem import empty_cuda, log_vram
+from generators.gpu_mem import empty_cuda, log_vram, unload_ollama
 
 log = logging.getLogger("rehovision-worker.image")
 
@@ -65,6 +65,16 @@ def _cpu_offload_enabled() -> bool:
     )
 
 
+def _sequential_offload_enabled() -> bool:
+    """Offload couche-par-couche (plus lent, moins VRAM). Défaut auto pour Flux."""
+    raw = (os.getenv("SD_SEQUENTIAL_OFFLOAD") or "").strip().lower()
+    if raw in ("1", "true", "yes"):
+        return True
+    if raw in ("0", "false", "no"):
+        return False
+    return _is_flux(os.getenv("SD_MODEL_ID", DEFAULT_MODEL))
+
+
 def _ref_mode() -> str:
     # Défaut "prompt" : pas de download IP-Adapter bloquant.
     # "style" active IP-Adapter (lourd, lent la 1re fois).
@@ -94,7 +104,15 @@ def _apply_device(pipe: Any, device: str) -> Any:
         )
     if device == "cuda" and _cpu_offload_enabled():
         try:
+            if _sequential_offload_enabled() and hasattr(
+                pipe, "enable_sequential_cpu_offload"
+            ):
+                pipe.enable_sequential_cpu_offload()
+                log.info("Diffusers: sequential_cpu_offload")
+                _harden_vae(pipe)
+                return pipe
             pipe.enable_model_cpu_offload()
+            log.info("Diffusers: model_cpu_offload")
             _harden_vae(pipe)
             return pipe
         except Exception as exc:
@@ -108,6 +126,10 @@ def _get_pipeline():
     global _pipeline, _pipeline_kind, _ip_adapter_loaded
     if _pipeline is not None:
         return _pipeline
+
+    unload_ollama()
+    empty_cuda()
+    log_vram("before load")
 
     import torch
 
@@ -123,11 +145,12 @@ def _get_pipeline():
     token = os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN") or None
 
     log.info(
-        "Chargement Diffusers %s sur %s (dtype=%s, cpu_offload=%s)…",
+        "Chargement Diffusers %s sur %s (dtype=%s, cpu_offload=%s, sequential=%s)…",
         model_id,
         device,
         dtype,
         _cpu_offload_enabled() and device == "cuda",
+        _sequential_offload_enabled() and device == "cuda",
     )
 
     if _is_flux(model_id):
@@ -236,6 +259,10 @@ def generate_image(
 
     out = Path(output_path) if output_path else Path("scene.png")
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    unload_ollama()
+    empty_cuda()
+    log_vram("before image gen")
 
     width = int(os.getenv("SD_WIDTH", "576"))
     height = int(os.getenv("SD_HEIGHT", "1024"))

@@ -10,7 +10,7 @@ export default defineSchema({
     name: v.string(),
     visualStyle: v.string(),
     narrationTone: v.string(),
-    /** Instruct OmniVoice explicite (ex. "female, medium pitch") */
+    /** Instruct OmniVoice (tokens EN, ex. "female, moderate pitch") */
     voiceInstruct: v.optional(v.string()),
     genre: v.optional(
       v.union(

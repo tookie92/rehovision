@@ -16,23 +16,92 @@ log = logging.getLogger("rehovision-worker.voiceover")
 
 _omni_model: Any = None
 
+
+def unload_omnivoice() -> None:
+    """Libère OmniVoice de la VRAM (avant Flux / Whisper)."""
+    global _omni_model
+    if _omni_model is None:
+        return
+    log.info("Unload OmniVoice…")
+    try:
+        del _omni_model
+    except Exception:
+        pass
+    _omni_model = None
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+    except Exception:
+        pass
+
+
+# Tokens voice-design OmniVoice (EN). Voir erreur "Unsupported instruct items".
+_OMNI_VALID: frozenset[str] = frozenset(
+    {
+        "american accent",
+        "australian accent",
+        "british accent",
+        "canadian accent",
+        "child",
+        "chinese accent",
+        "elderly",
+        "female",
+        "high pitch",
+        "indian accent",
+        "japanese accent",
+        "korean accent",
+        "low pitch",
+        "male",
+        "middle-aged",
+        "moderate pitch",
+        "portuguese accent",
+        "russian accent",
+        "teenager",
+        "very high pitch",
+        "very low pitch",
+        "whisper",
+        "young adult",
+    }
+)
+
+# Alias prose / anciens presets → token Omni
+_OMNI_ALIASES: dict[str, str] = {
+    "medium pitch": "moderate pitch",
+    "medium-low pitch": "low pitch",
+    "medium low pitch": "low pitch",
+    "higher pitch": "high pitch",
+    "deep": "very low pitch",
+    "gravelly": "very low pitch",
+    "soft": "low pitch",
+    "young": "young adult",
+    "cheerful": "high pitch",
+    "kids": "young adult",
+    "newsreader": "moderate pitch",
+    "narrator": "",
+    "narratrice": "",
+    "warm": "",
+}
+
 # Mappe le ton Studio → attributs voice-design OmniVoice
 _TONE_INSTRUCT: dict[str, str] = {
-    "grave": "male, low pitch",
+    "grave": "male, very low pitch",
     "mystérieux": "male, low pitch",
     "mysterious": "male, low pitch",
-    "posé": "male, medium pitch",
-    "documentaire": "male, medium pitch",
+    "posé": "male, moderate pitch",
+    "documentaire": "male, moderate pitch",
     "intense": "male, high pitch",
-    "rythmé": "male, medium pitch",
+    "rythmé": "male, moderate pitch",
     "froid": "male, low pitch",
-    "narratif": "male, medium pitch",
-    "expressif": "male, medium pitch",
-    "clair": "female, medium pitch",
-    "chaleureux": "female, medium pitch, warm",
+    "narratif": "male, moderate pitch",
+    "expressif": "male, moderate pitch",
+    "clair": "female, moderate pitch",
+    "chaleureux": "female, moderate pitch",
     "joyeux": "female, high pitch",
     "intrigant": "male, low pitch",
-    "enjoué": "female, medium pitch",
+    "enjoué": "female, young adult, high pitch",
 }
 
 
@@ -45,34 +114,91 @@ def _wav_duration_seconds(path: Path) -> float:
         return frames / float(rate)
 
 
+def _default_instruct() -> str:
+    raw = os.getenv("OMNIVOICE_INSTRUCT", "male, low pitch").strip()
+    return _sanitize_omni_instruct(raw) or "male, low pitch"
+
+
+def _sanitize_omni_instruct(raw: str) -> str:
+    """Ne garde que des tokens OmniVoice valides (EN, comma+space)."""
+    text = (raw or "").strip().lower()
+    if not text:
+        return ""
+
+    # Remplacements alias avant scan
+    for alias, token in sorted(_OMNI_ALIASES.items(), key=lambda x: -len(x[0])):
+        if alias in text:
+            text = text.replace(alias, f" {token} " if token else " ")
+
+    found: list[str] = []
+    remaining = f" {text.replace(',', ' ').replace(';', ' ')} "
+
+    # Longest-first pour "very low pitch" avant "low pitch"
+    for token in sorted(_OMNI_VALID, key=len, reverse=True):
+        needle = f" {token} "
+        if needle in remaining:
+            found.append(token)
+            remaining = remaining.replace(needle, " ")
+
+    # Genre implicite depuis mots restants
+    if "female" not in found and "male" not in found:
+        if any(w in text for w in ("female", "woman", "girl", "narratrice")):
+            found.insert(0, "female")
+        elif any(w in text for w in ("male", "man", "boy", "narrateur", "host")):
+            found.insert(0, "male")
+
+    # Ordre Omni stable : genre → âge → pitch → whisper → accent
+    rank = {
+        "female": 0,
+        "male": 0,
+        "child": 1,
+        "teenager": 1,
+        "young adult": 1,
+        "middle-aged": 1,
+        "elderly": 1,
+        "very low pitch": 2,
+        "low pitch": 2,
+        "moderate pitch": 2,
+        "high pitch": 2,
+        "very high pitch": 2,
+        "whisper": 3,
+    }
+
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for t in sorted(found, key=lambda x: (rank.get(x, 4), x)):
+        if t not in seen:
+            seen.add(t)
+            ordered.append(t)
+
+    return ", ".join(ordered)
+
+
 def _tone_to_instruct(tone: str) -> str:
     raw = (tone or "").strip()
-    default = os.getenv("OMNIVOICE_INSTRUCT", "male, low pitch").strip()
     if not raw:
-        return default
+        return _default_instruct()
 
     lower = raw.lower()
-    # Attributs Omni déjà fournis explicitement
-    omni_markers = (
-        "pitch",
-        "female",
-        "male",
-        "whisper",
-        "accent",
-        "child",
-        "elderly",
-        "british",
-        "american",
-        "warm",
-    )
-    if any(m in lower for m in omni_markers):
-        return raw
-
-    for key, instruct in _TONE_INSTRUCT.items():
+    # Plus long d'abord (ex. mystérieux avant …)
+    for key, instruct in sorted(_TONE_INSTRUCT.items(), key=lambda x: -len(x[0])):
         if key in lower:
             return instruct
 
-    return default
+    sanitized = _sanitize_omni_instruct(raw)
+    return sanitized or _default_instruct()
+
+
+def _resolve_instruct(voice_instruct: str, tone: str) -> str:
+    if (voice_instruct or "").strip():
+        cleaned = _sanitize_omni_instruct(voice_instruct)
+        if cleaned:
+            return cleaned
+        log.warning(
+            "voiceInstruct invalide pour OmniVoice %r — fallback tone/default",
+            voice_instruct[:120],
+        )
+    return _tone_to_instruct(tone)
 
 
 def _get_omni():
@@ -136,12 +262,13 @@ def _generate_omnivoice(
             kwargs["ref_text"] = ref_text
         # sinon Whisper ASR auto-transcrit
     else:
-        instruct = (voice_instruct or "").strip() or _tone_to_instruct(tone)
+        instruct = _resolve_instruct(voice_instruct, tone)
         log.info(
-            "OmniVoice voice-design instruct=%r speed=%.2f (tone=%r)",
+            "OmniVoice voice-design instruct=%r speed=%.2f (tone=%r raw=%r)",
             instruct,
             use_speed,
             tone,
+            (voice_instruct or "")[:80],
         )
         kwargs["instruct"] = instruct
 

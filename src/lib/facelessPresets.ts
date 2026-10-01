@@ -117,61 +117,55 @@ export const FACELESS_LOOKS: FacelessLook[] = [
   },
 ];
 
+/** Instructs = tokens OmniVoice uniquement (comma + space). */
 export const FACELESS_VOICES: FacelessVoice[] = [
   {
     id: "narrator_m",
     label: "Narrateur grave",
     hint: "Homme grave, lent — true crime",
-    instruct:
-      "deep gravelly adult male narrator, very low pitch, slow deliberate pace, serious documentary",
+    instruct: "male, very low pitch",
     speed: 0.88,
   },
   {
     id: "narrator_f",
     label: "Narratrice claire",
     hint: "Femme claire, news",
-    instruct:
-      "clear adult female narrator, medium pitch, crisp diction, professional newsreader tone",
+    instruct: "female, moderate pitch",
     speed: 1.0,
   },
   {
     id: "docu",
     label: "Docu posé",
     hint: "Homme neutre, documentaire",
-    instruct:
-      "calm adult male documentary host, medium-low pitch, neutral measured delivery",
+    instruct: "male, moderate pitch",
     speed: 0.95,
   },
   {
     id: "intense",
     label: "Intense",
     hint: "Hooks énergiques, rapide",
-    instruct:
-      "energetic adult male voice, higher pitch, fast urgent pace, dramatic trailer style",
+    instruct: "male, high pitch",
     speed: 1.14,
   },
   {
     id: "whisper",
     label: "Chuchotement",
     hint: "Suspense ASMR-light",
-    instruct:
-      "soft intimate whisper, very quiet breathy voice, low pitch, suspenseful ASMR style",
+    instruct: "male, whisper, low pitch",
     speed: 0.84,
   },
   {
     id: "young_f",
     label: "Jeune / kids",
     hint: "Femme jeune, enjouée",
-    instruct:
-      "young cheerful female voice, high pitch, bright playful tone, kids storytelling",
+    instruct: "female, young adult, high pitch",
     speed: 1.08,
   },
   {
     id: "story",
     label: "Conte",
     hint: "Storytime chaleureux",
-    instruct:
-      "warm storytelling female voice, soft medium pitch, gentle bedtime story cadence",
+    instruct: "female, moderate pitch",
     speed: 0.9,
   },
 ];
@@ -232,11 +226,18 @@ export function matchFacelessVoiceId(
     if (v.includes(voice.id)) return voice.id;
   }
   if (v.includes("whisper")) return "whisper";
-  if (v.includes("female") && v.includes("high")) return "young_f";
+  if (v.includes("female") && (v.includes("young adult") || v.includes("high")))
+    return "young_f";
   if (v.includes("female") && v.includes("warm")) return "story";
   if (v.includes("female")) return "narrator_f";
   if (v.includes("high pitch")) return "intense";
-  if (v.includes("medium pitch")) return "docu";
+  if (
+    v.includes("moderate pitch") ||
+    v.includes("medium pitch") ||
+    v.includes("medium-low")
+  )
+    return "docu";
+  if (v.includes("very low pitch")) return "narrator_m";
   if (v.includes("male") || v.includes("low pitch")) return "narrator_m";
   return null;
 }

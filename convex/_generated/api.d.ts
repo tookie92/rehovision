@@ -15,6 +15,7 @@ import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_captionSegments from "../lib/captionSegments.js";
 import type * as lib_enqueueAssets from "../lib/enqueueAssets.js";
+import type * as lib_facelessPresets from "../lib/facelessPresets.js";
 import type * as lib_genrePrompt from "../lib/genrePrompt.js";
 import type * as lib_imagePrompt from "../lib/imagePrompt.js";
 import type * as lib_plans from "../lib/plans.js";
@@ -39,6 +40,7 @@ declare const fullApi: ApiFromModules<{
   "lib/auth": typeof lib_auth;
   "lib/captionSegments": typeof lib_captionSegments;
   "lib/enqueueAssets": typeof lib_enqueueAssets;
+  "lib/facelessPresets": typeof lib_facelessPresets;
   "lib/genrePrompt": typeof lib_genrePrompt;
   "lib/imagePrompt": typeof lib_imagePrompt;
   "lib/plans": typeof lib_plans;
