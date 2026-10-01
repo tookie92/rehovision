@@ -1,14 +1,13 @@
 ## Learned User Preferences
 
 - Prefers frank product and strategy advice when choosing inspiration or scope (asked for direct Opus vs OpenChatCut vs Motion comparisons).
-- After each shipped fix or feature, always `git push` to origin without waiting for an explicit push request (then give Ubuntu `git pull` + restart notes).
+- After each shipped fix or feature: always `git push` to origin, then say what to do on Ubuntu (`git pull` + restart Next/web and worker; plus `npm run convex:deploy:self-hosted` when Convex schema/functions change).
 - Product direction: Opus-style atelier (vlog/file/YouTube → AI-assisted cuts → trim → viral polish with captions/effects/music/logo → vertical export ready to post); Opus = clipping engine, Viblo.ai = UX-friction inspiration (clear steps, export-first) — not a Viblo/OpenChatCut/Muse clone or full multitrack NLE; may borrow light presets only.
 - Communicates in French; prefer matching the user’s language in replies.
 - Implements priorities one-by-one using `ROADMAP.md` as the source of truth for ordered steps; avoid shipping a large batch at once.
 - Wants manual clip in/out with drag handles for start/end (not only AI auto-hooks); render options must be usable once the pipeline is ready.
 - Saving polish/render options alone does not enqueue jobs — always expose a visible re-render CTA that calls `rerenderAll` (or equivalent).
-- After each shipped feature or étape, always say what to do on Ubuntu (`git pull` + restart Next/web and worker; plus `npm run convex:deploy:self-hosted` when Convex schema/functions change).
-- Clip project UI should be an Opus-like no-scroll single-viewport workspace (clips list | 9:16 stage | tools | bottom In/Out + export/re-render), not a long-scrolling settings page.
+- Clip and faceless UIs should be Opus-like no-scroll single-viewport ateliers (clips/scenes list | 9:16 Soft/Final stage | tools) — not OpenChatCut NLE/timeline/agent-chat or a long-scrolling settings page.
 - Soft-preview polish on the stage before re-render (look/LUT approx, captions including Off, punch, Split dual-pane with haut↔bas swap).
 - Split reframe: landscape framing dialog to position faces (two people / dual panes), not only a haut↔bas swap toggle.
 - Clip captions should look CapCut-like (karaoke / word-pop ASS with strong outline), with a real Off option — not plain burned text.
@@ -17,14 +16,14 @@
 ## Learned Workspace Facts
 
 - Rehovision has two pipelines: clips (YouTube/file → Whisper → Ollama hooks → ffmpeg vertical cuts with CapCut-like karaoke ASS captions, smart/Fill/Fit/Split reframe, optional Flux B-roll) and studio/faceless (Ollama script → image gen → OmniVoice/Piper voiceover → ffmpeg 9:16 assembly).
-- Local GPU worker stack (see `worker/README.md`): Ollama, Flux Schnell via Diffusers, OmniVoice with Piper fallback, Whisper, OpenCV reframe, ffmpeg; sized for RTX 3060 12GB VRAM (CPU offload for Flux).
+- Faceless illustration style chips must rebuild image prompts from current `studio.visualStyle` on regen (stale `scene.imagePrompt` ignores style changes); put style tokens first for SDXL CLIP truncation.
+- Local GPU worker stack (see `worker/README.md`): Ollama, Flux Schnell via Diffusers (preferred over SDXL Turbo for strong illustration styles), OmniVoice with Piper fallback, Whisper, OpenCV reframe, ffmpeg; RTX 3060 12GB needs `SD_CPU_OFFLOAD=1` and unloading Whisper↔image between jobs to avoid CUDA OOM.
 - Clips keep source audio by default; optional TTS mix/replace on clip re-render; full generative voiceover remains core to the studio pipeline.
-- Worker runs on Linux/NVIDIA (apt, systemd, CUDA); Cursor/dev is on Windows — typical flow is push from Windows, then `git pull` + restart web/worker on Ubuntu.
+- Worker runs on Linux/NVIDIA (apt, systemd, CUDA); Cursor/dev is on Windows — typical flow is push from Windows, then `git pull` + restart web/worker on Ubuntu; keep `package-lock.json` committed/in sync so Ubuntu `npm ci` works.
 - `WORKER_SECRET_KEY` must match across Convex env, `worker/.env`, and root `.env.local` (never commit the value).
 - YouTube downloads on the Ubuntu worker often need cookies (`YT_COOKIES` / cookies file) due to anti-bot; file upload is the reliable fallback — without a usable source, clip render options stay locked/non-clickable.
 - Large vlog uploads prefer direct HTTP to the local worker (`UPLOAD_HTTP_PORT` / `WORKER_PUBLIC_URL` / `NEXT_PUBLIC_WORKER_UPLOAD`) over Convex storage; the Next `/api/worker-upload` proxy must send `Content-Length` (chunked bodies caused worker 400 empty-body errors).
 - Rendered clip MP4s are also stored on the worker (`/media/{id}`) and submitted to Convex as JSON `{ resultUrl }` — never as httpAction body (Convex OOM at 64 MB).
 - Self-hosted Convex: after changes under `convex/`, deploy with `npm run convex:deploy:self-hosted` (not `npx convex dev`, which targets Convex Cloud).
 - Clip render options include a light viral pack (`punchEffect`, logo watermark, bed music with ducking, `splitSwap`); those fields must be live on self-hosted Convex or validators reject extras like `punchEffect`.
-- Clip hook proposals target ~30s reels and denser sets (~5–8 hooks) on long sources in `propose_clips` (not 1–2 clips for a 30‑min vlog).
-- Clip export uses platform presets (TikTok / Reels / Shorts), numbered ready-to-post filenames, and an export banner with bulk download.
+- Clip hook proposals target ~30s reels and denser sets (~5–8 hooks) on long sources in `propose_clips`; export uses platform presets (TikTok / Reels / Shorts), numbered ready-to-post filenames, and an export banner with bulk download.

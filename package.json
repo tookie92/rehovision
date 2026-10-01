@@ -6,6 +6,7 @@
     "dev": "next dev --turbopack",
     "dev:convex": "convex dev",
     "convex:deploy:self-hosted": "node scripts/convex-deploy-self-hosted.mjs",
+    "convex:env:clerk": "node scripts/convex-env-clerk.mjs",
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint"

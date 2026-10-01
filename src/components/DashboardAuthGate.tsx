@@ -26,12 +26,13 @@ export function DashboardAuthGate({ children }: { children: React.ReactNode }) {
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
               <p className="font-medium">Auth Convex bloquée</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Vérifie le JWT Clerk nommé{" "}
-                <code className="text-foreground">convex</code>,{" "}
-                <code className="text-foreground">CLERK_JWT_ISSUER_DOMAIN</code>{" "}
-                sur le backend Convex, et redémarre{" "}
-                <code className="text-foreground">npm run dev</code> (Turbopack
-                root).
+                Vérifie l&apos;intégration Clerk → Convex (JWT{" "}
+                <code className="text-foreground">aud: convex</code>),{" "}
+                <code className="text-foreground">CLERK_FRONTEND_API_URL</code>{" "}
+                sur le backend Convex (
+                <code className="text-foreground">npm run convex:env:clerk</code>
+                ), redéploie, puis redémarre{" "}
+                <code className="text-foreground">npm run dev</code>.
               </p>
               <Link
                 href="/sign-in"

@@ -1,15 +1,18 @@
-import { AuthConfig } from "convex/server";
+import type { AuthConfig } from "convex/server";
 
 /**
- * Validation des JWT Clerk côté Convex.
- * Activer l'intégration Convex dans le Clerk Dashboard, puis définir
- * CLERK_JWT_ISSUER_DOMAIN (Frontend API URL) sur le déploiement Convex.
- * @see https://docs.convex.dev/auth/clerk
+ * Auth JWT Clerk → Convex
+ * @see https://clerk.com/docs/guides/development/integrations/databases/convex
+ *
+ * Doc cloud : `domain: process.env.CLERK_FRONTEND_API_URL!` + `npx convex env set`.
+ * Self-hosted Rehovision : l’API `env set` renvoie 404 → issuer en dur
+ * (= Frontend API URL / ancien CLERK_JWT_ISSUER_DOMAIN).
+ * `applicationID: "convex"` = claim `aud` du JWT (intégration Convex Clerk).
  */
 export default {
   providers: [
     {
-      domain: process.env.CLERK_JWT_ISSUER_DOMAIN!,
+      domain: "https://distinct-marten-9832.clerk.accounts.dev",
       applicationID: "convex",
     },
   ],
