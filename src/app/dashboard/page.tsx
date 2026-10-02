@@ -26,7 +26,7 @@ type Mode = "youtube" | "file";
 
 function uploadWithProgress(
   uploadUrl: string,
-  file: File,
+  file: File | Blob,
   onProgress: (pct: number) => void,
   headers?: Record<string, string>,
 ): Promise<Record<string, unknown>> {
@@ -35,7 +35,10 @@ function uploadWithProgress(
     xhr.open("POST", uploadUrl);
     xhr.responseType = "json";
     const hdrs = {
-      "Content-Type": file.type || "video/mp4",
+      "Content-Type":
+        file instanceof File
+          ? file.type || "video/mp4"
+          : "application/octet-stream",
       ...headers,
     };
     for (const [k, v] of Object.entries(hdrs)) {
@@ -82,6 +85,67 @@ function uploadWithProgress(
     xhr.onabort = () => reject(new Error("Upload annulé"));
     xhr.send(file);
   });
+}
+
+/** Upload par chunks via Next → worker (contourne Cloudflare 413 ~100 Mo). */
+async function uploadFileChunked(
+  file: File,
+  onProgress: (pct: number) => void,
+): Promise<Record<string, unknown>> {
+  const chunkSize = 8 * 1024 * 1024; // 8 Mo
+  const total = Math.max(1, Math.ceil(file.size / chunkSize));
+  const initRes = await fetch(
+    "/api/worker-upload-chunk?path=/upload/init",
+    { method: "POST" },
+  );
+  const initBody = (await initRes.json()) as {
+    fileId?: string;
+    error?: string;
+  };
+  if (!initRes.ok || !initBody.fileId) {
+    throw new Error(initBody.error || `Init upload échoué (${initRes.status})`);
+  }
+  const fileId = initBody.fileId;
+
+  for (let i = 0; i < total; i++) {
+    const start = i * chunkSize;
+    const end = Math.min(file.size, start + chunkSize);
+    const blob = file.slice(start, end);
+    await uploadWithProgress(
+      "/api/worker-upload-chunk?path=/upload/chunk",
+      blob,
+      (chunkPct) => {
+        const base = (i / total) * 100;
+        const span = (1 / total) * 100;
+        onProgress(Math.min(99, Math.round(base + (span * chunkPct) / 100)));
+      },
+      {
+        "Content-Type": "application/octet-stream",
+        "x-file-id": fileId,
+        "x-chunk-index": String(i),
+        "x-chunk-total": String(total),
+      },
+    );
+  }
+
+  const doneRes = await fetch(
+    "/api/worker-upload-chunk?path=/upload/complete",
+    {
+      method: "POST",
+      headers: {
+        "x-file-id": fileId,
+        "x-filename": file.name,
+      },
+    },
+  );
+  const doneBody = (await doneRes.json()) as Record<string, unknown>;
+  if (!doneRes.ok) {
+    throw new Error(
+      String(doneBody.error || `Complete upload échoué (${doneRes.status})`),
+    );
+  }
+  onProgress(100);
+  return doneBody;
 }
 
 function formatBytes(n: number): string {
@@ -189,12 +253,8 @@ function DashboardPageInner() {
       if (useWorkerUpload) {
         setPhase("Envoi vers le worker…");
         setUploadPct(0);
-        const body = await uploadWithProgress(
-          "/api/worker-upload",
-          file,
-          setUploadPct,
-          { "x-filename": file.name },
-        );
+        // Chunks via proxy Next (anti Cloudflare 413 ~100 Mo sur app.rehovision.com)
+        const body = await uploadFileChunked(file, setUploadPct);
         const fileId = String(body.fileId || "");
         const mediaUrl = String(body.mediaUrl || "");
         if (!fileId || !mediaUrl) {

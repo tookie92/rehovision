@@ -4,6 +4,9 @@ Serveur HTTP léger : upload gros fichiers → disque worker (évite Convex 2 mi
 Endpoints:
   POST /upload          header x-worker-secret, body = fichier brut
                         → { fileId, filename, sizeBytes, mediaUrl }
+  POST /upload/init     → { fileId } (upload chunked, anti-Cloudflare 413)
+  POST /upload/chunk    headers x-file-id, x-chunk-index, x-chunk-total
+  POST /upload/complete headers x-file-id, x-filename → même meta que /upload
   GET  /media/<fileId>  stream le fichier (preview navigateur + jobs)
 
 Env:
@@ -193,36 +196,168 @@ class UploadHandler(BaseHTTPRequestHandler):
         got = (self.headers.get("x-worker-secret") or "").strip()
         return got == expected
 
+    def _cors_headers(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "x-worker-secret, content-type, x-filename, x-file-id, x-chunk-index, x-chunk-total",
+        )
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+
     def _send_json(self, code: int, body: dict[str, Any]) -> None:
         raw = json.dumps(body).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(raw)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "x-worker-secret, content-type, x-filename")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self._cors_headers()
         self.end_headers()
         self.wfile.write(raw)
 
     def do_OPTIONS(self) -> None:
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "x-worker-secret, content-type, x-filename")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self._cors_headers()
         self.end_headers()
+
+    def _read_body(self, max_bytes: int) -> bytes | None:
+        length_hdr = (self.headers.get("Content-Length") or "").strip()
+        length = int(length_hdr) if length_hdr.isdigit() else -1
+        if length > max_bytes:
+            self._send_json(413, {"error": f"chunk too large (max {max_bytes} o)"})
+            return None
+        if length > 0:
+            data = self.rfile.read(length)
+            if len(data) != length:
+                self._send_json(400, {"error": "upload tronqué"})
+                return None
+            return data
+        chunks: list[bytes] = []
+        written = 0
+        while written < max_bytes:
+            chunk = self.rfile.read(min(1024 * 1024, max_bytes - written))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            written += len(chunk)
+        if written >= max_bytes:
+            self._send_json(413, {"error": "chunk too large"})
+            return None
+        return b"".join(chunks)
+
+    def _finalize_upload(self, dest: Path, file_id: str, filename: str) -> None:
+        if not dest.is_file() or dest.stat().st_size == 0:
+            dest.unlink(missing_ok=True)
+            self._send_json(400, {"error": "empty body"})
+            return
+        try:
+            from generators.media_validate import assert_readable_media
+
+            assert_readable_media(dest, label="upload")
+        except RuntimeError as e:
+            dest.unlink(missing_ok=True)
+            self._send_json(400, {"error": str(e)})
+            return
+        except Exception as e:
+            log.warning("ffprobe upload skip (%s) — fichier accepté sans check", e)
+
+        base = public_base_url()
+        media_url = f"{base}/media/{file_id}" if base else f"/media/{file_id}"
+        meta = {
+            "fileId": file_id,
+            "filename": filename,
+            "sizeBytes": dest.stat().st_size,
+            "mediaUrl": media_url,
+            "localPath": str(dest),
+        }
+        (media_root() / "uploads" / f"{file_id}.json").write_text(
+            json.dumps(meta),
+            encoding="utf-8",
+        )
+        log.info("Upload OK %s (%s Mo)", file_id, dest.stat().st_size // (1024 * 1024))
+        self._send_json(200, meta)
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if path != "/upload":
+        if path not in ("/upload", "/upload/init", "/upload/chunk", "/upload/complete"):
             self._send_json(404, {"error": "not found"})
             return
         if not self._secret_ok():
             self._send_json(401, {"error": "unauthorized"})
             return
 
+        if path == "/upload/init":
+            file_id = str(uuid.uuid4())
+            part_dir = media_root() / "uploads" / f"{file_id}.parts"
+            part_dir.mkdir(parents=True, exist_ok=True)
+            self._send_json(200, {"fileId": file_id})
+            return
+
+        if path == "/upload/chunk":
+            file_id = (self.headers.get("x-file-id") or "").strip()
+            if not _UUID_RE.match(file_id):
+                self._send_json(400, {"error": "x-file-id invalide"})
+                return
+            try:
+                idx = int(self.headers.get("x-chunk-index") or "-1")
+                total = int(self.headers.get("x-chunk-total") or "-1")
+            except ValueError:
+                self._send_json(400, {"error": "index/total invalides"})
+                return
+            if idx < 0 or total < 1 or idx >= total:
+                self._send_json(400, {"error": "index hors bornes"})
+                return
+            part_dir = media_root() / "uploads" / f"{file_id}.parts"
+            if not part_dir.is_dir():
+                self._send_json(400, {"error": "init manquant — POST /upload/init d'abord"})
+                return
+            data = self._read_body(32 * 1024 * 1024)
+            if data is None:
+                return
+            if not data:
+                self._send_json(400, {"error": "chunk vide"})
+                return
+            (part_dir / f"{idx:06d}.part").write_bytes(data)
+            self._send_json(
+                200,
+                {"ok": True, "fileId": file_id, "index": idx, "bytes": len(data)},
+            )
+            return
+
+        if path == "/upload/complete":
+            file_id = (self.headers.get("x-file-id") or "").strip()
+            if not _UUID_RE.match(file_id):
+                self._send_json(400, {"error": "x-file-id invalide"})
+                return
+            part_dir = media_root() / "uploads" / f"{file_id}.parts"
+            if not part_dir.is_dir():
+                self._send_json(400, {"error": "parts introuvables"})
+                return
+            filename = (self.headers.get("x-filename") or "upload.mp4").strip()
+            filename = Path(filename).name or "upload.mp4"
+            ext = Path(filename).suffix.lower() or ".mp4"
+            if ext not in {
+                ".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi", ".mp3", ".wav", ".m4a",
+            }:
+                ext = ".mp4"
+            parts = sorted(part_dir.glob("*.part"))
+            if not parts:
+                self._send_json(400, {"error": "aucun chunk"})
+                return
+            dest = media_root() / "uploads" / f"{file_id}{ext}"
+            try:
+                with dest.open("wb") as out:
+                    for p in parts:
+                        out.write(p.read_bytes())
+            except Exception as e:
+                dest.unlink(missing_ok=True)
+                shutil.rmtree(part_dir, ignore_errors=True)
+                self._send_json(500, {"error": f"assemble failed: {e}"})
+                return
+            shutil.rmtree(part_dir, ignore_errors=True)
+            self._finalize_upload(dest, file_id, filename)
+            return
+
         length_hdr = (self.headers.get("Content-Length") or "").strip()
         length = int(length_hdr) if length_hdr.isdigit() else -1
-        # ~2 Go soft limit
         if length > 2 * 1024 * 1024 * 1024:
             self._send_json(413, {"error": "file too large (max 2GB)"})
             return
@@ -259,8 +394,6 @@ class UploadHandler(BaseHTTPRequestHandler):
                         )
                         return
                 else:
-                    # Chunked / pas de Content-Length (proxy Next) — lire jusqu'à EOF
-                    # Limite soft 2 Go
                     written = 0
                     max_bytes = 2 * 1024 * 1024 * 1024
                     while written < max_bytes:
@@ -279,43 +412,7 @@ class UploadHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"error": f"write failed: {e}"})
             return
 
-        if not dest.is_file() or dest.stat().st_size == 0:
-            dest.unlink(missing_ok=True)
-            self._send_json(
-                400,
-                {
-                    "error": "empty body (Content-Length manquant ou flux vide)",
-                },
-            )
-            return
-
-        # Détecter MP4 tronqué avant d'accepter (évite Whisper « moov atom not found »)
-        try:
-            from generators.media_validate import assert_readable_media
-
-            assert_readable_media(dest, label="upload")
-        except RuntimeError as e:
-            dest.unlink(missing_ok=True)
-            self._send_json(400, {"error": str(e)})
-            return
-        except Exception as e:
-            log.warning("ffprobe upload skip (%s) — fichier accepté sans check", e)
-
-        base = public_base_url()
-        media_url = f"{base}/media/{file_id}" if base else f"/media/{file_id}"
-        meta = {
-            "fileId": file_id,
-            "filename": filename,
-            "sizeBytes": dest.stat().st_size,
-            "mediaUrl": media_url,
-            "localPath": str(dest),
-        }
-        (media_root() / "uploads" / f"{file_id}.json").write_text(
-            json.dumps(meta),
-            encoding="utf-8",
-        )
-        log.info("Upload OK %s (%s Mo)", file_id, dest.stat().st_size // (1024 * 1024))
-        self._send_json(200, meta)
+        self._finalize_upload(dest, file_id, filename)
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
