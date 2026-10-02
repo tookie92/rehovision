@@ -851,9 +851,15 @@ export default function ClipProjectPage() {
               compact
               editing={editingClipId === focusedClip._id}
               postMetaBusy={postMetaBusy}
+              postPlatformLabel={
+                EXPORT_PLATFORMS.find((p) => p.id === exportPlatform)?.label
+              }
               onGeneratePostMeta={() => {
                 setPostMetaBusy(true);
-                void enqueuePostMeta({ clipId: focusedClip._id })
+                void enqueuePostMeta({
+                  clipId: focusedClip._id,
+                  platform: exportPlatform,
+                })
                   .catch((err) => {
                     setRetryError(
                       err instanceof Error
@@ -968,7 +974,7 @@ export default function ClipProjectPage() {
                   type="button"
                   role="radio"
                   aria-checked={active}
-                  title={p.hint}
+                  title={p.hint + " · " + p.captionHint}
                   onClick={() => setExportPlatform(p.id)}
                   className={
                     active

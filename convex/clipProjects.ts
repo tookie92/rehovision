@@ -1274,6 +1274,8 @@ export const stitchClips = mutation({
 export const enqueuePostMeta = mutation({
   args: {
     clipId: v.id("clips"),
+    /** tiktok | reels | shorts — oriente caption + hashtags */
+    platform: v.optional(v.string()),
   },
   returns: v.id("generationJobs"),
   handler: async (ctx, args) => {
@@ -1284,6 +1286,10 @@ export const enqueuePostMeta = mutation({
     if (!project || project.userId !== userId) {
       throw new Error("Projet introuvable");
     }
+    const platformRaw = (args.platform ?? "reels").trim().toLowerCase();
+    const platform = ["tiktok", "reels", "shorts"].includes(platformRaw)
+      ? platformRaw
+      : "reels";
     const now = Date.now();
     return await ctx.db.insert("generationJobs", {
       type: "clip_post_meta",
@@ -1295,6 +1301,7 @@ export const enqueuePostMeta = mutation({
         title: clip.title,
         captionText: clip.captionText ?? "",
         hookReason: clip.hookReason ?? "",
+        platform,
       },
       createdAt: now,
       updatedAt: now,

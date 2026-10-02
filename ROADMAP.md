@@ -29,7 +29,7 @@ Checklist détaillée : [`OPS.md`](./OPS.md).
 - [x] Cookies YouTube **ou** import **Fichier** (recommandé)
 - [x] Pipeline clips restauré (atelier Opus, propose_clips scoré, re-render)
 - [x] Faceless images gelées (`FACELESS_DISABLED=1`) pour ne pas bloquer le worker
-- [ ] **Toi :** 1 parcours fichier → clips → captions/look → re-rendre → trim → export MP4 → poster 1 Short/Reel manuellement
+- [x] **Toi :** 1 parcours fichier → clips → captions/look → re-rendre → trim → export MP4 → poster 1 Short/Reel manuellement
 
 **Critère de done :** un vlog fichier sort des clips téléchargeables **à chaque essai**.
 
@@ -45,17 +45,17 @@ Checklist détaillée : [`OPS.md`](./OPS.md).
 - [x] Export plateforme + bandeau « Prêt à poster »
 - [x] Stitch 2–3 clips
 - [x] **Titres / hashtags post** (`postTitle`, `postKeywords`) à la proposition + bouton Générer/Copier
+- [x] **Keywords plateforme** : prompts TikTok / Reels / Shorts distincts + fallbacks niche (pas seulement `#shorts #reels #viral`)
 
 ---
 
 ## Prochaines étapes cash (ordre)
 
-### Après Étape 0 verte
+### Après keywords
 
-1. Keywords plateforme affinés (prompts, pas scraping)
-2. Scheduling / deep-link share
-3. OmniVoice podcast **si** tu produis des pods
-4. Faceless **léger** (stock + VO) ou API cloud — **pas** SDXL/Flux local tant que clips = machine à poster
+1. Scheduling / deep-link share
+2. OmniVoice podcast **si** tu produis des pods
+3. Faceless **léger** (stock + VO) ou API cloud — **pas** SDXL/Flux local tant que clips = machine à poster
 
 ---
 
@@ -78,6 +78,5 @@ Réactiver images : `FACELESS_DISABLED=0` + poids HF SDXL/IP-Adapter complets.
 
 ## Comment avancer
 
-1. Finir la case Étape 0 (parcours manuel).  
-2. Dire en Agent : `go keywords` / `go scheduling` / etc.  
-3. Une PR / un push par étape.
+1. Dire en Agent : `go scheduling` / `go podcast` / etc.  
+2. Une PR / un push par étape.

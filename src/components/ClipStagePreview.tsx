@@ -61,6 +61,8 @@ type Props = {
   editSlot?: ReactNode;
   onGeneratePostMeta?: () => void;
   postMetaBusy?: boolean;
+  /** Label plateforme pour le pack Post (TikTok / Reels / Shorts). */
+  postPlatformLabel?: string;
 };
 
 function SoftSplitVideos({
@@ -332,6 +334,7 @@ export function ClipStagePreview({
   editSlot,
   onGeneratePostMeta,
   postMetaBusy = false,
+  postPlatformLabel,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [mediaLoading, setMediaLoading] = useState(true);
@@ -740,7 +743,7 @@ export function ClipStagePreview({
             <div className="w-full max-w-sm space-y-1 rounded-md border border-border/60 bg-background/40 px-2 py-1.5 text-left">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Post
+                  Post{postPlatformLabel ? ` · ${postPlatformLabel}` : ""}
                 </p>
                 <div className="flex gap-1">
                   {clip.postTitle && (
@@ -782,7 +785,9 @@ export function ClipStagePreview({
                 </>
               ) : (
                 <p className="text-[10px] text-muted-foreground">
-                  Caption + hashtags pour coller au post
+                  Caption + hashtags
+                  {postPlatformLabel ? ` (${postPlatformLabel})` : ""} — coche
+                  TikTok/Reels/Shorts puis Générer
                 </p>
               )}
             </div>
@@ -832,6 +837,7 @@ export function ClipStagePreview({
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Caption post
+                {postPlatformLabel ? ` · ${postPlatformLabel}` : ""}
               </p>
               <div className="flex gap-2">
                 {clip.postTitle && (

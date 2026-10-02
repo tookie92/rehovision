@@ -40,7 +40,7 @@ Réponds UNIQUEMENT en JSON valide:
       "hookReason": "pourquoi ce passage marche (1 phrase concrète)",
       "viralScore": 78,
       "postTitle": "caption sociale prête à coller (1–2 phrases, hook + contexte, FR)",
-      "postKeywords": "#vlog #storytime #fyp",
+      "postKeywords": "#sujet #niche #contexte",
       "startSec": 12.5,
       "endSec": 42.5,
       "captionText": "texte principal du clip pour sous-titres",
@@ -57,7 +57,9 @@ Réponds UNIQUEMENT en JSON valide:
 Règles:
 - title OBLIGATOIRE : hook punchy en français (ex. « Posé un lapin ?! »), jamais « Clip 1/2 »
 - postTitle : caption TikTok/Reels/Shorts (max ~150 car., sans hashtags dedans)
-- postKeywords : 3–6 hashtags pertinents séparés par des espaces
+- postKeywords : 4–6 hashtags SPÉCIFIQUES au sujet du clip (FR ou EN courant).
+  INTERDIT de ne mettre que #viral #fyp #shorts #reels #pourtoi.
+  Mélange : 3–4 niche/topic + au plus 1–2 découvrabilité (#fyp OU #shorts, pas les deux piles).
 - viralScore 0–100 : tension / émotion / clarté du hook / quotabilité
 - Le hook (phrase forte) dans les 3 premières secondes du clip
 - endSec - startSec ≈ 30s (idéal 25–35). JAMAIS sous 20s
@@ -67,6 +69,120 @@ Règles:
 - captionText = paraphrase claire (FR si transcript FR)
 - broll optionnel : 0–2 cutaways
 """
+
+# Styles caption / hashtags par plateforme (regen UI TikTok|Reels|Shorts).
+_PLATFORM_GUIDE: dict[str, dict[str, str]] = {
+    "tiktok": {
+        "label": "TikTok",
+        "caption": (
+            "postTitle: 1–2 phrases FR, hook dans les 8 premiers mots, "
+            "curiosité / punch (pas d’intro « Dans cette vidéo »). Max ~140 car. Sans hashtags."
+        ),
+        "tags": (
+            "postKeywords: 4–6 hashtags. 3–4 liés au SUJET précis du clip "
+            "(personnes, lieux, thèmes, émotions). "
+            "Puis AU PLUS 1–2 découvrabilité parmi #fyp #pourtoi #viral — pas tous. "
+            "Interdit: pile générique #shorts #reels #viral seule."
+        ),
+        "fallback_disc": ["#fyp", "#pourtoi"],
+    },
+    "reels": {
+        "label": "Instagram Reels",
+        "caption": (
+            "postTitle: 1–2 phrases FR ton Instagram (propre, storytelling léger). "
+            "Peut finir par une micro-CTA (ex. « tu kiffes ? »). Max ~150 car. Sans hashtags."
+        ),
+        "tags": (
+            "postKeywords: 4–6 hashtags. Priorité niche/sujet. "
+            "Inclure #reels une seule fois. Éviter #fyp #pourtoi (style TikTok). "
+            "Pas de #shorts sauf si le sujet est YouTube."
+        ),
+        "fallback_disc": ["#reels", "#instagram"],
+    },
+    "shorts": {
+        "label": "YouTube Shorts",
+        "caption": (
+            "postTitle: titre clair quasi-SEO (sujet + angle), FR, lisible hors contexte. "
+            "Moins « slang TikTok », plus descriptif. Max ~100 car. Sans hashtags."
+        ),
+        "tags": (
+            "postKeywords: 4–6 hashtags. Toujours #shorts. "
+            "Reste = sujets/thèmes précis du clip. Éviter #fyp #pourtoi #reels en masse."
+        ),
+        "fallback_disc": ["#shorts", "#youtube"],
+    },
+}
+
+
+def _normalize_platform(raw: str | None) -> str:
+    p = (raw or "reels").strip().lower()
+    if p in _PLATFORM_GUIDE:
+        return p
+    if p in {"ig", "instagram", "reel"}:
+        return "reels"
+    if p in {"yt", "youtube", "short"}:
+        return "shorts"
+    if p in {"tt", "tik_tok"}:
+        return "tiktok"
+    return "reels"
+
+
+def _slug_tags_from_text(*parts: str, limit: int = 4) -> list[str]:
+    """Hashtags niche naïfs depuis titre/caption (fallback sans LLM)."""
+    blob = " ".join(p for p in parts if p).lower()
+    stop = {
+        "le",
+        "la",
+        "les",
+        "un",
+        "une",
+        "des",
+        "de",
+        "du",
+        "et",
+        "en",
+        "à",
+        "a",
+        "au",
+        "aux",
+        "ce",
+        "cette",
+        "pour",
+        "pas",
+        "qui",
+        "que",
+        "dans",
+        "sur",
+        "avec",
+        "tout",
+        "tous",
+        "mais",
+        "plus",
+        "clip",
+        "video",
+        "vidéo",
+        "shorts",
+        "reels",
+        "tiktok",
+        "youtube",
+        "the",
+        "and",
+        "for",
+        "you",
+        "this",
+    }
+    words = re.findall(r"[a-zàâäéèêëïîôùûüç0-9]{4,}", blob, flags=re.I)
+    tags: list[str] = []
+    for w in words:
+        wl = w.lower()
+        if wl in stop:
+            continue
+        t = f"#{wl}"[:40]
+        if t.lower() not in {x.lower() for x in tags}:
+            tags.append(t)
+        if len(tags) >= limit:
+            break
+    return tags
 
 
 def _ollama_chat(system: str, user: str) -> str:
@@ -163,10 +279,21 @@ def _normalize_keywords(raw: str) -> str:
     return " ".join(tags)
 
 
-def _fallback_post_meta(title: str, caption: str) -> tuple[str, str]:
+def _fallback_post_meta(
+    title: str,
+    caption: str,
+    platform: str = "reels",
+) -> tuple[str, str]:
+    plat = _normalize_platform(platform)
+    guide = _PLATFORM_GUIDE[plat]
     base = (caption or title or "").strip()
-    post = base[:150] if base else title[:150]
-    return post, "#shorts #reels #viral"
+    post = base[:150] if base else (title or "Clip")[:150]
+    niche = _slug_tags_from_text(title, caption, limit=4)
+    disc = list(guide["fallback_disc"])
+    tags = _normalize_keywords(" ".join(niche + disc))
+    if not tags:
+        tags = " ".join(disc)
+    return post, tags
 
 
 def generate_post_meta(
@@ -174,19 +301,24 @@ def generate_post_meta(
     title: str,
     caption: str = "",
     hook_reason: str = "",
+    platform: str = "reels",
 ) -> dict[str, str]:
-    """Génère postTitle + postKeywords pour un clip déjà proposé."""
+    """Génère postTitle + postKeywords ciblés plateforme (TikTok / Reels / Shorts)."""
+    plat = _normalize_platform(platform)
+    guide = _PLATFORM_GUIDE[plat]
     system = (
-        "Tu es un social media manager TikTok/Reels/Shorts. "
+        f"Tu es social media manager {guide['label']}. "
         "Réponds UNIQUEMENT en JSON: "
-        '{"postTitle":"...","postKeywords":"#a #b #c"}'
+        '{"postTitle":"...","postKeywords":"#a #b #c #d"}'
     )
     user = (
+        f"Plateforme: {guide['label']}\n"
         f"Titre cut: {title}\n"
-        f"Pourquoi: {hook_reason}\n"
-        f"Caption vidéo: {caption}\n"
-        "postTitle = 1–2 phrases FR prêtes à coller (sans hashtags). "
-        "postKeywords = 3–6 hashtags."
+        f"Pourquoi ce hook: {hook_reason}\n"
+        f"Caption vidéo / sous-titres: {caption}\n\n"
+        f"{guide['caption']}\n"
+        f"{guide['tags']}\n"
+        "Hashtags = espaces séparés, chacun commence par #."
     )
     try:
         raw = _ollama_chat(system, user)
@@ -194,13 +326,13 @@ def generate_post_meta(
         post = str(data.get("postTitle") or "").strip()[:200]
         keys = _normalize_keywords(str(data.get("postKeywords") or ""))
         if not post:
-            post, keys = _fallback_post_meta(title, caption)
+            post, keys = _fallback_post_meta(title, caption, plat)
         if not keys:
-            keys = "#shorts #reels #viral"
+            _, keys = _fallback_post_meta(title, caption, plat)
         return {"postTitle": post, "postKeywords": keys}
     except Exception as e:
         log.warning("generate_post_meta fallback: %s", e)
-        post, keys = _fallback_post_meta(title, caption)
+        post, keys = _fallback_post_meta(title, caption, plat)
         return {"postTitle": post, "postKeywords": keys}
 
 
@@ -414,7 +546,9 @@ def _parse_clips(raw: str, duration: float) -> list[dict[str, Any]]:
             post, keys_fb = _fallback_post_meta(entry["title"], caption)
             keys = keys or keys_fb
         entry["postTitle"] = post
-        entry["postKeywords"] = keys or "#shorts #reels #viral"
+        entry["postKeywords"] = keys or _fallback_post_meta(
+            entry["title"], str(entry.get("captionText") or ""), "reels"
+        )[1]
         broll = _parse_broll(item)
         if broll:
             entry["broll"] = broll

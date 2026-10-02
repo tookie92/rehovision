@@ -492,6 +492,7 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
                 title=str(payload.get("title") or ""),
                 caption=str(payload.get("captionText") or ""),
                 hook_reason=str(payload.get("hookReason") or ""),
+                platform=str(payload.get("platform") or "reels"),
             )
             submit_clip_post_meta(
                 site_url,
@@ -499,7 +500,11 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
                 post_title=meta["postTitle"],
                 post_keywords=meta["postKeywords"],
             )
-            log.info("Post meta clip: %s", meta["postTitle"][:60])
+            log.info(
+                "Post meta clip (%s): %s",
+                payload.get("platform") or "reels",
+                meta["postTitle"][:60],
+            )
             return
 
         if job_type == "render_clip":
