@@ -1,8 +1,14 @@
 /**
- * Presets faceless : 4 looks d’imitation littérale des refs
- * (Photo concept / Spider-Verse / Clay / Polar noir).
- * Flux ignore le canal négatif → avoid: dans le prompt positif via imagePrompt.
+ * Presets faceless : looks legacy (UI désactivée — style = upload ref).
+ * Voix OmniVoice restent actives.
  */
+
+/** Prompt quand une ref style projet est uploadée (IP-Adapter SDXL). */
+export const UPLOAD_STYLE_PROMPT =
+  "exact art style of the uploaded style reference image, same medium, colors, line quality and rendering technique";
+
+export const UPLOAD_STYLE_NEGATIVE =
+  "wrong medium, mismatched art style, generic stock illustration, anime when reference is not anime";
 
 export type FacelessLookId =
   | "photoreal"

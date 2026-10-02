@@ -9,7 +9,7 @@ import {
 import { buildImagePrompt } from "./lib/imagePrompt";
 import { bumpUsage, checkUsageLimit, checkStudioLimit } from "./usage";
 import { DEFAULT_STUDIO, DEFAULT_STUDIO_NAME } from "./lib/studioDefaults";
-import { getFacelessLook, getFacelessVoice } from "./lib/facelessPresets";
+import { getFacelessVoice, UPLOAD_STYLE_PROMPT, UPLOAD_STYLE_NEGATIVE } from "./lib/facelessPresets";
 import { enqueueAssetJobsForProject, resolveProjectStyleReference } from "./lib/enqueueAssets";
 import type { Id } from "./_generated/dataModel";
 
@@ -100,7 +100,7 @@ export const createVideoProject = mutation({
 });
 
 /**
- * Flux sujet → reel : look + voix choisis avant génération.
+ * Flux sujet → reel : voix avant génération ; style = upload ref dans l’atelier.
  */
 export const createAndStartReel = mutation({
   args: {
@@ -120,8 +120,10 @@ export const createAndStartReel = mutation({
 
     await checkUsageLimit(ctx, userId, args.planSlug ?? "solo");
 
-    const look = getFacelessLook(args.lookId);
     const voice = getFacelessVoice(args.voiceId);
+    const visualStyle = UPLOAD_STYLE_PROMPT;
+    const narrationTone = voice.instruct;
+    const genre = "custom" as const;
 
     const studios = await ctx.db
       .query("studios")
@@ -134,11 +136,11 @@ export const createAndStartReel = mutation({
       await checkStudioLimit(ctx, userId, args.planSlug ?? "solo");
       studioId = await ctx.db.insert("studios", {
         userId,
-        name: `${look.label} · ${topic.slice(0, 36)}`,
-        visualStyle: look.prompt,
-        narrationTone: look.toneHint,
+        name: topic.slice(0, 48),
+        visualStyle,
+        narrationTone,
         voiceInstruct: voice.instruct,
-        genre: look.genre,
+        genre,
         createdAt: Date.now(),
       });
     } catch {
@@ -151,18 +153,18 @@ export const createAndStartReel = mutation({
         studioId = await ctx.db.insert("studios", {
           userId,
           name: DEFAULT_STUDIO.name,
-          visualStyle: look.prompt,
-          narrationTone: look.toneHint,
+          visualStyle,
+          narrationTone,
           voiceInstruct: voice.instruct,
-          genre: look.genre,
+          genre,
           createdAt: Date.now(),
         });
       } else {
         await ctx.db.patch(studioId, {
-          visualStyle: look.prompt,
-          narrationTone: look.toneHint,
+          visualStyle,
+          narrationTone,
           voiceInstruct: voice.instruct,
-          genre: look.genre,
+          genre,
         });
       }
     }
@@ -178,7 +180,6 @@ export const createAndStartReel = mutation({
       title: topic,
       topic,
       status: "draft",
-      lookId: look.id,
       voiceId: voice.id,
       imageSeed,
       autoGenerateAssets: true,
@@ -189,13 +190,13 @@ export const createAndStartReel = mutation({
 
     await bumpUsage(ctx, userId, { videosGenerated: 1 });
 
-    const systemPrompt = getScriptSystemPrompt(look.genre);
+    const systemPrompt = getScriptSystemPrompt(genre);
     const userPrompt = buildScriptUserPrompt({
       topic,
       title: topic,
-      narrationTone: look.toneHint,
-      visualStyle: look.prompt,
-      genre: look.genre,
+      narrationTone,
+      visualStyle,
+      genre,
       episodeNumber: 1,
     });
 
@@ -207,10 +208,10 @@ export const createAndStartReel = mutation({
       payload: {
         systemPrompt,
         userPrompt,
-        visualStyle: look.prompt,
-        narrationTone: look.toneHint,
+        visualStyle,
+        narrationTone,
         voiceInstruct: voice.instruct,
-        genre: look.genre,
+        genre,
         topic,
         title: topic,
       },
@@ -257,8 +258,14 @@ export const createNextEpisode = mutation({
 
     await checkUsageLimit(ctx, userId, args.planSlug ?? "solo");
 
-    const look = getFacelessLook(source.lookId ?? studio.visualStyle);
     const voice = getFacelessVoice(source.voiceId);
+    const visualStyle = UPLOAD_STYLE_PROMPT;
+    const narrationTone = voice.instruct;
+    const genre = (studio.genre ?? "custom") as
+      | "true_crime"
+      | "kids"
+      | "history"
+      | "custom";
     const seriesId =
       source.seriesId ??
       `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
@@ -286,7 +293,6 @@ export const createNextEpisode = mutation({
       title,
       topic: source.topic,
       status: "draft",
-      lookId: look.id,
       voiceId: voice.id,
       cast,
       imageSeed,
@@ -294,18 +300,21 @@ export const createNextEpisode = mutation({
       seriesId,
       episodeNumber,
       previousEpisodeSummary,
+      styleReferenceUrl: source.styleReferenceUrl,
+      styleReferenceStorageId: source.styleReferenceStorageId,
+      styleReferenceLookId: source.styleReferenceLookId,
       createdAt: now,
     });
 
     await bumpUsage(ctx, userId, { videosGenerated: 1 });
 
-    const systemPrompt = getScriptSystemPrompt(look.genre);
+    const systemPrompt = getScriptSystemPrompt(genre);
     const userPrompt = buildScriptUserPrompt({
       topic: source.topic,
       title,
-      narrationTone: look.toneHint,
-      visualStyle: look.prompt,
-      genre: look.genre,
+      narrationTone,
+      visualStyle,
+      genre,
       episodeNumber,
       previousEpisodeSummary,
       lockedCast: cast,
@@ -319,10 +328,10 @@ export const createNextEpisode = mutation({
       payload: {
         systemPrompt,
         userPrompt,
-        visualStyle: look.prompt,
-        narrationTone: look.toneHint,
+        visualStyle,
+        narrationTone,
         voiceInstruct: voice.instruct,
-        genre: look.genre,
+        genre,
         topic: source.topic,
         title,
         episodeNumber,
@@ -683,18 +692,16 @@ export const queueSceneJobs = mutation({
     if (args.kinds.includes("image")) {
       const beat =
         scene.visualBeat?.trim() || scene.narrationText;
-      const look = project.lookId
-        ? getFacelessLook(project.lookId)
-        : null;
-      const visualStyle = look?.prompt ?? studio.visualStyle;
-      const narrationTone = look?.toneHint ?? studio.narrationTone;
-      const negativePrompt = look?.negativePrompt ?? "";
       const projectRef = resolveProjectStyleReference(project);
       const hasRef = Boolean(projectRef);
+      const visualStyle = hasRef
+        ? UPLOAD_STYLE_PROMPT
+        : studio.visualStyle || UPLOAD_STYLE_PROMPT;
+      const negativePrompt = UPLOAD_STYLE_NEGATIVE;
       const prompt = buildImagePrompt({
         visualBeat: beat,
         visualStyle,
-        narrationTone,
+        narrationTone: studio.narrationTone,
         topic: project.topic,
         hasStyleReference: hasRef,
         cast: project.cast,
@@ -716,7 +723,7 @@ export const queueSceneJobs = mutation({
           visualStyle,
           negativePrompt,
           seed: project.imageSeed,
-          referenceImageUrl: projectRef?.url,
+          referenceImageUrl: projectRef ?? undefined,
         },
         createdAt: now,
         updatedAt: now,
@@ -857,12 +864,12 @@ export const queueGenerationJobs = mutation({
 });
 
 /**
- * Applique un look à tout le projet puis regen toutes les images.
+ * Regen toutes les images (après upload / changement de ref style).
  */
 export const applyLookAndRegenImages = mutation({
   args: {
     projectId: v.id("videoProjects"),
-    lookId: v.string(),
+    lookId: v.optional(v.string()),
   },
   returns: v.object({ jobCount: v.number() }),
   handler: async (ctx, args) => {
@@ -875,33 +882,13 @@ export const applyLookAndRegenImages = mutation({
       throw new Error("Non autorisé");
     }
 
-    const look = getFacelessLook(args.lookId);
     const newImageSeed = Math.floor(Math.random() * 2_147_483_647);
     await ctx.db.patch(studio._id, {
-      visualStyle: look.prompt,
-      narrationTone: look.toneHint,
-      genre: look.genre,
+      visualStyle: UPLOAD_STYLE_PROMPT,
     });
-    const projectPatch: Record<string, unknown> = {
-      lookId: look.id,
+    await ctx.db.patch(project._id, {
       imageSeed: newImageSeed,
-    };
-    const refLook = project.styleReferenceLookId
-      ? getFacelessLook(project.styleReferenceLookId).id
-      : null;
-    if (refLook && refLook !== look.id) {
-      if (project.styleReferenceStorageId) {
-        try {
-          await ctx.storage.delete(project.styleReferenceStorageId);
-        } catch {
-          // ignore
-        }
-      }
-      projectPatch.styleReferenceUrl = undefined;
-      projectPatch.styleReferenceStorageId = undefined;
-      projectPatch.styleReferenceLookId = undefined;
-    }
-    await ctx.db.patch(project._id, projectPatch);
+    });
 
     const updatedProject = (await ctx.db.get(project._id))!;
     const updatedStudio = (await ctx.db.get(studio._id))!;
@@ -919,19 +906,18 @@ export const applyLookAndRegenImages = mutation({
 });
 
 /**
- * Attache une image de référence style au projet, liée au look courant.
+ * Attache une image de référence style au projet.
  * Active le chemin worker SDXL + IP-Adapter.
  */
 export const setProjectStyleReference = mutation({
   args: {
     projectId: v.id("videoProjects"),
     storageId: v.id("_storage"),
-    /** Look draft (avant Confirmer) — sinon lookId projet. */
+    /** @deprecated looks désactivés — ignoré */
     lookId: v.optional(v.string()),
   },
   returns: v.object({
     styleReferenceUrl: v.string(),
-    styleReferenceLookId: v.string(),
   }),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
@@ -942,12 +928,6 @@ export const setProjectStyleReference = mutation({
     if (!studio || studio.userId !== userId) {
       throw new Error("Non autorisé");
     }
-
-    const lookIdRaw = args.lookId ?? project.lookId;
-    if (!lookIdRaw) {
-      throw new Error("Choisis un look avant d’uploader une référence");
-    }
-    const look = getFacelessLook(lookIdRaw);
 
     const url = await ctx.storage.getUrl(args.storageId);
     if (!url) {
@@ -965,13 +945,10 @@ export const setProjectStyleReference = mutation({
     await ctx.db.patch(args.projectId, {
       styleReferenceUrl: url,
       styleReferenceStorageId: args.storageId,
-      styleReferenceLookId: look.id,
+      styleReferenceLookId: undefined,
     });
 
-    return {
-      styleReferenceUrl: url,
-      styleReferenceLookId: look.id,
-    };
+    return { styleReferenceUrl: url };
   },
 });
 
@@ -1061,13 +1038,15 @@ export const updateCastAndRegenImages = mutation({
 });
 
 /**
- * Applique look, voix et/ou cast en une fois (confirm Ajuster) puis regen.
+ * Applique voix / cast / regen images (style upload) en une fois.
  */
 export const applyLookAndVoice = mutation({
   args: {
     projectId: v.id("videoProjects"),
     lookId: v.optional(v.string()),
     voiceId: v.optional(v.string()),
+    /** Regen toutes les images (après upload ref style). */
+    regenImages: v.optional(v.boolean()),
     cast: v.optional(
       v.array(
         v.object({
@@ -1097,30 +1076,11 @@ export const applyLookAndVoice = mutation({
     const projectPatch: Record<string, unknown> = {};
 
     if (args.lookId) {
-      const look = getFacelessLook(args.lookId);
-      await ctx.db.patch(studio._id, {
-        visualStyle: look.prompt,
-        narrationTone: look.toneHint,
-        genre: look.genre,
-      });
-      projectPatch.lookId = look.id;
+      // Looks désactivés — ignore (compat API) ; regen image via regenImages
+    }
+
+    if (args.regenImages) {
       projectPatch.imageSeed = Math.floor(Math.random() * 2_147_483_647);
-      // Invalide une ref liée à un autre look (pas celle déjà uploadée pour ce look)
-      const refLook = project.styleReferenceLookId
-        ? getFacelessLook(project.styleReferenceLookId).id
-        : null;
-      if (refLook && refLook !== look.id) {
-        if (project.styleReferenceStorageId) {
-          try {
-            await ctx.storage.delete(project.styleReferenceStorageId);
-          } catch {
-            // ignore
-          }
-        }
-        projectPatch.styleReferenceUrl = undefined;
-        projectPatch.styleReferenceStorageId = undefined;
-        projectPatch.styleReferenceLookId = undefined;
-      }
       kinds.push("image");
     }
 

@@ -1,6 +1,6 @@
 /**
  * Enfile les jobs image + voiceover pour les scènes d'un projet.
- * Partagé entre queueGenerationJobs (UI) et applyScriptResult (auto-chaînage).
+ * Style = ref image projet (SDXL+IP) ; sinon prompt générique upload.
  */
 
 import { MutationCtx } from "../_generated/server";
@@ -8,45 +8,34 @@ import { Doc } from "../_generated/dataModel";
 import { buildImagePrompt } from "./imagePrompt";
 import { bumpUsage } from "../usage";
 import {
-  getFacelessLook,
   getFacelessVoice,
-  resolveLookId,
+  UPLOAD_STYLE_NEGATIVE,
+  UPLOAD_STYLE_PROMPT,
   type CastMember,
-  type FacelessLookId,
 } from "./facelessPresets";
 
 export type AssetKind = "image" | "voiceover";
 
-/** Ref projet valide uniquement si liée au look courant. */
+/** URL ref style projet si présente (plus liée à un lookId). */
 export function resolveProjectStyleReference(
   project: Doc<"videoProjects">,
-): { url: string; lookId: FacelessLookId } | null {
-  const lookId = project.lookId
-    ? resolveLookId(project.lookId)
-    : null;
-  if (!lookId) return null;
+): string | null {
   const url = project.styleReferenceUrl?.trim();
-  const refLook = project.styleReferenceLookId
-    ? resolveLookId(project.styleReferenceLookId)
-    : null;
-  if (!url || refLook !== lookId) return null;
-  return { url, lookId };
+  return url || null;
 }
 
 function resolveStyle(studio: Doc<"studios">, project: Doc<"videoProjects">) {
-  const lookId = project.lookId
-    ? resolveLookId(project.lookId)
-    : null;
-  const look = lookId ? getFacelessLook(lookId) : null;
   const voice = project.voiceId ? getFacelessVoice(project.voiceId) : null;
-  const projectRef = resolveProjectStyleReference(project);
+  const referenceImageUrl = resolveProjectStyleReference(project);
+  const useStyleReference = Boolean(referenceImageUrl);
   return {
-    lookId,
-    visualStyle: look?.prompt ?? studio.visualStyle,
-    narrationTone: look?.toneHint ?? studio.narrationTone,
-    negativePrompt: look?.negativePrompt ?? "",
-    useStyleReference: Boolean(projectRef),
-    referenceImageUrl: projectRef?.url,
+    visualStyle: useStyleReference
+      ? UPLOAD_STYLE_PROMPT
+      : studio.visualStyle?.trim() || UPLOAD_STYLE_PROMPT,
+    narrationTone: studio.narrationTone,
+    negativePrompt: UPLOAD_STYLE_NEGATIVE,
+    useStyleReference,
+    referenceImageUrl: referenceImageUrl ?? undefined,
     voiceInstruct:
       voice?.instruct ??
       studio.voiceInstruct ??
@@ -62,7 +51,7 @@ export async function enqueueAssetJobsForProject(
     studio: Doc<"studios">;
     userId: string;
     kinds?: AssetKind[];
-    /** Force un nouveau seed (changement de look). */
+    /** Force un nouveau seed (changement de style). */
     newImageSeed?: number;
   },
 ): Promise<number> {
@@ -104,15 +93,14 @@ export async function enqueueAssetJobsForProject(
     await ctx.db.patch(project._id, { imageSeed: args.newImageSeed });
   }
 
-  // Sync studio.visualStyle sur le prompt look courant (évite stale DB).
-  if (resolved.lookId && visualStyle !== studio.visualStyle) {
+  // Sync studio.visualStyle sur le prompt upload (évite stale look presets).
+  if (visualStyle !== studio.visualStyle) {
     await ctx.db.patch(studio._id, {
       visualStyle,
       narrationTone,
     });
   }
 
-  // Annule jobs actifs des kinds demandés sur ce projet
   const existing = await ctx.db
     .query("generationJobs")
     .withIndex("by_videoProjectId", (q) =>

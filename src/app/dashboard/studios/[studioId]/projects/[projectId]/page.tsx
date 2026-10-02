@@ -20,13 +20,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { StudioStagePreview } from "@/components/StudioStagePreview";
 import {
-  FACELESS_LOOKS,
   FACELESS_VOICES,
-  matchFacelessLookId,
   matchFacelessVoiceId,
-  resolveLookId,
   type CastMember,
-  type FacelessLookId,
   type FacelessVoiceId,
 } from "@/lib/facelessPresets";
 import { downloadUrl, safeDownloadName, facelessCardStatus } from "@/lib/clipStatus";
@@ -156,10 +152,10 @@ export default function ProjectPage() {
   >({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [castDraft, setCastDraft] = useState<CastMember[] | null>(null);
-  const [draftLookId, setDraftLookId] = useState<FacelessLookId | null>(null);
   const [draftVoiceId, setDraftVoiceId] = useState<FacelessVoiceId | null>(
     null,
   );
+  const [styleRefDirty, setStyleRefDirty] = useState(false);
   const [showAdjust, setShowAdjust] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -310,10 +306,6 @@ export default function ProjectPage() {
 
   const adjustOpen = showAdjust;
 
-  const activeLook = resolveLookId(
-    (project.lookId as string | undefined) ??
-      matchFacelessLookId(studio.visualStyle),
-  );
   const activeVoice =
     (project.voiceId as FacelessVoiceId | undefined) ??
     matchFacelessVoiceId(studio.voiceInstruct ?? studio.narrationTone);
@@ -398,14 +390,13 @@ export default function ProjectPage() {
   }
 
   async function onConfirmAdjust() {
-    const selectedLook = draftLookId ?? activeLook;
     const selectedVoice = draftVoiceId ?? activeVoice;
-    const lookChanged = draftLookId != null && draftLookId !== activeLook;
     const voiceChanged =
       draftVoiceId != null && draftVoiceId !== activeVoice;
     const castChanged = castDraft !== null;
+    const styleChanged = styleRefDirty;
 
-    if (!lookChanged && !voiceChanged && !castChanged) {
+    if (!voiceChanged && !castChanged && !styleChanged) {
       setInfo("Rien à appliquer");
       return;
     }
@@ -416,19 +407,19 @@ export default function ProjectPage() {
     try {
       const res = await applyLookAndVoice({
         projectId,
-        lookId: lookChanged ? selectedLook : undefined,
         voiceId: voiceChanged ? selectedVoice! : undefined,
+        regenImages: styleChanged || castChanged,
         cast: castChanged
           ? cast.filter((c) => c.name.trim() || c.appearance.trim())
           : undefined,
       });
       const parts: string[] = [];
-      if (lookChanged) parts.push("style");
+      if (styleChanged) parts.push("style");
       if (voiceChanged) parts.push("voix");
       if (castChanged) parts.push("cast");
       setCastDraft(null);
-      setDraftLookId(null);
       setDraftVoiceId(null);
+      setStyleRefDirty(false);
       setInfo(
         `${parts.join(" + ")} confirmé → ${res.jobCount} job${res.jobCount > 1 ? "s" : ""}`,
       );
@@ -514,67 +505,37 @@ export default function ProjectPage() {
       })
     : null;
 
-  const lookLabel =
-    FACELESS_LOOKS.find((l) => l.id === activeLook)?.label ?? "Style";
+  const lookLabel = project.styleReferenceUrl ? "Réf. uploadée" : "Sans réf.";
   const voiceLabel =
     FACELESS_VOICES.find((v) => v.id === activeVoice)?.label ?? "Voix";
 
-  const selectedLook = draftLookId ?? activeLook;
   const selectedVoice = draftVoiceId ?? activeVoice;
   const adjustDirty =
-    (draftLookId != null && draftLookId !== activeLook) ||
+    styleRefDirty ||
     (draftVoiceId != null && draftVoiceId !== activeVoice) ||
     castDraft !== null;
 
   const adjustPanel = (
     <div className="space-y-5">
       <p className="text-[11px] leading-snug text-muted-foreground">
-        Choisis style et voix, puis confirme — une seule regen.
+        Upload une ref style, ajuste voix / cast, puis confirme.
       </p>
 
-      <div>
-        <p className="font-display text-[13px] tracking-tight text-foreground">
-          Style
-        </p>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {FACELESS_LOOKS.map((look) => {
-            const selected = selectedLook === look.id;
-            return (
-              <button
-                key={look.id}
-                type="button"
-                title={look.hint}
-                disabled={busy === "adjust"}
-                onClick={() => setDraftLookId(look.id)}
-                className={
-                  selected
-                    ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/40 transition-[transform,background-color,color] duration-150 ease-out active:scale-[0.97]"
-                    : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1.5 text-xs text-muted-foreground transition-[transform,background-color,color] duration-150 ease-out hover:text-foreground active:scale-[0.97] disabled:opacity-50"
-                }
-              >
-                {look.label}
-              </button>
-            );
-          })}
-        </div>
+      <div className="rounded-lg border border-border/60 bg-card/20 p-2.5">
+        <ReferenceImageUpload
+          mode="project"
+          projectId={projectId}
+          referenceImageUrl={project.styleReferenceUrl}
+          disabled={busy === "adjust" || hasActiveAssetJobs}
+          compact
+          onChanged={() => setStyleRefDirty(true)}
+        />
+        {styleRefDirty && project.styleReferenceUrl && (
+          <p className="mt-2 text-[11px] text-signal">
+            Ref prête — Confirmer pour regen les images
+          </p>
+        )}
       </div>
-
-      {selectedLook && (
-        <div className="rounded-lg border border-border/60 bg-card/20 p-2.5">
-          <ReferenceImageUpload
-            mode="project"
-            projectId={projectId}
-            lookId={selectedLook}
-            referenceImageUrl={
-              project.styleReferenceLookId === selectedLook
-                ? project.styleReferenceUrl
-                : null
-            }
-            disabled={busy === "adjust" || hasActiveAssetJobs}
-            compact
-          />
-        </div>
-      )}
 
       <div>
         <p className="font-display text-[13px] tracking-tight text-foreground">

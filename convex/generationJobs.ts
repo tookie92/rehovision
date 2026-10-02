@@ -14,7 +14,7 @@ import { buildImagePrompt } from "./lib/imagePrompt";
 import { parseGeneratedScript } from "./lib/scriptPrompt";
 import { enqueueAssetJobsForProject, resolveProjectStyleReference } from "./lib/enqueueAssets";
 import { sliceCaptionSegments } from "./lib/captionSegments";
-import { getFacelessLook } from "./lib/facelessPresets";
+import { UPLOAD_STYLE_PROMPT, UPLOAD_STYLE_NEGATIVE } from "./lib/facelessPresets";
 
 /** Jobs "processing" plus vieux que ça = worker probablement mort → requeue. */
 const STALE_PROCESSING_MS = 10 * 60 * 1000;
@@ -341,17 +341,16 @@ export const applyScriptResult = internalMutation({
     if (!studio) throw new Error("Studio introuvable");
 
     const script = parseGeneratedScript(args.rawScript);
-    const look = project.lookId
-      ? getFacelessLook(project.lookId)
-      : null;
-    const visualStyle = look?.prompt ?? studio.visualStyle;
-    const narrationTone = look?.toneHint ?? studio.narrationTone;
-    const negativePrompt = look?.negativePrompt ?? "";
+    const projectRef = resolveProjectStyleReference(project);
+    const visualStyle = projectRef
+      ? UPLOAD_STYLE_PROMPT
+      : studio.visualStyle || UPLOAD_STYLE_PROMPT;
+    const narrationTone = studio.narrationTone;
+    const negativePrompt = UPLOAD_STYLE_NEGATIVE;
     const cast = script.cast;
     const imageSeed =
       project.imageSeed ??
       Math.floor(Math.random() * 2_147_483_647);
-    const projectRef = resolveProjectStyleReference(project);
 
     const scenes = script.scenes.map((scene) => ({
       order: scene.order,

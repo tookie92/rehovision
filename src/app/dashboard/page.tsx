@@ -27,11 +27,8 @@ import {
   facelessStatusTone,
 } from "@/lib/clipStatus";
 import {
-  FACELESS_LOOKS,
   FACELESS_VOICES,
-  DEFAULT_FACELESS_LOOK_ID,
   DEFAULT_FACELESS_VOICE_ID,
-  type FacelessLookId,
   type FacelessVoiceId,
 } from "@/lib/facelessPresets";
 
@@ -147,9 +144,6 @@ function DashboardPageInner() {
   const [title, setTitle] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [facelessTopic, setFacelessTopic] = useState("");
-  const [facelessLookId, setFacelessLookId] = useState<FacelessLookId>(
-    DEFAULT_FACELESS_LOOK_ID,
-  );
   const [facelessVoiceId, setFacelessVoiceId] = useState<FacelessVoiceId>(
     DEFAULT_FACELESS_VOICE_ID,
   );
@@ -187,7 +181,6 @@ function DashboardPageInner() {
     try {
       const { projectId, studioId } = await createAndStartReel({
         topic,
-        lookId: facelessLookId,
         voiceId: facelessVoiceId,
       });
       router.push(`/dashboard/studios/${studioId}/projects/${projectId}`);
@@ -363,37 +356,10 @@ function DashboardPageInner() {
               className="min-h-[5.5rem] resize-none text-base"
               autoFocus
             />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Style</Label>
-            <div
-              role="listbox"
-              aria-label="Style"
-              className="flex flex-wrap gap-1.5"
-            >
-              {FACELESS_LOOKS.map((look) => {
-                const active = facelessLookId === look.id;
-                return (
-                  <button
-                    key={look.id}
-                    type="button"
-                    role="option"
-                    aria-selected={active}
-                    disabled={facelessPending}
-                    title={look.hint}
-                    onClick={() => setFacelessLookId(look.id)}
-                    className={
-                      active
-                        ? "cursor-pointer rounded-lg bg-signal/20 px-3 py-2 text-sm font-semibold text-signal ring-1 ring-signal/45"
-                        : "cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
-                    }
-                  >
-                    {look.label}
-                  </button>
-                );
-              })}
-            </div>
+            <p className="text-xs text-muted-foreground">
+              Le style se choisit ensuite dans l’atelier (upload d’une image de
+              référence).
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -756,9 +722,7 @@ function DashboardPageInner() {
                         </span>
                       </div>
                       <p className="mt-3 line-clamp-1 text-xs text-muted-foreground">
-                        Faceless ·{" "}
-                        {FACELESS_LOOKS.find((l) => l.id === p.lookId)?.label ??
-                          studioName}
+                        Faceless · {studioName}
                         {p.episodeNumber != null && p.episodeNumber > 0
                           ? ` · Ép. ${p.episodeNumber}`
                           : ""}

@@ -12,28 +12,27 @@ type StudioProps = {
   mode?: "studio";
   studioId: Id<"studios">;
   projectId?: never;
-  lookId?: never;
   referenceImageUrl?: string | null;
   disabled?: boolean;
   compact?: boolean;
+  onChanged?: () => void;
 };
 
 type ProjectProps = {
   mode: "project";
   projectId: Id<"videoProjects">;
   studioId?: never;
-  /** Look auquel lier la ref (draft ou actif). */
-  lookId: string;
   referenceImageUrl?: string | null;
   disabled?: boolean;
   compact?: boolean;
+  onChanged?: () => void;
 };
 
 type Props = StudioProps | ProjectProps;
 
 /**
- * Upload d'une référence de STYLE DE DESSIN (ex. clay, comic).
- * Mode projet : liée au look courant → worker SDXL + IP-Adapter.
+ * Upload d'une référence de STYLE DE DESSIN.
+ * Mode projet : worker SDXL + IP-Adapter.
  * Mode studio : legacy / global (secondaire).
  */
 export function ReferenceImageUpload(props: Props) {
@@ -84,11 +83,11 @@ export function ReferenceImageUpload(props: Props) {
         await setProjectRef({
           projectId: props.projectId,
           storageId,
-          lookId: props.lookId,
         });
       } else {
         await setStudioRef({ studioId: props.studioId, storageId });
       }
+      props.onChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur d'upload");
     } finally {
@@ -106,6 +105,7 @@ export function ReferenceImageUpload(props: Props) {
       } else {
         await clearStudioRef({ studioId: props.studioId });
       }
+      props.onChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally {
@@ -122,13 +122,13 @@ export function ReferenceImageUpload(props: Props) {
       <div>
         <Label htmlFor={inputId}>
           {isProject
-            ? "Réf. style pour ce look"
+            ? "Style (image de référence)"
             : "Style de dessin (référence image) — legacy"}
         </Label>
         <p className="mt-1 text-xs text-muted-foreground">
           {isProject
-            ? "Ex. Clay = photo pâte à modeler. Active SDXL + IP-Adapter sur regen."
-            : "Global studio — préfère l’upload dans Ajuster (lié au look)."}
+            ? "Upload ta ref (clay, comic, polar…) — les images s’adaptent via SDXL + IP-Adapter."
+            : "Global studio — préfère l’upload dans Ajuster du projet."}
         </p>
       </div>
 
