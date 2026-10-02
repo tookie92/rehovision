@@ -1,15 +1,14 @@
 /**
- * Presets faceless : looks viraux DISTINCTS + voix OmniVoice.
- * Chaque look a un `negativePrompt` pour éviter le collapse vers Anime.
+ * Presets faceless : looks viraux DISTINCTS (refs Clay / Spider-Verse / Sketch / Photo).
+ * Chaque look a un `negativePrompt` pour éviter le collapse entre familles.
  */
 
 export type FacelessLookId =
-  | "anime"
-  | "comic_us"
-  | "photoreal"
   | "clay"
-  | "flat"
-  | "noir";
+  | "spiderverse"
+  | "sketch"
+  | "photoreal"
+  | "anime";
 
 export type FacelessVoiceId =
   | "narrator_m"
@@ -50,70 +49,59 @@ export type CastMember = {
 
 export const FACELESS_LOOKS: FacelessLook[] = [
   {
-    id: "anime",
-    label: "Anime",
-    hint: "Manga cel-shading, yeux expressifs",
-    prompt:
-      "Japanese anime cel-shaded illustration, crisp clean lineart, large expressive anime eyes, flat cel colors, light screentone, 2D animation still",
-    negativePrompt:
-      "photorealistic, 3d render, clay, western comic, ben-day dots, documentary photo, oil painting",
-    toneHint: "expressif, clair",
-    genre: "custom",
-  },
-  {
-    id: "comic_us",
-    label: "Comic US",
-    hint: "Pulp américain, Ben-Day — PAS manga",
-    prompt:
-      "American comic book pulp illustration, thick ink outlines, dramatic cross-hatching, Ben-Day dots, limited CMYK palette, Jack Kirby energy, western superhero comic panel",
-    negativePrompt:
-      "anime, manga, cel shading, big anime eyes, chibi, japanese animation, soft pastel storybook",
-    toneHint: "intense, rythmé",
-    genre: "true_crime",
-  },
-  {
-    id: "photoreal",
-    label: "Photo ciné",
-    hint: "Still cinématographique réaliste",
-    prompt:
-      "cinematic photorealistic still frame, natural skin texture, anamorphic lens, shallow depth of field, film grain, grounded lighting, documentary drama",
-    negativePrompt:
-      "anime, manga, cartoon, comic book, illustration, clay, vector flat, drawing, painting",
-    toneHint: "grave, mystérieux",
-    genre: "true_crime",
-  },
-  {
     id: "clay",
-    label: "Clay 3D",
-    hint: "Claymation tactile stop-motion",
+    label: "Clay",
+    hint: "Stop-motion pâte à modeler, folk",
     prompt:
-      "stop-motion claymation still, tactile polymer clay texture, visible fingerprints in clay, handmade miniature set, soft studio lighting, Aardman-like craft",
+      "handcrafted stop-motion claymation still, polymer clay characters with fingerprints, large round doll eyes, soft matte clay skin, miniature ornate set, warm ochre terracotta palette, Aardman-like tactile craft, soft studio key light",
     negativePrompt:
-      "anime, manga, 2d flat illustration, photoreal skin, vector art, comic ink",
+      "photorealistic, anime, manga, flat vector, comic halftone, spider-verse, neon rim light, oil painting sketch, charcoal drawing",
     toneHint: "enjoué, clair",
     genre: "kids",
   },
   {
-    id: "flat",
-    label: "Flat vector",
-    hint: "Motion graphics géométrique",
+    id: "spiderverse",
+    label: "Spider-Verse",
+    hint: "3D comic, halftones, néon",
     prompt:
-      "flat vector motion-graphics illustration, bold geometric shapes, limited saturated palette, no gradients, clean iconographic characters, explainer video style",
+      "Spider-Verse stylized 3D comic still, bold ink outlines, visible CMYK halftone dots, chromatic aberration, neon rim lighting, high contrast noir-comic lighting, exaggerated proportions, graphic novel energy, not Japanese anime",
     negativePrompt:
-      "anime eyes, manga, photorealistic, clay, detailed skin pores, comic crosshatching, painterly",
+      "anime, manga, cel shading, big anime eyes, claymation, photoreal skin pores, watercolor sketch, flat vector icons, polaroid photo",
+    toneHint: "intense, rythmé",
+    genre: "true_crime",
+  },
+  {
+    id: "sketch",
+    label: "Sketch",
+    hint: "Encre + aquarelle dramatique",
+    prompt:
+      "expressive mixed-media courtroom sketch illustration, bold charcoal ink outlines, dramatic cross-hatching, watercolor washes in burnt orange and gold, dark moody background, gestural energetic strokes, editorial magazine art",
+    negativePrompt:
+      "photorealistic, clay, 3d render, anime, manga, spider-verse halftone, flat vector, clean corporate photo, plastic CGI",
+    toneHint: "grave, mystérieux",
+    genre: "true_crime",
+  },
+  {
+    id: "photoreal",
+    label: "Photo concept",
+    hint: "Studio high-key, métaphore visuelle",
+    prompt:
+      "conceptual high-key studio photograph, sharp photoreal detail, vast white negative space, polished reflective floor, clean modern lighting, single powerful visual metaphor, fashion-editorial composition, vertical 9:16",
+    negativePrompt:
+      "anime, manga, cartoon, clay, comic book, sketch drawing, watercolor, halftone, neon rim light, cluttered background, grainy polaroid",
     toneHint: "posé, narratif",
     genre: "custom",
   },
   {
-    id: "noir",
-    label: "Polaroid noir",
-    hint: "Found footage / cold case grain",
+    id: "anime",
+    label: "Anime",
+    hint: "Cel-shading manga",
     prompt:
-      "vintage instant polaroid photograph, harsh direct flash, heavy film grain, desaturated cold tones, worn white border, found-footage documentary aesthetic",
+      "Japanese anime cel-shaded illustration, crisp clean lineart, large expressive anime eyes, flat cel colors, light screentone, 2D animation still",
     negativePrompt:
-      "anime, manga, colorful cartoon, clay, clean vector, comic book ink, fantasy illustration",
-    toneHint: "posé, documentaire",
-    genre: "true_crime",
+      "photorealistic, 3d render, clay, western comic, spider-verse, ben-day dots, charcoal sketch, oil painting",
+    toneHint: "expressif, clair",
+    genre: "custom",
   },
 ];
 
@@ -170,7 +158,7 @@ export const FACELESS_VOICES: FacelessVoice[] = [
   },
 ];
 
-export const DEFAULT_FACELESS_LOOK_ID: FacelessLookId = "anime";
+export const DEFAULT_FACELESS_LOOK_ID: FacelessLookId = "clay";
 export const DEFAULT_FACELESS_VOICE_ID: FacelessVoiceId = "narrator_m";
 
 export function getFacelessLook(
@@ -192,13 +180,16 @@ export function getFacelessVoice(
 
 /** Alias legacy (anciens lookId en base). */
 const LOOK_ALIASES: Record<string, FacelessLookId> = {
-  comic: "comic_us",
+  comic: "spiderverse",
+  comic_us: "spiderverse",
   cinematic: "photoreal",
   clay3d: "clay",
-  flatvector: "flat",
-  surreal: "flat",
+  flat: "sketch",
+  flatvector: "sketch",
+  surreal: "sketch",
   storybook: "clay",
-  noirphoto: "noir",
+  noir: "sketch",
+  noirphoto: "sketch",
 };
 
 export function resolveLookId(
@@ -219,17 +210,42 @@ export function matchFacelessLookId(
     if (visualStyle.trim() === look.prompt) return look.id;
     if (v.includes(look.id.replace("_", " "))) return look.id;
   }
+  if (
+    v.includes("spider-verse") ||
+    v.includes("spiderverse") ||
+    v.includes("halftone") ||
+    v.includes("neon rim")
+  )
+    return "spiderverse";
+  if (
+    v.includes("clay") ||
+    v.includes("aardman") ||
+    v.includes("stop-motion") ||
+    v.includes("polymer clay")
+  )
+    return "clay";
+  if (
+    v.includes("charcoal") ||
+    v.includes("cross-hatching") ||
+    v.includes("watercolor") ||
+    v.includes("courtroom sketch") ||
+    v.includes("mixed-media")
+  )
+    return "sketch";
+  if (
+    v.includes("high-key") ||
+    v.includes("photoreal") ||
+    v.includes("conceptual") ||
+    v.includes("negative space")
+  )
+    return "photoreal";
   if (v.includes("anime") || v.includes("manga") || v.includes("cel"))
     return "anime";
   if (v.includes("ben-day") || v.includes("comic book") || v.includes("pulp"))
-    return "comic_us";
-  if (v.includes("photoreal") || v.includes("cinematic photo"))
-    return "photoreal";
-  if (v.includes("clay") || v.includes("aardman") || v.includes("stop-motion"))
-    return "clay";
-  if (v.includes("vector") || v.includes("motion-graphics")) return "flat";
-  if (v.includes("polaroid") || v.includes("found-footage")) return "noir";
-  if (v.includes("cinematic") || v.includes("etching")) return "photoreal";
+    return "spiderverse";
+  if (v.includes("vector") || v.includes("motion-graphics")) return "sketch";
+  if (v.includes("polaroid") || v.includes("found-footage")) return "sketch";
+  if (v.includes("cinematic")) return "photoreal";
   return null;
 }
 
