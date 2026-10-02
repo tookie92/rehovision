@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ClipTrimSlider } from "@/components/ClipTrimSlider";
 import { formatTimecode } from "@/lib/clipStatus";
+import { playbackUrl } from "@/lib/workerMedia";
 
 type Props = {
   sourceUrl: string;
@@ -36,9 +37,8 @@ export function ClipManualTrim({
   const [outSec, setOutSec] = useState(30);
   const [current, setCurrent] = useState(0);
   const [error, setError] = useState<string | null>(null);
-
-  const span = Math.max(0, outSec - inSec);
-  const valid = span >= MIN_SEC && span <= MAX_SEC;
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const src = playbackUrl(sourceUrl);
 
   function seek(sec: number) {
     const el = videoRef.current;
@@ -63,24 +63,40 @@ export function ClipManualTrim({
     }
   }
 
+  const span = Math.max(0, outSec - inSec);
+  const valid = span >= MIN_SEC && span <= MAX_SEC;
+
   return (
     <div className="space-y-4">
       <div className="overflow-hidden rounded-xl border border-border bg-black">
         <video
           ref={videoRef}
-          src={sourceUrl}
+          key={src}
+          src={src}
           controls
-          preload="metadata"
-          className="max-h-64 w-full object-contain"
+          playsInline
+          preload="auto"
+          className="aspect-video max-h-72 w-full bg-black object-contain"
           onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
           onLoadedMetadata={(e) => {
             const d = e.currentTarget.duration;
             if (!Number.isFinite(d) || d <= 0) return;
             setDuration(d);
             setOutSec(Math.min(30, d));
+            setMediaError(null);
           }}
+          onError={() =>
+            setMediaError(
+              "Vidéo source inaccessible — worker :8787 joignable ? Ou LAN http://IP:3000",
+            )
+          }
         />
       </div>
+      {mediaError && (
+        <p className="text-xs text-destructive" role="alert">
+          {mediaError}
+        </p>
+      )}
 
       {duration > 0 && (
         <ClipTrimSlider

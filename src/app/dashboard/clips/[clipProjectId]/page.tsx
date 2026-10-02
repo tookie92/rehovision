@@ -1009,7 +1009,7 @@ export default function ClipProjectPage() {
           )}
         </div>
         {toolsOpen && hasSource && (
-          <div className="mt-2 max-h-48 overflow-y-auto border-t border-border pt-2 lg:max-h-56">
+          <div className="mt-2 max-h-[min(55vh,28rem)] overflow-y-auto border-t border-border pt-2">
             <div className="lg:hidden">
               <ClipRenderOptions {...renderOptionsProps} defaultOpen />
             </div>

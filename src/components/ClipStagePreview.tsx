@@ -25,6 +25,7 @@ import {
   DEFAULT_SPLIT_FOCUS_TOP,
   clampSplitFocus,
 } from "@/lib/renderPresets";
+import { playbackUrl } from "@/lib/workerMedia";
 
 type ClipLike = {
   title: string;
@@ -251,7 +252,7 @@ function SoftSplitVideos({
         <video
           ref={topRef}
           key={`split-a-${sourceUrl}-${startSec}`}
-          src={`${sourceUrl}#t=${startSec},${endSec}`}
+          src={playbackUrl(sourceUrl, `t=${startSec},${endSec}`)}
           playsInline
           muted
           preload="auto"
@@ -282,7 +283,7 @@ function SoftSplitVideos({
         <video
           ref={botRef}
           key={`split-b-${sourceUrl}-${startSec}`}
-          src={`${sourceUrl}#t=${startSec},${endSec}`}
+          src={playbackUrl(sourceUrl, `t=${startSec},${endSec}`)}
           playsInline
           muted
           preload="auto"
@@ -389,7 +390,10 @@ export function ClipStagePreview({
   ]);
 
   const softSrc = sourceUrl
-    ? `${sourceUrl}${sourceUrl.includes("#") ? "" : `#t=${Math.max(0, clip.startSec)},${Math.max(clip.startSec + 0.5, clip.endSec)}`}`
+    ? playbackUrl(
+        sourceUrl,
+        `t=${Math.max(0, clip.startSec)},${Math.max(clip.startSec + 0.5, clip.endSec)}`,
+      )
     : undefined;
 
   useEffect(() => {
@@ -586,7 +590,7 @@ export function ClipStagePreview({
       {activeMode === "final" && clip.resultUrl ? (
         <video
           key={`final-${clip.resultUrl}`}
-          src={clip.resultUrl}
+          src={playbackUrl(clip.resultUrl) || clip.resultUrl}
           controls
           playsInline
           preload="metadata"

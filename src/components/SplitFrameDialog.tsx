@@ -14,6 +14,7 @@ import {
   DEFAULT_SPLIT_FOCUS_TOP,
   type SplitFocusPane,
 } from "@/lib/renderPresets";
+import { playbackUrl } from "@/lib/workerMedia";
 
 /** Aspect d’un demi-écran Split (1080×960). */
 const HALF_ASPECT = 1080 / 960;
@@ -328,7 +329,7 @@ export function SplitFrameDialog({
           <video
             ref={videoRef}
             key={sourceUrl}
-            src={sourceUrl}
+            src={playbackUrl(sourceUrl, `t=${startSec}`)}
             playsInline
             muted
             preload="metadata"

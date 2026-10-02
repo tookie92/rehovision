@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ClipTrimSlider } from "@/components/ClipTrimSlider";
+import { playbackUrl } from "@/lib/workerMedia";
 
 type Props = {
   sourceUrl: string;
@@ -41,9 +42,14 @@ export function ClipEditTrim({
   const [outSec, setOutSec] = useState(initialEnd);
   const [current, setCurrent] = useState(initialStart);
   const [error, setError] = useState<string | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
 
   const span = outSec - inSec;
   const valid = span >= MIN_SEC && span <= MAX_SEC;
+  const src = playbackUrl(
+    sourceUrl,
+    `t=${Math.max(0, initialStart).toFixed(2)}`,
+  );
 
   function seek(sec: number) {
     const el = videoRef.current;
@@ -72,18 +78,30 @@ export function ClipEditTrim({
       <div className="overflow-hidden rounded-md border border-border bg-black">
         <video
           ref={videoRef}
-          src={sourceUrl}
+          key={src}
+          src={src}
           controls
-          preload="metadata"
-          className="max-h-48 w-full object-contain"
+          playsInline
+          preload="auto"
+          className="aspect-video max-h-56 w-full bg-black object-contain"
           onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
           onLoadedMetadata={(e) => {
             const d = e.currentTarget.duration;
             if (Number.isFinite(d) && d > 0) setDuration(d);
-            e.currentTarget.currentTime = initialStart;
+            setMediaError(null);
           }}
+          onError={() =>
+            setMediaError(
+              "Vidéo source inaccessible — ouvre l’app en LAN http://IP:3000 ou vérifie le worker :8787",
+            )
+          }
         />
       </div>
+      {mediaError && (
+        <p className="text-xs text-destructive" role="alert">
+          {mediaError}
+        </p>
+      )}
       <ClipTrimSlider
         duration={duration}
         inSec={inSec}

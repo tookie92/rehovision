@@ -13,6 +13,7 @@ import {
   DEFAULT_SMART_FOCUS,
   type SplitFocusPane,
 } from "@/lib/renderPresets";
+import { playbackUrl } from "@/lib/workerMedia";
 
 /** Aspect full 9:16 (1080×1920). */
 const FULL_ASPECT = 1080 / 1920;
@@ -286,7 +287,7 @@ export function SmartFrameDialog({
           <video
             ref={videoRef}
             key={sourceUrl}
-            src={sourceUrl}
+            src={playbackUrl(sourceUrl, `t=${startSec}`)}
             playsInline
             muted
             preload="metadata"
