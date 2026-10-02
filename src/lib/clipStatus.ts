@@ -10,17 +10,21 @@ export const PROJECT_STATUS_LABEL: Record<string, string> = {
   failed: "Échec",
 };
 
-/** Statuts pipeline studio / faceless (`videoProjects`). */
+/** Statuts pipeline studio / faceless (`videoProjects`) — labels humains. */
 export const FACELESS_STATUS_LABEL: Record<string, string> = {
-  draft: "Brouillon",
-  script_ready: "Script",
-  generating: "Génération",
+  draft: "En cours…",
+  script_ready: "En cours…",
+  generating: "En cours…",
   ready: "Prêt",
   exported: "Exporté",
 };
 
 export function isFacelessPipelineActive(status: string): boolean {
-  return status === "generating" || status === "script_ready";
+  return (
+    status === "generating" ||
+    status === "script_ready" ||
+    status === "draft"
+  );
 }
 
 export function facelessStatusTone(status: string): string {

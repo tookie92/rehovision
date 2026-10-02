@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import {
@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardNav } from "@/components/DashboardNav";
 import {
@@ -108,8 +109,9 @@ function formatBytes(n: number): string {
 /**
  * Atelier Opus-style : une zone d’import claire + grille de projets.
  */
-export default function DashboardPage() {
+function DashboardPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const clipProjects = useQuery(api.clipProjects.listMine, { limit: 30 });
   const facelessProjects = useQuery(api.videoProjects.getRecentProjects, {
     limit: 30,
@@ -129,7 +131,20 @@ export default function DashboardPage() {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<Mode>("file");
-  const [dashTab, setDashTab] = useState<DashTab>("clips");
+  const tabParam = searchParams.get("tab");
+  const [dashTab, setDashTab] = useState<DashTab>(
+    tabParam === "faceless" ? "faceless" : "clips",
+  );
+
+  useEffect(() => {
+    setDashTab(tabParam === "faceless" ? "faceless" : "clips");
+  }, [tabParam]);
+
+  function setTab(next: DashTab) {
+    setDashTab(next);
+    setError(null);
+    router.replace(next === "faceless" ? "/dashboard?tab=faceless" : "/dashboard");
+  }
   const [title, setTitle] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [facelessTopic, setFacelessTopic] = useState("");
@@ -292,12 +307,12 @@ export default function DashboardPage() {
         <h1 className="font-display text-[clamp(1.85rem,4.5vw,2.75rem)] leading-[1.05] text-foreground">
           {dashTab === "clips"
             ? "Transforme un vlog en clips"
-            : "Reel faceless depuis un sujet"}
+            : "Un sujet. Un reel 9:16."}
         </h1>
         <p className="mt-3 max-w-lg text-base leading-relaxed text-muted-foreground">
           {dashTab === "clips"
             ? "Importe une vidéo. L’IA coupe les meilleurs moments en 9:16 prêts à poster."
-            : "Sujet → script Ollama → images Flux → voix → montage 9:16. Pipeline séparé des clips."}
+            : "Choisis un style et une voix, écris ton sujet — on s’occupe du reste."}
         </p>
         <div
           role="tablist"
@@ -308,10 +323,7 @@ export default function DashboardPage() {
             type="button"
             role="tab"
             aria-selected={dashTab === "clips"}
-            onClick={() => {
-              setDashTab("clips");
-              setError(null);
-            }}
+            onClick={() => setTab("clips")}
             className={
               dashTab === "clips"
                 ? "inline-flex cursor-pointer items-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-medium text-foreground"
@@ -325,10 +337,7 @@ export default function DashboardPage() {
             type="button"
             role="tab"
             aria-selected={dashTab === "faceless"}
-            onClick={() => {
-              setDashTab("faceless");
-              setError(null);
-            }}
+            onClick={() => setTab("faceless")}
             className={
               dashTab === "faceless"
                 ? "inline-flex cursor-pointer items-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-medium text-foreground"
@@ -342,16 +351,27 @@ export default function DashboardPage() {
       </header>
 
       {dashTab === "faceless" ? (
-        <form onSubmit={onFacelessSubmit} className="mb-14 max-w-2xl space-y-5">
+        <form onSubmit={onFacelessSubmit} className="mb-14 max-w-xl space-y-6">
           <div className="space-y-2">
-            <Label>Style illustration</Label>
-            <p className="text-xs text-muted-foreground">
-              Choisi avant génération — s’applique à toutes les scènes.
-            </p>
+            <Label htmlFor="faceless-topic">Sujet</Label>
+            <Textarea
+              id="faceless-topic"
+              value={facelessTopic}
+              onChange={(e) => setFacelessTopic(e.target.value)}
+              placeholder="ex. Pourquoi le Titanic a coulé — en 60 secondes"
+              disabled={facelessPending}
+              rows={3}
+              className="min-h-[5.5rem] resize-none text-base"
+              autoFocus
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Style</Label>
             <div
               role="listbox"
-              aria-label="Style illustration"
-              className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+              aria-label="Style"
+              className="flex flex-wrap gap-1.5"
             >
               {FACELESS_LOOKS.map((look) => {
                 const active = facelessLookId === look.id;
@@ -366,22 +386,11 @@ export default function DashboardPage() {
                     onClick={() => setFacelessLookId(look.id)}
                     className={
                       active
-                        ? "cursor-pointer rounded-xl border border-signal/50 bg-signal/15 px-3 py-2.5 text-left transition-colors"
-                        : "cursor-pointer rounded-xl border border-border bg-card/50 px-3 py-2.5 text-left hover:border-signal/30 disabled:opacity-50"
+                        ? "cursor-pointer rounded-lg bg-signal/20 px-3 py-2 text-sm font-semibold text-signal ring-1 ring-signal/45"
+                        : "cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
                     }
                   >
-                    <span
-                      className={
-                        active
-                          ? "block text-sm font-semibold text-signal"
-                          : "block text-sm font-medium text-foreground"
-                      }
-                    >
-                      {look.label}
-                    </span>
-                    <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
-                      {look.hint}
-                    </span>
+                    {look.label}
                   </button>
                 );
               })}
@@ -389,10 +398,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>Voix OmniVoice</Label>
-            <p className="text-xs text-muted-foreground">
-              Voice-design — regen toutes les scènes si tu changes plus tard.
-            </p>
+            <Label>Voix</Label>
             <div
               role="listbox"
               aria-label="Voix"
@@ -411,8 +417,8 @@ export default function DashboardPage() {
                     onClick={() => setFacelessVoiceId(voice.id)}
                     className={
                       active
-                        ? "cursor-pointer rounded-lg bg-signal/20 px-3 py-2 text-xs font-semibold text-signal ring-1 ring-signal/45"
-                        : "cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                        ? "cursor-pointer rounded-lg bg-signal/20 px-3 py-2 text-sm font-semibold text-signal ring-1 ring-signal/45"
+                        : "cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
                     }
                   >
                     {voice.label}
@@ -422,21 +428,10 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="faceless-topic">Sujet du reel</Label>
-            <Input
-              id="faceless-topic"
-              value={facelessTopic}
-              onChange={(e) => setFacelessTopic(e.target.value)}
-              placeholder="ex. L’affaire du train de nuit en 1892"
-              disabled={facelessPending}
-              className="h-11"
-            />
-          </div>
           <Button
             type="submit"
             disabled={facelessPending}
-            className="cta-signal h-11 cursor-pointer border-0 px-6 hover:bg-signal"
+            className="cta-signal h-11 cursor-pointer border-0 px-8 hover:bg-signal"
           >
             {facelessPending ? (
               <>
@@ -444,18 +439,9 @@ export default function DashboardPage() {
                 Lancement…
               </>
             ) : (
-              "Générer le reel"
+              "Générer"
             )}
           </Button>
-          <p className="text-xs text-muted-foreground">
-            Styles avancés / référence :{" "}
-            <Link
-              href="/dashboard/studios"
-              className="text-signal underline-offset-2 hover:underline"
-            >
-              Studios
-            </Link>
-          </p>
           {error && (
             <p className="text-sm text-destructive" role="alert">
               {error}
@@ -808,5 +794,23 @@ export default function DashboardPage() {
       </section>
       </div>
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="atelier-grain relative">
+          <div className="relative z-[1] space-y-6">
+            <Skeleton className="h-9 w-48" />
+            <Skeleton className="h-12 w-80" />
+            <Skeleton className="h-40 w-full max-w-xl" />
+          </div>
+        </div>
+      }
+    >
+      <DashboardPageInner />
+    </Suspense>
   );
 }

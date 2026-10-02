@@ -1,20 +1,28 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Plus } from "@phosphor-icons/react";
 
 /**
- * Chrome atelier — clips + entrée Studio faceless.
+ * Chrome atelier — Clips | Faceless (hub create), pas Studios.
  */
-export function DashboardNav() {
+function DashboardNavInner() {
   const pathname = usePathname();
-  const onClipsHome =
-    pathname === "/dashboard" || pathname === "/dashboard/clips";
+  const searchParams = useSearchParams();
+  const tab = searchParams.get("tab");
+
   const onClipProject = pathname.startsWith("/dashboard/clips/");
-  const onStudio =
-    pathname === "/dashboard/studios" ||
-    pathname.startsWith("/dashboard/studios/");
+  const onStudioProject = pathname.startsWith("/dashboard/studios/");
+  const onStudiosList = pathname === "/dashboard/studios";
+
+  const onDashboardHome =
+    pathname === "/dashboard" || pathname === "/dashboard/clips";
+  const onFacelessHub =
+    (onDashboardHome && tab === "faceless") || onStudioProject;
+  const onClipsHub =
+    onDashboardHome && tab !== "faceless" && !onClipProject;
 
   return (
     <div className="mb-8 flex items-center justify-between gap-4">
@@ -22,7 +30,7 @@ export function DashboardNav() {
         <Link
           href="/dashboard"
           className={
-            onClipsHome && !onClipProject
+            onClipsHub
               ? "rounded-lg bg-secondary px-3 py-2 text-sm font-semibold text-foreground"
               : "rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
           }
@@ -30,16 +38,16 @@ export function DashboardNav() {
           Clips
         </Link>
         <Link
-          href="/dashboard/studios"
+          href="/dashboard?tab=faceless"
           className={
-            onStudio
+            onFacelessHub
               ? "rounded-lg bg-secondary px-3 py-2 text-sm font-semibold text-foreground"
               : "rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
           }
         >
           Faceless
         </Link>
-        {onClipProject && (
+        {(onClipProject || onStudioProject) && (
           <>
             <span className="px-1 text-muted-foreground/40" aria-hidden>
               /
@@ -49,16 +57,42 @@ export function DashboardNav() {
             </span>
           </>
         )}
+        {onStudiosList && (
+          <>
+            <span className="px-1 text-muted-foreground/40" aria-hidden>
+              /
+            </span>
+            <span className="truncate px-2 py-2 text-sm text-muted-foreground">
+              Studios
+            </span>
+          </>
+        )}
       </nav>
-      {!onClipsHome || onClipProject || onStudio ? (
+      {onClipProject || onStudioProject || onStudiosList ? (
         <Link
-          href="/dashboard"
+          href={
+            onStudioProject || onStudiosList
+              ? "/dashboard?tab=faceless"
+              : "/dashboard"
+          }
           className="cta-signal inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm transition-[filter] hover:brightness-105"
         >
           <Plus className="size-4" weight="bold" />
-          Nouveau clip
+          {onStudioProject || onStudiosList ? "Nouveau reel" : "Nouveau clip"}
         </Link>
       ) : null}
     </div>
+  );
+}
+
+export function DashboardNav() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mb-8 h-9 w-48 animate-pulse rounded-lg bg-secondary/60" />
+      }
+    >
+      <DashboardNavInner />
+    </Suspense>
   );
 }
