@@ -21,9 +21,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardNav } from "@/components/DashboardNav";
 import {
   PROJECT_STATUS_LABEL,
-  FACELESS_STATUS_LABEL,
   isPipelineActive,
-  isFacelessPipelineActive,
+  facelessCardStatus,
   projectStatusTone,
   facelessStatusTone,
 } from "@/lib/clipStatus";
@@ -736,7 +735,7 @@ function DashboardPageInner() {
           facelessProjects.length > 0 && (
             <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {facelessProjects.map(({ project: p, studioName }) => {
-                const active = isFacelessPipelineActive(p.status);
+                const card = facelessCardStatus(p);
                 return (
                   <li key={p._id} className="relative">
                     <Link
@@ -748,16 +747,18 @@ function DashboardPageInner() {
                           {p.title || p.topic}
                         </p>
                         <span
-                          className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium ${facelessStatusTone(p.status)}`}
+                          className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium ${facelessStatusTone(card.label)}`}
                         >
-                          {active && (
+                          {card.active && (
                             <span className="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-amber-400 align-middle" />
                           )}
-                          {FACELESS_STATUS_LABEL[p.status] ?? p.status}
+                          {card.label}
                         </span>
                       </div>
                       <p className="mt-3 line-clamp-1 text-xs text-muted-foreground">
-                        Faceless · {studioName}
+                        Faceless ·{" "}
+                        {FACELESS_LOOKS.find((l) => l.id === p.lookId)?.label ??
+                          studioName}
                         {p.finalVideoUrl ? " · vidéo prête" : ""}
                       </p>
                     </Link>

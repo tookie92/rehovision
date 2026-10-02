@@ -12,24 +12,58 @@ export const PROJECT_STATUS_LABEL: Record<string, string> = {
 
 /** Statuts pipeline studio / faceless (`videoProjects`) — labels humains. */
 export const FACELESS_STATUS_LABEL: Record<string, string> = {
-  draft: "En cours…",
-  script_ready: "En cours…",
-  generating: "En cours…",
+  draft: "Écriture…",
+  script_ready: "Script prêt",
+  generating: "Génération…",
   ready: "Prêt",
   exported: "Exporté",
 };
 
 export function isFacelessPipelineActive(status: string): boolean {
-  return (
-    status === "generating" ||
-    status === "script_ready" ||
-    status === "draft"
-  );
+  return status === "generating" || status === "draft";
+}
+
+/** Affichage carte dashboard : priorise la vidéo finale sur le statut brut. */
+export function facelessCardStatus(project: {
+  status: string;
+  finalVideoUrl?: string | null;
+}): { label: string; active: boolean } {
+  if (project.status === "exported") {
+    return { label: "Exporté", active: false };
+  }
+  if (project.finalVideoUrl || project.status === "ready") {
+    return { label: "Prêt", active: false };
+  }
+  if (project.status === "generating") {
+    return { label: "Génération…", active: true };
+  }
+  if (project.status === "script_ready") {
+    return { label: "Script prêt", active: false };
+  }
+  if (project.status === "draft") {
+    return { label: "Écriture…", active: true };
+  }
+  return {
+    label: FACELESS_STATUS_LABEL[project.status] ?? project.status,
+    active: isFacelessPipelineActive(project.status),
+  };
 }
 
 export function facelessStatusTone(status: string): string {
-  if (status === "ready" || status === "exported") return "text-signal";
-  if (isFacelessPipelineActive(status)) return "text-amber-400";
+  if (status === "ready" || status === "exported" || status === "Prêt")
+    return "text-signal";
+  if (
+    status === "Exporté" ||
+    status === "ready" ||
+    status === "exported"
+  )
+    return "text-signal";
+  if (
+    isFacelessPipelineActive(status) ||
+    status === "Génération…" ||
+    status === "Écriture…"
+  )
+    return "text-amber-400";
   return "text-muted-foreground";
 }
 

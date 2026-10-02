@@ -817,6 +817,95 @@ export const updateCastAndRegenImages = mutation({
 });
 
 /**
+ * Applique look, voix et/ou cast en une fois (confirm Ajuster) puis regen.
+ */
+export const applyLookAndVoice = mutation({
+  args: {
+    projectId: v.id("videoProjects"),
+    lookId: v.optional(v.string()),
+    voiceId: v.optional(v.string()),
+    cast: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          name: v.string(),
+          appearance: v.string(),
+          clothing: v.string(),
+        }),
+      ),
+    ),
+  },
+  returns: v.object({
+    jobCount: v.number(),
+    kinds: v.array(v.union(v.literal("image"), v.literal("voiceover"))),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Projet introuvable");
+
+    const studio = await ctx.db.get(project.studioId);
+    if (!studio || studio.userId !== userId) {
+      throw new Error("Non autorisé");
+    }
+
+    const kinds: Array<"image" | "voiceover"> = [];
+    const projectPatch: Record<string, unknown> = {};
+
+    if (args.lookId) {
+      const look = getFacelessLook(args.lookId);
+      await ctx.db.patch(studio._id, {
+        visualStyle: look.prompt,
+        narrationTone: look.toneHint,
+        genre: look.genre,
+      });
+      projectPatch.lookId = look.id;
+      kinds.push("image");
+    }
+
+    if (args.voiceId) {
+      const voice = getFacelessVoice(args.voiceId);
+      await ctx.db.patch(studio._id, { voiceInstruct: voice.instruct });
+      projectPatch.voiceId = voice.id;
+      kinds.push("voiceover");
+    }
+
+    if (args.cast !== undefined) {
+      const cast = args.cast
+        .map((c) => ({
+          id: c.id.trim() || `char_${Math.random().toString(36).slice(2, 8)}`,
+          name: c.name.trim().slice(0, 80),
+          appearance: c.appearance.trim().slice(0, 200),
+          clothing: c.clothing.trim().slice(0, 120),
+        }))
+        .filter((c) => c.name || c.appearance);
+      projectPatch.cast = cast;
+      if (!kinds.includes("image")) kinds.push("image");
+    }
+
+    if (Object.keys(projectPatch).length > 0) {
+      await ctx.db.patch(project._id, projectPatch);
+    }
+
+    if (kinds.length === 0) {
+      return { jobCount: 0, kinds: [] };
+    }
+
+    const updatedProject = (await ctx.db.get(project._id))!;
+    const updatedStudio = (await ctx.db.get(studio._id))!;
+
+    const jobCount = await enqueueAssetJobsForProject(ctx, {
+      project: updatedProject,
+      studio: updatedStudio,
+      userId,
+      kinds,
+    });
+
+    return { jobCount, kinds };
+  },
+});
+
+/**
  * Applique une voix à tout le projet puis regen toutes les voiceovers.
  */
 export const applyVoiceAndRegen = mutation({

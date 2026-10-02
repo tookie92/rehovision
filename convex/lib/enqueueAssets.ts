@@ -143,7 +143,10 @@ export async function enqueueAssetJobsForProject(
     }
   }
 
-  await ctx.db.patch(project._id, { status: "generating" });
+  await ctx.db.patch(project._id, {
+    status: "generating",
+    finalVideoUrl: undefined,
+  });
   if (wantImage) {
     await bumpUsage(ctx, userId, { imagesGenerated: scenes.length });
   }

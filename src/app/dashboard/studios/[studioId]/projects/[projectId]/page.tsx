@@ -29,15 +29,7 @@ import {
   type FacelessLookId,
   type FacelessVoiceId,
 } from "@/lib/facelessPresets";
-import { downloadUrl, safeDownloadName } from "@/lib/clipStatus";
-
-const STATUS_LABEL: Record<string, string> = {
-  draft: "En cours…",
-  script_ready: "En cours…",
-  generating: "En cours…",
-  ready: "Prêt",
-  exported: "Exporté",
-};
+import { downloadUrl, safeDownloadName, facelessCardStatus } from "@/lib/clipStatus";
 
 const PIPELINE_STEPS = [
   { key: "script", label: "Script" },
@@ -145,17 +137,11 @@ export default function ProjectPage() {
   const updateScene = useMutation(api.videoProjects.updateScene);
   const deleteScene = useMutation(api.videoProjects.deleteScene);
   const queueSceneJobs = useMutation(api.videoProjects.queueSceneJobs);
-  const applyLookAndRegenImages = useMutation(
-    api.videoProjects.applyLookAndRegenImages,
-  );
-  const applyVoiceAndRegen = useMutation(api.videoProjects.applyVoiceAndRegen);
-  const updateCastAndRegenImages = useMutation(
-    api.videoProjects.updateCastAndRegenImages,
-  );
+  const applyLookAndVoice = useMutation(api.videoProjects.applyLookAndVoice);
   const deleteVideoProject = useMutation(api.videoProjects.deleteVideoProject);
 
   const [busy, setBusy] = useState<
-    "script" | "assets" | "style" | "voice" | "cast" | "delete" | null
+    "script" | "assets" | "adjust" | "delete" | null
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -168,6 +154,10 @@ export default function ProjectPage() {
   >({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [castDraft, setCastDraft] = useState<CastMember[] | null>(null);
+  const [draftLookId, setDraftLookId] = useState<FacelessLookId | null>(null);
+  const [draftVoiceId, setDraftVoiceId] = useState<FacelessVoiceId | null>(
+    null,
+  );
   const [showAdjust, setShowAdjust] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -400,37 +390,40 @@ export default function ProjectPage() {
     }
   }
 
-  async function onApplyLook(lookId: FacelessLookId) {
+  async function onConfirmAdjust() {
+    const selectedLook = draftLookId ?? activeLook;
+    const selectedVoice = draftVoiceId ?? activeVoice;
+    const lookChanged = draftLookId != null && draftLookId !== activeLook;
+    const voiceChanged =
+      draftVoiceId != null && draftVoiceId !== activeVoice;
+    const castChanged = castDraft !== null;
+
+    if (!lookChanged && !voiceChanged && !castChanged) {
+      setInfo("Rien à appliquer");
+      return;
+    }
+
     setError(null);
-    setBusy("style");
+    setBusy("adjust");
     setPreferSoft(true);
     try {
-      const { jobCount } = await applyLookAndRegenImages({
+      const res = await applyLookAndVoice({
         projectId,
-        lookId,
+        lookId: lookChanged ? selectedLook : undefined,
+        voiceId: voiceChanged ? selectedVoice! : undefined,
+        cast: castChanged
+          ? cast.filter((c) => c.name.trim() || c.appearance.trim())
+          : undefined,
       });
-      const look = FACELESS_LOOKS.find((l) => l.id === lookId);
+      const parts: string[] = [];
+      if (lookChanged) parts.push("style");
+      if (voiceChanged) parts.push("voix");
+      if (castChanged) parts.push("cast");
+      setCastDraft(null);
+      setDraftLookId(null);
+      setDraftVoiceId(null);
       setInfo(
-        `Style « ${look?.label ?? lookId} » → ${jobCount} image${jobCount > 1 ? "s" : ""} en file`,
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function onApplyVoice(voiceId: FacelessVoiceId) {
-    setError(null);
-    setBusy("voice");
-    try {
-      const { jobCount } = await applyVoiceAndRegen({
-        projectId,
-        voiceId,
-      });
-      const voice = FACELESS_VOICES.find((v) => v.id === voiceId);
-      setInfo(
-        `Voix « ${voice?.label ?? voiceId} » → ${jobCount} scène${jobCount > 1 ? "s" : ""} en file (écoute Soft après regen)`,
+        `${parts.join(" + ")} confirmé → ${res.jobCount} job${res.jobCount > 1 ? "s" : ""}`,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -453,26 +446,6 @@ export default function ProjectPage() {
     };
     next[index] = { ...cur, [field]: value };
     setCastDraft(next);
-  }
-
-  async function onSaveCast() {
-    setError(null);
-    setBusy("cast");
-    setPreferSoft(true);
-    try {
-      const { jobCount } = await updateCastAndRegenImages({
-        projectId,
-        cast: cast.filter((c) => c.name.trim() || c.appearance.trim()),
-      });
-      setCastDraft(null);
-      setInfo(
-        `Cast mis à jour → ${jobCount} image${jobCount > 1 ? "s" : ""} en file`,
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur");
-    } finally {
-      setBusy(null);
-    }
   }
 
   async function onDeleteProject() {
@@ -524,26 +497,37 @@ export default function ProjectPage() {
   const voiceLabel =
     FACELESS_VOICES.find((v) => v.id === activeVoice)?.label ?? "Voix";
 
+  const selectedLook = draftLookId ?? activeLook;
+  const selectedVoice = draftVoiceId ?? activeVoice;
+  const adjustDirty =
+    (draftLookId != null && draftLookId !== activeLook) ||
+    (draftVoiceId != null && draftVoiceId !== activeVoice) ||
+    castDraft !== null;
+
   const adjustPanel = (
     <div className="space-y-5">
+      <p className="text-[11px] leading-snug text-muted-foreground">
+        Choisis style et voix, puis confirme — une seule regen.
+      </p>
+
       <div>
         <p className="font-display text-[13px] tracking-tight text-foreground">
           Style
         </p>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {FACELESS_LOOKS.map((look) => {
-            const active = activeLook === look.id;
+            const selected = selectedLook === look.id;
             return (
               <button
                 key={look.id}
                 type="button"
                 title={look.hint}
-                disabled={busy === "style" || hasActiveAssetJobs}
-                onClick={() => void onApplyLook(look.id)}
+                disabled={busy === "adjust"}
+                onClick={() => setDraftLookId(look.id)}
                 className={
-                  active
-                    ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/40"
-                    : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  selected
+                    ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/40 transition-[transform,background-color,color] duration-150 ease-out active:scale-[0.97]"
+                    : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1.5 text-xs text-muted-foreground transition-[transform,background-color,color] duration-150 ease-out hover:text-foreground active:scale-[0.97] disabled:opacity-50"
                 }
               >
                 {look.label}
@@ -559,18 +543,18 @@ export default function ProjectPage() {
         </p>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {FACELESS_VOICES.map((voice) => {
-            const active = activeVoice === voice.id;
+            const selected = selectedVoice === voice.id;
             return (
               <button
                 key={voice.id}
                 type="button"
                 title={voice.hint}
-                disabled={busy === "voice" || hasActiveAssetJobs}
-                onClick={() => void onApplyVoice(voice.id)}
+                disabled={busy === "adjust"}
+                onClick={() => setDraftVoiceId(voice.id)}
                 className={
-                  active
-                    ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/40"
-                    : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  selected
+                    ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/40 transition-[transform,background-color,color] duration-150 ease-out active:scale-[0.97]"
+                    : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1.5 text-xs text-muted-foreground transition-[transform,background-color,color] duration-150 ease-out hover:text-foreground active:scale-[0.97] disabled:opacity-50"
                 }
               >
                 {voice.label}
@@ -622,22 +606,23 @@ export default function ProjectPage() {
                 />
               </div>
             ))}
-            <Button
-              type="button"
-              size="sm"
-              className="h-8 w-full cursor-pointer"
-              disabled={
-                busy === "cast" ||
-                hasActiveAssetJobs ||
-                castDraft === null
-              }
-              onClick={() => void onSaveCast()}
-            >
-              {busy === "cast" ? "…" : "Appliquer cast"}
-            </Button>
           </div>
         )}
       </div>
+
+      <Button
+        type="button"
+        size="sm"
+        className="h-9 w-full cursor-pointer font-semibold transition-transform duration-150 ease-out active:scale-[0.97]"
+        disabled={busy === "adjust" || hasActiveAssetJobs || !adjustDirty}
+        onClick={() => void onConfirmAdjust()}
+      >
+        {busy === "adjust"
+          ? "Application…"
+          : adjustDirty
+            ? "Confirmer les changements"
+            : "Aucun changement"}
+      </Button>
 
       {focused && draft && (
         <div>
@@ -734,7 +719,7 @@ export default function ProjectPage() {
           {project.title}
         </h1>
         <span className="rounded-md bg-secondary/80 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-          {STATUS_LABEL[project.status] ?? project.status}
+          {facelessCardStatus(project).label}
         </span>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           {writingPhase && (

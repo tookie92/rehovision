@@ -275,14 +275,18 @@ export function matchFacelessVoiceId(
   return null;
 }
 
-/** Texte cast lock à coller dans chaque prompt image. */
+/** Texte cast lock — compact (Flux truncate) mais identité stricte. */
 export function formatCastLock(
   cast: CastMember[] | undefined | null,
 ): string | null {
   if (!cast || cast.length === 0) return null;
-  const parts = cast.map((c) => {
-    const bits = [c.name, c.appearance, c.clothing].filter(Boolean);
+  const parts = cast.slice(0, 4).map((c) => {
+    const bits = [
+      c.name?.trim().slice(0, 40),
+      c.appearance?.trim().slice(0, 90),
+      c.clothing?.trim().slice(0, 50),
+    ].filter(Boolean);
     return bits.join(", ");
   });
-  return `SAME CHARACTERS every frame (identity lock): ${parts.join(" | ")}. Keep face, hair, age, skin tone and outfit consistent across scenes`;
+  return `SAME CAST every scene (identical face hair age skin outfit, no new faces): ${parts.join(" | ")}`;
 }
