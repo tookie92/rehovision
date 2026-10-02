@@ -245,9 +245,11 @@ export default function ClipProjectPage() {
       }
       setApplyInfo(
         n > 0
-          ? `${n} clip${n > 1 ? "s" : ""} mis en file — le worker les reprend.`
+          ? `${n} clip${n > 1 ? "s" : ""} mis en file — Soft off, Final dès que prêt.`
           : "Aucun clip à re-rendre",
       );
+      // Étape 0 : regarder le MP4 Final, pas la source Soft lourde
+      if (n > 0) setPreferSoft(false);
     } catch (err) {
       setRetryError(err instanceof Error ? err.message : "Erreur");
     } finally {
@@ -620,7 +622,7 @@ export default function ClipProjectPage() {
         </span>
         <label
           className="hidden cursor-pointer items-center gap-1.5 rounded-full border border-border/80 bg-background/50 px-2.5 py-1 text-[11px] text-muted-foreground sm:flex"
-          title="Aperçu navigateur immédiat (looks, captions, Split). Le MP4 final = Re-rendre."
+          title="Soft = aperçu source (lent). Décoche dès qu’un Final existe. Coche seulement pour juger look/captions avant Re-rendre."
         >
           <input
             type="checkbox"
@@ -815,6 +817,11 @@ export default function ClipProjectPage() {
             onFocus={(id) => {
               setFocusedClipId(id);
               setEditingClipId(null);
+              const hit = clips.find((c) => c._id === id);
+              // Clip déjà rendu → Final (rapide). Soft seulement pour polish volontaire.
+              if (hit?.resultUrl && hit.status === "ready") {
+                setPreferSoft(false);
+              }
             }}
             onToggleSelect={toggleSelect}
             onSelectAll={() =>
