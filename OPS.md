@@ -73,6 +73,16 @@ Soit **Import → Fichier** (recommandé pour valider le parcours).
 
 **Fichier d’abord** (pas YouTube). Faceless images gelées (`FACELESS_DISABLED=1`).
 
+**Upload lent ?** Si tu es sur `https://app.rehovision.com`, le navigateur
+**ne peut pas** joindre `http://IP:8787` (mixed content) → chunks Cloudflare ~lent.
+Solution rapide : ouvrir Next en LAN `http://IP_UBUNTU:3000` (upload direct 1 requête).
+
+```bash
+# Windows doit pinger l’IP Ubuntu ; ufw :
+sudo ufw allow 8787/tcp
+sudo ufw allow 3000/tcp
+```
+
 1. Dashboard → Fichier → vlog MP4 → upload OK  
 2. Pipeline : Source → Analyse → Moments → Export  
 3. Clips ~30s, badge « Prêt à poster »  

@@ -207,6 +207,60 @@ async function uploadFileChunked(
   return doneBody;
 }
 
+/** Infos worker si le navigateur peut l’appeler (pas de mixed content HTTPS→HTTP). */
+async function resolveDirectWorker(): Promise<
+  { base: string; secret: string } | undefined
+> {
+  try {
+    const infoRes = await fetch("/api/worker-upload-info");
+    const info = (await infoRes.json()) as {
+      mediaBase?: string;
+      secret?: string;
+    };
+    if (!infoRes.ok || !info.mediaBase || !info.secret) return undefined;
+    const pageHttps =
+      typeof window !== "undefined" && window.location.protocol === "https:";
+    const workerHttps = info.mediaBase.startsWith("https:");
+    // Navigateur bloque HTTPS page → HTTP :8787
+    if (pageHttps && !workerHttps) return undefined;
+    return { base: info.mediaBase.replace(/\/$/, ""), secret: info.secret };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 1) POST unique LAN :8787 (vitesse d’avant)
+ * 2) chunks direct LAN
+ * 3) chunks via Next/Cloudflare (lent)
+ */
+async function uploadToWorker(
+  file: File,
+  onProgress: (pct: number) => void,
+): Promise<Record<string, unknown>> {
+  const direct = await resolveDirectWorker();
+  if (direct) {
+    try {
+      return await uploadWithProgress(
+        `${direct.base}/upload`,
+        file,
+        onProgress,
+        {
+          "x-worker-secret": direct.secret,
+          "x-filename": file.name,
+        },
+      );
+    } catch {
+      try {
+        return await uploadFileChunked(file, onProgress, direct);
+      } catch {
+        /* fallback CF */
+      }
+    }
+  }
+  return uploadFileChunked(file, onProgress, undefined);
+}
+
 function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} Ko`;
   if (n < 1024 * 1024 * 1024)
@@ -312,28 +366,15 @@ function DashboardPageInner() {
       if (useWorkerUpload) {
         setPhase("Envoi vers le worker…");
         setUploadPct(0);
-        // HTTP LAN → direct :8787 (rapide). HTTPS (app.rehovision.com) → chunks 1.5 Mo via Next.
-        let direct:
-          | { base: string; secret: string }
-          | undefined;
-        if (
+        const viaHttpsTunnel =
           typeof window !== "undefined" &&
-          window.location.protocol === "http:"
-        ) {
-          try {
-            const infoRes = await fetch("/api/worker-upload-info");
-            const info = (await infoRes.json()) as {
-              mediaBase?: string;
-              secret?: string;
-            };
-            if (infoRes.ok && info.mediaBase && info.secret) {
-              direct = { base: info.mediaBase, secret: info.secret };
-            }
-          } catch {
-            /* fallback proxy */
-          }
+          window.location.protocol === "https:";
+        if (viaHttpsTunnel) {
+          setPhase(
+            "Envoi via tunnel (lent) — préfère http://IP_UBUNTU:3000 en LAN…",
+          );
         }
-        const body = await uploadFileChunked(file, setUploadPct, direct);
+        const body = await uploadToWorker(file, setUploadPct);
         const fileId = String(body.fileId || "");
         const mediaUrl = String(body.mediaUrl || "");
         if (!fileId || !mediaUrl) {
