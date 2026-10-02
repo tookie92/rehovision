@@ -40,6 +40,19 @@ export default defineSchema({
     lookId: v.optional(v.string()),
     /** Preset voix OmniVoice choisi avant génération */
     voiceId: v.optional(v.string()),
+    /** Cast bible — cohérence personnages entre scènes */
+    cast: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          name: v.string(),
+          appearance: v.string(),
+          clothing: v.string(),
+        }),
+      ),
+    ),
+    /** Seed Flux partagé pour cohérence visuelle inter-scènes */
+    imageSeed: v.optional(v.number()),
     autoGenerateAssets: v.optional(v.boolean()),
     finalVideoUrl: v.optional(v.string()),
     createdAt: v.number(),

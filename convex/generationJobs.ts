@@ -14,6 +14,7 @@ import { buildImagePrompt } from "./lib/imagePrompt";
 import { parseGeneratedScript } from "./lib/scriptPrompt";
 import { enqueueAssetJobsForProject } from "./lib/enqueueAssets";
 import { sliceCaptionSegments } from "./lib/captionSegments";
+import { getFacelessLook } from "./lib/facelessPresets";
 
 /** Jobs "processing" plus vieux que ça = worker probablement mort → requeue. */
 const STALE_PROCESSING_MS = 10 * 60 * 1000;
@@ -340,16 +341,29 @@ export const applyScriptResult = internalMutation({
     if (!studio) throw new Error("Studio introuvable");
 
     const script = parseGeneratedScript(args.rawScript);
+    const look = project.lookId
+      ? getFacelessLook(project.lookId)
+      : null;
+    const visualStyle = look?.prompt ?? studio.visualStyle;
+    const narrationTone = look?.toneHint ?? studio.narrationTone;
+    const negativePrompt = look?.negativePrompt ?? "";
+    const cast = script.cast;
+    const imageSeed =
+      project.imageSeed ??
+      Math.floor(Math.random() * 2_147_483_647);
+
     const scenes = script.scenes.map((scene) => ({
       order: scene.order,
       narrationText: scene.narrationText,
       visualBeat: scene.visualBeat,
       imagePrompt: buildImagePrompt({
         visualBeat: scene.visualBeat || scene.narrationText,
-        visualStyle: studio.visualStyle,
-        narrationTone: studio.narrationTone,
+        visualStyle,
+        narrationTone,
         topic: project.topic,
         hasStyleReference: Boolean(studio.referenceImageUrl),
+        cast,
+        negativePrompt,
       }),
     }));
 
@@ -377,6 +391,8 @@ export const applyScriptResult = internalMutation({
     await ctx.db.patch(videoProjectId, {
       title: script.title,
       status: "script_ready",
+      cast,
+      imageSeed,
     });
 
     await ctx.db.patch(args.jobId, {

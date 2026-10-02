@@ -30,22 +30,32 @@ ANCRAGE RÉEL (obligatoire) :
 
 visualBeat — chaque scène DOIT inclure explicitement :
 1) lieu / décor concret (ville, type de bâtiment, nature…)
-2) apparence des personnes (teint, cheveux, âge approximatif, vêtements locaux / d'époque)
+2) apparence des personnes via le cast (mêmes traits / tenue)
 3) action ou cadrage (plan serré, large, nuit, jour…)
-Écris le visualBeat en français, riche et précis (1–3 phrases), prêt à guider une illustration.
+Écris le visualBeat en ANGLAIS, riche et précis (1–3 phrases), prêt pour Flux — narration reste en français.
 `.trim();
 
 const BASE_JSON = `Tu réponds UNIQUEMENT en JSON valide, sans markdown, selon ce schéma :
 {
   "title": "titre accrocheur court",
+  "cast": [
+    {
+      "id": "char_1",
+      "name": "Nom court",
+      "appearance": "âge, genre, teint, cheveux, traits — EN ANGLAIS, max 25 mots",
+      "clothing": "tenue récurrente — EN ANGLAIS, max 12 mots"
+    }
+  ],
   "scenes": [
     {
       "order": 1,
       "narrationText": "texte voix-off",
-      "visualBeat": "description visuelle ancrée : lieu + apparence + action"
+      "visualBeat": "description visuelle ancrée EN ANGLAIS : lieu + personnages du cast (mêmes traits) + action"
     }
   ]
-}`;
+}
+
+CAST : 1–3 personnages max. appearance + clothing identiques d'une scène à l'autre. visualBeat réutilise les name du cast. Si pas de personnage humain : "cast": [].`;
 
 const GENRE_PROMPTS: Record<GenreId, string> = {
   true_crime: `Tu es un scénariste expert en vidéos narratives faceless pour TikTok, YouTube Shorts et Instagram Reels (format vertical ~60–90 secondes).

@@ -363,10 +363,17 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
 
         if job_type == "image":
             out = work_dir / "scene.png"
+            raw_seed = payload.get("seed")
+            try:
+                seed_val = int(raw_seed) if raw_seed is not None else None
+            except (TypeError, ValueError):
+                seed_val = None
             path = generate_image(
                 prompt=payload.get("prompt", ""),
                 style_reference=payload.get("referenceImageUrl"),
                 output_path=out,
+                seed=seed_val,
+                negative_prompt=payload.get("negativePrompt") or None,
             )
             submit_file_result(site_url, job_id, path, "image/png")
             return

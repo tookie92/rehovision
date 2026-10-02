@@ -253,6 +253,8 @@ def generate_image(
     prompt: str,
     style_reference: str | None = None,
     output_path: Path | None = None,
+    seed: int | None = None,
+    negative_prompt: str | None = None,
 ) -> Path:
     if not prompt or not prompt.strip():
         raise ValueError("Prompt d'image vide")
@@ -292,12 +294,26 @@ def generate_image(
 
     if _is_flux(model_id) or _pipeline_kind == "flux":
         gen_kwargs["max_sequence_length"] = max_seq
+    else:
+        # SDXL / non-Flux : canal négatif natif
+        neg = (negative_prompt or "").strip()
+        if neg:
+            gen_kwargs["negative_prompt"] = neg
 
-    seed_raw = os.getenv("SD_SEED", "").strip()
-    if seed_raw:
+    # Seed projet (cohérence) > SD_SEED env > aléatoire
+    seed_val: int | None = seed
+    if seed_val is None:
+        seed_raw = os.getenv("SD_SEED", "").strip()
+        if seed_raw:
+            try:
+                seed_val = int(seed_raw)
+            except ValueError:
+                seed_val = None
+    if seed_val is not None:
         gen_kwargs["generator"] = torch.Generator(device="cpu").manual_seed(
-            int(seed_raw)
+            int(seed_val)
         )
+        log.info("Image seed=%s", seed_val)
 
     # Style ref : IP-Adapter (pas img2img) pour ne pas coller le contenu
     used_ip = False

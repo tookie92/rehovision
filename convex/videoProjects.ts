@@ -40,6 +40,17 @@ const projectDoc = v.object({
   status: projectStatus,
   lookId: v.optional(v.string()),
   voiceId: v.optional(v.string()),
+  cast: v.optional(
+    v.array(
+      v.object({
+        id: v.string(),
+        name: v.string(),
+        appearance: v.string(),
+        clothing: v.string(),
+      }),
+    ),
+  ),
+  imageSeed: v.optional(v.number()),
   autoGenerateAssets: v.optional(v.boolean()),
   finalVideoUrl: v.optional(v.string()),
   createdAt: v.number(),
@@ -151,6 +162,7 @@ export const createAndStartReel = mutation({
     if (!studio) throw new Error("Studio introuvable");
 
     const now = Date.now();
+    const imageSeed = Math.floor(Math.random() * 2_147_483_647);
     const projectId = await ctx.db.insert("videoProjects", {
       studioId,
       title: topic,
@@ -158,6 +170,7 @@ export const createAndStartReel = mutation({
       status: "draft",
       lookId: look.id,
       voiceId: voice.id,
+      imageSeed,
       autoGenerateAssets: true,
       createdAt: now,
     });
@@ -541,13 +554,20 @@ export const queueSceneJobs = mutation({
       const beat =
         scene.visualBeat?.trim() || scene.narrationText;
       const hasRef = Boolean(studio.referenceImageUrl);
-      // Toujours le style studio courant (chips Style) — pas l’ancien imagePrompt.
+      const look = project.lookId
+        ? getFacelessLook(project.lookId)
+        : null;
+      const visualStyle = look?.prompt ?? studio.visualStyle;
+      const narrationTone = look?.toneHint ?? studio.narrationTone;
+      const negativePrompt = look?.negativePrompt ?? "";
       const prompt = buildImagePrompt({
         visualBeat: beat,
-        visualStyle: studio.visualStyle,
-        narrationTone: studio.narrationTone,
+        visualStyle,
+        narrationTone,
         topic: project.topic,
         hasStyleReference: hasRef,
+        cast: project.cast,
+        negativePrompt,
       });
       await ctx.db.patch(scene._id, {
         imagePrompt: prompt,
@@ -562,7 +582,9 @@ export const queueSceneJobs = mutation({
         provider: "local",
         payload: {
           prompt,
-          visualStyle: studio.visualStyle,
+          visualStyle,
+          negativePrompt,
+          seed: project.imageSeed,
           referenceImageUrl: studio.referenceImageUrl,
         },
         createdAt: now,
@@ -736,6 +758,56 @@ export const applyLookAndRegenImages = mutation({
     const jobCount = await enqueueAssetJobsForProject(ctx, {
       project: updatedProject,
       studio: updatedStudio,
+      userId,
+      kinds: ["image"],
+    });
+
+    return { jobCount };
+  },
+});
+
+/**
+ * Met à jour le cast bible puis regen toutes les images (cohérence personnages).
+ */
+export const updateCastAndRegenImages = mutation({
+  args: {
+    projectId: v.id("videoProjects"),
+    cast: v.array(
+      v.object({
+        id: v.string(),
+        name: v.string(),
+        appearance: v.string(),
+        clothing: v.string(),
+      }),
+    ),
+  },
+  returns: v.object({ jobCount: v.number() }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Projet introuvable");
+
+    const studio = await ctx.db.get(project.studioId);
+    if (!studio || studio.userId !== userId) {
+      throw new Error("Non autorisé");
+    }
+
+    const cast = args.cast
+      .slice(0, 3)
+      .map((c, i) => ({
+        id: c.id.trim() || `char_${i + 1}`,
+        name: c.name.trim().slice(0, 60),
+        appearance: c.appearance.trim().slice(0, 200),
+        clothing: c.clothing.trim().slice(0, 120),
+      }))
+      .filter((c) => c.name || c.appearance);
+
+    await ctx.db.patch(project._id, { cast });
+
+    const updatedProject = (await ctx.db.get(project._id))!;
+    const jobCount = await enqueueAssetJobsForProject(ctx, {
+      project: updatedProject,
+      studio,
       userId,
       kinds: ["image"],
     });

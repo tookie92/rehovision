@@ -1,17 +1,15 @@
 /**
- * Presets faceless : looks viraux + voix OmniVoice.
- * Source de vérité côté Convex (importé aussi depuis src/lib).
+ * Presets faceless : looks viraux DISTINCTS + voix OmniVoice.
+ * Chaque look a un `negativePrompt` pour éviter le collapse vers Anime.
  */
 
 export type FacelessLookId =
   | "anime"
-  | "comic"
-  | "cinematic"
-  | "clay3d"
-  | "flatvector"
-  | "surreal"
-  | "storybook"
-  | "noirphoto";
+  | "comic_us"
+  | "photoreal"
+  | "clay"
+  | "flat"
+  | "noir";
 
 export type FacelessVoiceId =
   | "narrator_m"
@@ -27,7 +25,8 @@ export type FacelessLook = {
   label: string;
   hint: string;
   prompt: string;
-  /** Ton narration pour le script Ollama */
+  /** Tokens à éviter — injectés dans le prompt Flux / negative SDXL */
+  negativePrompt: string;
   toneHint: string;
   genre: "true_crime" | "kids" | "history" | "custom";
 };
@@ -36,82 +35,83 @@ export type FacelessVoice = {
   id: FacelessVoiceId;
   label: string;
   hint: string;
-  /** Instruct OmniVoice voice-design — doit être très distinct entre presets */
   instruct: string;
-  /** Vitesse TTS (audible même si le timbre est proche) */
   speed: number;
+};
+
+export type CastMember = {
+  id: string;
+  name: string;
+  /** Description visuelle stable (visage, âge, cheveux, peau) */
+  appearance: string;
+  /** Tenue récurrente */
+  clothing: string;
 };
 
 export const FACELESS_LOOKS: FacelessLook[] = [
   {
     id: "anime",
     label: "Anime",
-    hint: "Ligne claire, cel-shading — tops TikTok",
+    hint: "Manga cel-shading, yeux expressifs",
     prompt:
-      "anime illustration, clean linework, cel shading, expressive eyes, vivid but controlled palette, vertical 9:16 composition, no text, no watermark",
+      "Japanese anime cel-shaded illustration, crisp clean lineart, large expressive anime eyes, flat cel colors, light screentone, 2D animation still",
+    negativePrompt:
+      "photorealistic, 3d render, clay, western comic, ben-day dots, documentary photo, oil painting",
     toneHint: "expressif, clair",
     genre: "custom",
   },
   {
-    id: "comic",
-    label: "Comic",
-    hint: "Graphic novel, encrage fort",
+    id: "comic_us",
+    label: "Comic US",
+    hint: "Pulp américain, Ben-Day — PAS manga",
     prompt:
-      "comic book illustration, bold ink outlines, dramatic shadows, limited palette, graphic novel panel energy, vertical 9:16, no text, no watermark",
+      "American comic book pulp illustration, thick ink outlines, dramatic cross-hatching, Ben-Day dots, limited CMYK palette, Jack Kirby energy, western superhero comic panel",
+    negativePrompt:
+      "anime, manga, cel shading, big anime eyes, chibi, japanese animation, soft pastel storybook",
     toneHint: "intense, rythmé",
     genre: "true_crime",
   },
   {
-    id: "cinematic",
-    label: "Ciné sombre",
-    hint: "Docu / mystery cinématographique",
+    id: "photoreal",
+    label: "Photo ciné",
+    hint: "Still cinématographique réaliste",
     prompt:
-      "cinematic dark still, moody lighting, shallow depth of field, film grain, mysterious atmosphere, vertical 9:16, no text, no watermark",
+      "cinematic photorealistic still frame, natural skin texture, anamorphic lens, shallow depth of field, film grain, grounded lighting, documentary drama",
+    negativePrompt:
+      "anime, manga, cartoon, comic book, illustration, clay, vector flat, drawing, painting",
     toneHint: "grave, mystérieux",
     genre: "true_crime",
   },
   {
-    id: "clay3d",
+    id: "clay",
     label: "Clay 3D",
-    hint: "Rendu soft type short AI viral",
+    hint: "Claymation tactile stop-motion",
     prompt:
-      "stylized clay 3D animation still, soft global illumination, rounded friendly forms, tactile clay texture, clean colorful set, vertical 9:16, no text, no watermark",
+      "stop-motion claymation still, tactile polymer clay texture, visible fingerprints in clay, handmade miniature set, soft studio lighting, Aardman-like craft",
+    negativePrompt:
+      "anime, manga, 2d flat illustration, photoreal skin, vector art, comic ink",
     toneHint: "enjoué, clair",
     genre: "kids",
   },
   {
-    id: "flatvector",
-    label: "Flat motion",
-    hint: "Explainers / facts",
+    id: "flat",
+    label: "Flat vector",
+    hint: "Motion graphics géométrique",
     prompt:
-      "flat vector motion-graphics illustration, bold shapes, limited vibrant palette, clean geometric composition, vertical 9:16, no text, no watermark",
+      "flat vector motion-graphics illustration, bold geometric shapes, limited saturated palette, no gradients, clean iconographic characters, explainer video style",
+    negativePrompt:
+      "anime eyes, manga, photorealistic, clay, detailed skin pores, comic crosshatching, painterly",
     toneHint: "posé, narratif",
     genre: "custom",
   },
   {
-    id: "surreal",
-    label: "Surréal",
-    hint: "Collage curiosity-gap",
+    id: "noir",
+    label: "Polaroid noir",
+    hint: "Found footage / cold case grain",
     prompt:
-      "surreal collage illustration, unexpected juxtapositions, dreamlike lighting, high contrast, social-media hook frame, vertical 9:16, no text, no watermark",
-    toneHint: "intrigant, rythmé",
-    genre: "custom",
-  },
-  {
-    id: "storybook",
-    label: "Storybook",
-    hint: "Pastel warm kids/wholesome",
-    prompt:
-      "soft pastel children's storybook illustration, rounded shapes, warm light, simple background, cute stylized characters, vertical 9:16, no text, no watermark",
-    toneHint: "chaleureux, joyeux",
-    genre: "kids",
-  },
-  {
-    id: "noirphoto",
-    label: "Polaroid grain",
-    hint: "Cold case / found footage",
-    prompt:
-      "vintage polaroid photo aesthetic, harsh flash, desaturated colors, worn edges, cold-case documentary feel, vertical 9:16, no text, no watermark",
+      "vintage instant polaroid photograph, harsh direct flash, heavy film grain, desaturated cold tones, worn white border, found-footage documentary aesthetic",
+    negativePrompt:
+      "anime, manga, colorful cartoon, clay, clean vector, comic book ink, fantasy illustration",
     toneHint: "posé, documentaire",
     genre: "true_crime",
   },
@@ -176,11 +176,8 @@ export const DEFAULT_FACELESS_VOICE_ID: FacelessVoiceId = "narrator_m";
 export function getFacelessLook(
   id: string | undefined | null,
 ): FacelessLook {
-  const found = FACELESS_LOOKS.find((l) => l.id === id);
-  return (
-    found ??
-    FACELESS_LOOKS.find((l) => l.id === DEFAULT_FACELESS_LOOK_ID)!
-  );
+  const resolved = resolveLookId(id);
+  return FACELESS_LOOKS.find((l) => l.id === resolved)!;
 }
 
 export function getFacelessVoice(
@@ -193,6 +190,26 @@ export function getFacelessVoice(
   );
 }
 
+/** Alias legacy (anciens lookId en base). */
+const LOOK_ALIASES: Record<string, FacelessLookId> = {
+  comic: "comic_us",
+  cinematic: "photoreal",
+  clay3d: "clay",
+  flatvector: "flat",
+  surreal: "flat",
+  storybook: "clay",
+  noirphoto: "noir",
+};
+
+export function resolveLookId(
+  id: string | undefined | null,
+): FacelessLookId {
+  if (!id) return DEFAULT_FACELESS_LOOK_ID;
+  if (LOOK_ALIASES[id]) return LOOK_ALIASES[id]!;
+  const found = FACELESS_LOOKS.find((l) => l.id === id);
+  return found?.id ?? DEFAULT_FACELESS_LOOK_ID;
+}
+
 export function matchFacelessLookId(
   visualStyle: string | undefined | null,
 ): FacelessLookId | null {
@@ -200,19 +217,19 @@ export function matchFacelessLookId(
   const v = visualStyle.toLowerCase();
   for (const look of FACELESS_LOOKS) {
     if (visualStyle.trim() === look.prompt) return look.id;
-    if (v.includes(look.id)) return look.id;
+    if (v.includes(look.id.replace("_", " "))) return look.id;
   }
-  if (v.includes("anime") || v.includes("manga")) return "anime";
-  if (v.includes("comic") || v.includes("graphic novel")) return "comic";
-  if (v.includes("clay") || v.includes("pixar") || v.includes("3d"))
-    return "clay3d";
-  if (v.includes("flat vector") || v.includes("motion-graphics"))
-    return "flatvector";
-  if (v.includes("surreal") || v.includes("collage")) return "surreal";
-  if (v.includes("storybook") || v.includes("pastel")) return "storybook";
-  if (v.includes("polaroid") || v.includes("cold-case")) return "noirphoto";
-  if (v.includes("cinematic") || v.includes("etching") || v.includes("gravure"))
-    return "cinematic";
+  if (v.includes("anime") || v.includes("manga") || v.includes("cel"))
+    return "anime";
+  if (v.includes("ben-day") || v.includes("comic book") || v.includes("pulp"))
+    return "comic_us";
+  if (v.includes("photoreal") || v.includes("cinematic photo"))
+    return "photoreal";
+  if (v.includes("clay") || v.includes("aardman") || v.includes("stop-motion"))
+    return "clay";
+  if (v.includes("vector") || v.includes("motion-graphics")) return "flat";
+  if (v.includes("polaroid") || v.includes("found-footage")) return "noir";
+  if (v.includes("cinematic") || v.includes("etching")) return "photoreal";
   return null;
 }
 
@@ -240,4 +257,16 @@ export function matchFacelessVoiceId(
   if (v.includes("very low pitch")) return "narrator_m";
   if (v.includes("male") || v.includes("low pitch")) return "narrator_m";
   return null;
+}
+
+/** Texte cast lock à coller dans chaque prompt image. */
+export function formatCastLock(
+  cast: CastMember[] | undefined | null,
+): string | null {
+  if (!cast || cast.length === 0) return null;
+  const parts = cast.map((c) => {
+    const bits = [c.name, c.appearance, c.clothing].filter(Boolean);
+    return bits.join(", ");
+  });
+  return `SAME CHARACTERS every frame (identity lock): ${parts.join(" | ")}. Keep face, hair, age, skin tone and outfit consistent across scenes`;
 }

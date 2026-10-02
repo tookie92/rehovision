@@ -25,6 +25,8 @@ import {
   FACELESS_VOICES,
   matchFacelessLookId,
   matchFacelessVoiceId,
+  resolveLookId,
+  type CastMember,
   type FacelessLookId,
   type FacelessVoiceId,
 } from "@/lib/facelessPresets";
@@ -87,10 +89,13 @@ export default function ProjectPage() {
     api.videoProjects.applyLookAndRegenImages,
   );
   const applyVoiceAndRegen = useMutation(api.videoProjects.applyVoiceAndRegen);
+  const updateCastAndRegenImages = useMutation(
+    api.videoProjects.updateCastAndRegenImages,
+  );
   const deleteVideoProject = useMutation(api.videoProjects.deleteVideoProject);
 
   const [busy, setBusy] = useState<
-    "script" | "assets" | "style" | "voice" | "delete" | null
+    "script" | "assets" | "style" | "voice" | "cast" | "delete" | null
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -102,6 +107,7 @@ export default function ProjectPage() {
     Record<string, { narrationText: string; imagePrompt: string }>
   >({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [castDraft, setCastDraft] = useState<CastMember[] | null>(null);
 
   const hasActiveScriptJob = Boolean(
     jobs?.some(
@@ -206,12 +212,15 @@ export default function ProjectPage() {
       (project.status === "draft" && scenes.length === 0) ||
       project.status === "generating");
 
-  const activeLook =
-    (project.lookId as FacelessLookId | undefined) ??
-    matchFacelessLookId(studio.visualStyle);
+  const activeLook = resolveLookId(
+    (project.lookId as string | undefined) ??
+      matchFacelessLookId(studio.visualStyle),
+  );
   const activeVoice =
     (project.voiceId as FacelessVoiceId | undefined) ??
     matchFacelessVoiceId(studio.voiceInstruct ?? studio.narrationTone);
+
+  const cast = castDraft ?? (project.cast as CastMember[] | undefined) ?? [];
 
   async function onGenerateScript() {
     setError(null);
@@ -321,6 +330,42 @@ export default function ProjectPage() {
       const voice = FACELESS_VOICES.find((v) => v.id === voiceId);
       setInfo(
         `Voix « ${voice?.label ?? voiceId} » → ${jobCount} scène${jobCount > 1 ? "s" : ""} en file (écoute Soft après regen)`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function updateCastField(
+    index: number,
+    field: keyof CastMember,
+    value: string,
+  ) {
+    const next = [...cast];
+    const cur = next[index] ?? {
+      id: `char_${index + 1}`,
+      name: "",
+      appearance: "",
+      clothing: "",
+    };
+    next[index] = { ...cur, [field]: value };
+    setCastDraft(next);
+  }
+
+  async function onSaveCast() {
+    setError(null);
+    setBusy("cast");
+    setPreferSoft(true);
+    try {
+      const { jobCount } = await updateCastAndRegenImages({
+        projectId,
+        cast: cast.filter((c) => c.name.trim() || c.appearance.trim()),
+      });
+      setCastDraft(null);
+      setInfo(
+        `Cast mis à jour → ${jobCount} image${jobCount > 1 ? "s" : ""} en file`,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -586,10 +631,68 @@ export default function ProjectPage() {
         {/* Outils */}
         <aside className="atelier-panel hidden min-h-0 overflow-y-auto border-l border-border p-3 lg:block">
           <p className="font-display text-[13px] tracking-tight text-foreground">
+            Cast
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Bible personnages — même visage / tenue sur toutes les scènes
+          </p>
+          {cast.length === 0 ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Généré avec le script. Relance le script si vide.
+            </p>
+          ) : (
+            <div className="mt-2 space-y-2">
+              {cast.map((member, i) => (
+                <div
+                  key={member.id || i}
+                  className="rounded-lg border border-border/70 bg-card/30 p-2"
+                >
+                  <input
+                    value={member.name}
+                    onChange={(e) =>
+                      updateCastField(i, "name", e.target.value)
+                    }
+                    placeholder="Nom"
+                    className="mb-1 w-full bg-transparent text-xs font-semibold text-foreground outline-none"
+                  />
+                  <textarea
+                    value={member.appearance}
+                    onChange={(e) =>
+                      updateCastField(i, "appearance", e.target.value)
+                    }
+                    placeholder="Appearance (EN)"
+                    rows={2}
+                    className="mb-1 w-full resize-none bg-transparent text-[10px] leading-snug text-muted-foreground outline-none"
+                  />
+                  <input
+                    value={member.clothing}
+                    onChange={(e) =>
+                      updateCastField(i, "clothing", e.target.value)
+                    }
+                    placeholder="Clothing (EN)"
+                    className="w-full bg-transparent text-[10px] text-muted-foreground outline-none"
+                  />
+                </div>
+              ))}
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 w-full cursor-pointer"
+                disabled={
+                  busy === "cast" || hasActiveAssetJobs || castDraft === null
+                }
+                onClick={() => void onSaveCast()}
+              >
+                {busy === "cast" ? "Cast…" : "Appliquer cast + regen"}
+              </Button>
+            </div>
+          )}
+
+          <p className="mt-5 font-display text-[13px] tracking-tight text-foreground">
             Style
           </p>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Regen toutes les images
+            Regen toutes les images — looks distincts
           </p>
           <div className="mt-3 grid grid-cols-2 gap-1.5">
             {FACELESS_LOOKS.map((look) => {
