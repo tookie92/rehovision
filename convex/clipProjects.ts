@@ -146,6 +146,8 @@ const clipDoc = v.object({
   startSec: v.number(),
   endSec: v.number(),
   captionText: v.optional(v.string()),
+  postTitle: v.optional(v.string()),
+  postKeywords: v.optional(v.string()),
   status: v.union(
     v.literal("proposed"),
     v.literal("rendering"),
@@ -1265,5 +1267,67 @@ export const stitchClips = mutation({
     });
 
     return reelId;
+  },
+});
+
+/** File un job Ollama pour titre/hashtags sociaux du clip sélectionné. */
+export const enqueuePostMeta = mutation({
+  args: {
+    clipId: v.id("clips"),
+  },
+  returns: v.id("generationJobs"),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const clip = await ctx.db.get(args.clipId);
+    if (!clip) throw new Error("Clip introuvable");
+    const project = await ctx.db.get(clip.clipProjectId);
+    if (!project || project.userId !== userId) {
+      throw new Error("Projet introuvable");
+    }
+    const now = Date.now();
+    return await ctx.db.insert("generationJobs", {
+      type: "clip_post_meta",
+      clipProjectId: project._id,
+      clipId: clip._id,
+      status: "pending",
+      provider: "local",
+      payload: {
+        title: clip.title,
+        captionText: clip.captionText ?? "",
+        hookReason: clip.hookReason ?? "",
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+/** Édition manuelle du pack post (titre + hashtags). */
+export const updateClipPostMeta = mutation({
+  args: {
+    clipId: v.id("clips"),
+    postTitle: v.optional(v.string()),
+    postKeywords: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const clip = await ctx.db.get(args.clipId);
+    if (!clip) throw new Error("Clip introuvable");
+    const project = await ctx.db.get(clip.clipProjectId);
+    if (!project || project.userId !== userId) {
+      throw new Error("Projet introuvable");
+    }
+    const patch: { postTitle?: string; postKeywords?: string } = {};
+    if (args.postTitle !== undefined) {
+      patch.postTitle = args.postTitle.trim().slice(0, 200);
+    }
+    if (args.postKeywords !== undefined) {
+      patch.postKeywords = args.postKeywords.trim().slice(0, 200);
+    }
+    if (Object.keys(patch).length > 0) {
+      await ctx.db.patch(args.clipId, patch);
+    }
+    return null;
   },
 });

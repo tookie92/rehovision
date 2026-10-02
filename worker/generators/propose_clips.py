@@ -39,6 +39,8 @@ Réponds UNIQUEMENT en JSON valide:
       "title": "titre accrocheur court (3–7 mots, FR, PAS « Clip 1 »)",
       "hookReason": "pourquoi ce passage marche (1 phrase concrète)",
       "viralScore": 78,
+      "postTitle": "caption sociale prête à coller (1–2 phrases, hook + contexte, FR)",
+      "postKeywords": "#vlog #storytime #fyp",
       "startSec": 12.5,
       "endSec": 42.5,
       "captionText": "texte principal du clip pour sous-titres",
@@ -54,6 +56,8 @@ Réponds UNIQUEMENT en JSON valide:
 }
 Règles:
 - title OBLIGATOIRE : hook punchy en français (ex. « Posé un lapin ?! »), jamais « Clip 1/2 »
+- postTitle : caption TikTok/Reels/Shorts (max ~150 car., sans hashtags dedans)
+- postKeywords : 3–6 hashtags pertinents séparés par des espaces
 - viralScore 0–100 : tension / émotion / clarté du hook / quotabilité
 - Le hook (phrase forte) dans les 3 premières secondes du clip
 - endSec - startSec ≈ 30s (idéal 25–35). JAMAIS sous 20s
@@ -144,6 +148,60 @@ def _title_from_caption(caption: str, order: int) -> str:
     if chunk and chunk[0].islower():
         chunk = chunk[0].upper() + chunk[1:]
     return chunk
+
+
+def _normalize_keywords(raw: str) -> str:
+    parts = re.findall(r"[#\wÀ-ÿ]+", (raw or "").strip(), flags=re.UNICODE)
+    tags: list[str] = []
+    for p in parts:
+        t = p if p.startswith("#") else f"#{p}"
+        t = t[:40]
+        if t.lower() not in {x.lower() for x in tags}:
+            tags.append(t)
+        if len(tags) >= 8:
+            break
+    return " ".join(tags)
+
+
+def _fallback_post_meta(title: str, caption: str) -> tuple[str, str]:
+    base = (caption or title or "").strip()
+    post = base[:150] if base else title[:150]
+    return post, "#shorts #reels #viral"
+
+
+def generate_post_meta(
+    *,
+    title: str,
+    caption: str = "",
+    hook_reason: str = "",
+) -> dict[str, str]:
+    """Génère postTitle + postKeywords pour un clip déjà proposé."""
+    system = (
+        "Tu es un social media manager TikTok/Reels/Shorts. "
+        "Réponds UNIQUEMENT en JSON: "
+        '{"postTitle":"...","postKeywords":"#a #b #c"}'
+    )
+    user = (
+        f"Titre cut: {title}\n"
+        f"Pourquoi: {hook_reason}\n"
+        f"Caption vidéo: {caption}\n"
+        "postTitle = 1–2 phrases FR prêtes à coller (sans hashtags). "
+        "postKeywords = 3–6 hashtags."
+    )
+    try:
+        raw = _ollama_chat(system, user)
+        data = json.loads(raw)
+        post = str(data.get("postTitle") or "").strip()[:200]
+        keys = _normalize_keywords(str(data.get("postKeywords") or ""))
+        if not post:
+            post, keys = _fallback_post_meta(title, caption)
+        if not keys:
+            keys = "#shorts #reels #viral"
+        return {"postTitle": post, "postKeywords": keys}
+    except Exception as e:
+        log.warning("generate_post_meta fallback: %s", e)
+        post, keys = _fallback_post_meta(title, caption)
+        return {"postTitle": post, "postKeywords": keys}
 
 
 def _normalize_title(title: str, caption: str, order: int) -> str:
@@ -350,6 +408,13 @@ def _parse_clips(raw: str, duration: float) -> list[dict[str, Any]]:
             "endSec": end,
             "captionText": caption,
         }
+        post = str(item.get("postTitle") or "").strip()[:200]
+        keys = _normalize_keywords(str(item.get("postKeywords") or ""))
+        if not post:
+            post, keys_fb = _fallback_post_meta(entry["title"], caption)
+            keys = keys or keys_fb
+        entry["postTitle"] = post
+        entry["postKeywords"] = keys or "#shorts #reels #viral"
         broll = _parse_broll(item)
         if broll:
             entry["broll"] = broll

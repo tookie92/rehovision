@@ -12,6 +12,7 @@ const TYPE_LABEL: Record<Job["type"], string> = {
   video_assembly: "Montage",
   transcribe: "Transcription",
   propose_clips: "Hooks",
+  clip_post_meta: "Titre post",
   render_clip: "Rendu clip",
   stitch_clips: "Assemblage",
 };

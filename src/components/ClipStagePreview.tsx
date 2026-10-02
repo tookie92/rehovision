@@ -33,6 +33,8 @@ type ClipLike = {
   captionText?: string | null;
   hookReason?: string | null;
   viralScore?: number | null;
+  postTitle?: string | null;
+  postKeywords?: string | null;
   resultUrl?: string | null;
   status: string;
 };
@@ -57,6 +59,8 @@ type Props = {
   compact?: boolean;
   editing?: boolean;
   editSlot?: ReactNode;
+  onGeneratePostMeta?: () => void;
+  postMetaBusy?: boolean;
 };
 
 function SoftSplitVideos({
@@ -326,6 +330,8 @@ export function ClipStagePreview({
   compact = false,
   editing,
   editSlot,
+  onGeneratePostMeta,
+  postMetaBusy = false,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [mode, setMode] = useState<"soft" | "final">(
@@ -694,6 +700,57 @@ export function ClipStagePreview({
               {clip.hookReason}
             </p>
           )}
+          {(clip.postTitle || onGeneratePostMeta) && (
+            <div className="w-full max-w-sm space-y-1 rounded-md border border-border/60 bg-background/40 px-2 py-1.5 text-left">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Post
+                </p>
+                <div className="flex gap-1">
+                  {clip.postTitle && (
+                    <button
+                      type="button"
+                      className="text-[10px] text-primary underline-offset-2 hover:underline"
+                      onClick={() => {
+                        const text = [clip.postTitle, clip.postKeywords]
+                          .filter(Boolean)
+                          .join("\n");
+                        void navigator.clipboard.writeText(text);
+                      }}
+                    >
+                      Copier
+                    </button>
+                  )}
+                  {onGeneratePostMeta && (
+                    <button
+                      type="button"
+                      disabled={postMetaBusy}
+                      className="text-[10px] text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
+                      onClick={onGeneratePostMeta}
+                    >
+                      {postMetaBusy ? "…" : clip.postTitle ? "Regen" : "Générer"}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {clip.postTitle ? (
+                <>
+                  <p className="line-clamp-3 text-[11px] leading-snug">
+                    {clip.postTitle}
+                  </p>
+                  {clip.postKeywords && (
+                    <p className="line-clamp-1 text-[10px] text-muted-foreground">
+                      {clip.postKeywords}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-[10px] text-muted-foreground">
+                  Caption + hashtags pour coller au post
+                </p>
+              )}
+            </div>
+          )}
         </div>
         {editing && editSlot}
       </div>
@@ -733,6 +790,60 @@ export function ClipStagePreview({
             <span className="font-medium text-foreground/85">Pourquoi : </span>
             {clip.hookReason}
           </p>
+        )}
+        {(clip.postTitle || onGeneratePostMeta) && (
+          <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Caption post
+              </p>
+              <div className="flex gap-2">
+                {clip.postTitle && (
+                  <button
+                    type="button"
+                    className="text-xs text-primary underline-offset-2 hover:underline"
+                    onClick={() => {
+                      const text = [clip.postTitle, clip.postKeywords]
+                        .filter(Boolean)
+                        .join("\n");
+                      void navigator.clipboard.writeText(text);
+                    }}
+                  >
+                    Copier
+                  </button>
+                )}
+                {onGeneratePostMeta && (
+                  <button
+                    type="button"
+                    disabled={postMetaBusy}
+                    className="text-xs text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
+                    onClick={onGeneratePostMeta}
+                  >
+                    {postMetaBusy
+                      ? "Génération…"
+                      : clip.postTitle
+                        ? "Regénérer"
+                        : "Générer titre + tags"}
+                  </button>
+                )}
+              </div>
+            </div>
+            {clip.postTitle ? (
+              <>
+                <p className="text-sm leading-snug">{clip.postTitle}</p>
+                {clip.postKeywords && (
+                  <p className="text-xs text-muted-foreground">
+                    {clip.postKeywords}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Génère une caption + hashtags prêts à coller (TikTok / Reels /
+                Shorts).
+              </p>
+            )}
+          </div>
         )}
         {clip.status === "failed" && (
           <p className="text-sm text-destructive" role="alert">

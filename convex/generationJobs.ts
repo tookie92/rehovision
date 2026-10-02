@@ -26,6 +26,7 @@ const jobType = v.union(
   v.literal("video_assembly"),
   v.literal("transcribe"),
   v.literal("propose_clips"),
+  v.literal("clip_post_meta"),
   v.literal("render_clip"),
   v.literal("stitch_clips"),
 );
@@ -714,6 +715,8 @@ export const applyClipPipelineResult = internalMutation({
           title: v.string(),
           hookReason: v.optional(v.string()),
           viralScore: v.optional(v.number()),
+          postTitle: v.optional(v.string()),
+          postKeywords: v.optional(v.string()),
           startSec: v.number(),
           endSec: v.number(),
           captionText: v.optional(v.string()),
@@ -821,6 +824,8 @@ export const applyClipPipelineResult = internalMutation({
           startSec: p.startSec,
           endSec: p.endSec,
           captionText: p.captionText,
+          postTitle: p.postTitle,
+          postKeywords: p.postKeywords,
           status: "rendering",
           createdAt: now,
         });
@@ -1093,6 +1098,9 @@ export const submitClipPipelineResult = httpAction(async (ctx, request) => {
     clips?: Array<{
       title: string;
       hookReason?: string;
+      viralScore?: number;
+      postTitle?: string;
+      postKeywords?: string;
       startSec: number;
       endSec: number;
       captionText?: string;
@@ -1120,6 +1128,90 @@ export const submitClipPipelineResult = httpAction(async (ctx, request) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erreur applyClipPipelineResult";
     await ctx.runMutation(internal.generationJobs.applyClipPipelineResult, {
+      jobId,
+      errorMessage: msg,
+    });
+    return json({ error: msg }, 422);
+  }
+
+  return json({ ok: true });
+});
+
+/** Titre / hashtags sociaux pour un clip (job clip_post_meta). */
+export const applyClipPostMeta = internalMutation({
+  args: {
+    jobId: v.id("generationJobs"),
+    postTitle: v.optional(v.string()),
+    postKeywords: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (!job) throw new Error("Job introuvable");
+    const now = Date.now();
+    if (args.errorMessage) {
+      await ctx.db.patch(args.jobId, {
+        status: "failed",
+        errorMessage: args.errorMessage,
+        updatedAt: now,
+      });
+      return null;
+    }
+    if (!job.clipId) {
+      throw new Error("Job clip_post_meta sans clipId");
+    }
+    const postTitle = (args.postTitle ?? "").trim().slice(0, 200);
+    const postKeywords = (args.postKeywords ?? "").trim().slice(0, 200);
+    await ctx.db.patch(job.clipId, {
+      ...(postTitle ? { postTitle } : {}),
+      ...(postKeywords ? { postKeywords } : {}),
+    });
+    await ctx.db.patch(args.jobId, {
+      status: "done",
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const submitClipPostMeta = httpAction(async (ctx, request) => {
+  try {
+    assertWorkerSecret(request);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unauthorized";
+    const status = msg === "UNAUTHORIZED_WORKER" ? 401 : 500;
+    return json({ error: msg }, status);
+  }
+
+  const url = new URL(request.url);
+  const jobIdParam = url.searchParams.get("jobId");
+  if (!jobIdParam) {
+    return json({ error: "jobId requis" }, 400);
+  }
+  const jobId = jobIdParam as Id<"generationJobs">;
+
+  let body: {
+    postTitle?: string;
+    postKeywords?: string;
+    error?: string;
+  };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return json({ error: "JSON invalide" }, 400);
+  }
+
+  try {
+    await ctx.runMutation(internal.generationJobs.applyClipPostMeta, {
+      jobId,
+      postTitle: body.postTitle,
+      postKeywords: body.postKeywords,
+      errorMessage: body.error,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Erreur applyClipPostMeta";
+    await ctx.runMutation(internal.generationJobs.applyClipPostMeta, {
       jobId,
       errorMessage: msg,
     });

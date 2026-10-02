@@ -66,12 +66,14 @@ export default function ClipProjectPage() {
   const createManualClip = useMutation(api.clipProjects.createManualClip);
   const updateClipTrim = useMutation(api.clipProjects.updateClipTrim);
   const stitchClips = useMutation(api.clipProjects.stitchClips);
+  const enqueuePostMeta = useMutation(api.clipProjects.enqueuePostMeta);
   const [retrying, setRetrying] = useState(false);
   const [rerendering, setRerendering] = useState(false);
   const [stitching, setStitching] = useState(false);
   const [creatingManual, setCreatingManual] = useState(false);
   const [editingClipId, setEditingClipId] = useState<Id<"clips"> | null>(null);
   const [savingTrim, setSavingTrim] = useState(false);
+  const [postMetaBusy, setPostMetaBusy] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [applyInfo, setApplyInfo] = useState<string | null>(null);
@@ -841,6 +843,19 @@ export default function ClipProjectPage() {
               logoOpacity={logoOpacity}
               compact
               editing={editingClipId === focusedClip._id}
+              postMetaBusy={postMetaBusy}
+              onGeneratePostMeta={() => {
+                setPostMetaBusy(true);
+                void enqueuePostMeta({ clipId: focusedClip._id })
+                  .catch((err) => {
+                    setRetryError(
+                      err instanceof Error
+                        ? err.message
+                        : "Génération titre post échouée",
+                    );
+                  })
+                  .finally(() => setPostMetaBusy(false));
+              }}
               editSlot={
                 hasSource &&
                 editingClipId === focusedClip._id &&

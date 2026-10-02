@@ -4,8 +4,8 @@ import {
   submitJobResult,
   submitScriptResult,
   submitClipPipelineResult,
+  submitClipPostMeta,
   submitSourceVideo,
-  submitSourceMediaUrl,
 } from "./generationJobs";
 
 /**
@@ -39,15 +39,15 @@ http.route({
 });
 
 http.route({
-  path: "/worker/submitSourceVideo",
+  path: "/worker/submitClipPostMeta",
   method: "POST",
-  handler: submitSourceVideo,
+  handler: submitClipPostMeta,
 });
 
 http.route({
-  path: "/worker/submitSourceMediaUrl",
+  path: "/worker/submitSourceVideo",
   method: "POST",
-  handler: submitSourceMediaUrl,
+  handler: submitSourceVideo,
 });
 
 export default http;

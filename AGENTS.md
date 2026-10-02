@@ -2,12 +2,14 @@
 
 - Prefers frank product and strategy advice when choosing inspiration or scope (asked for direct Opus vs OpenChatCut vs Motion comparisons).
 - After each shipped fix or feature: always `git push` to origin, then say what to do on Ubuntu (`git pull` + restart Next/web and worker; plus `npm run convex:deploy:self-hosted` when Convex schema/functions change).
+- **Priorité cash :** clips → polish → export → post manuel. Faceless / podcast OmniVoice / Suno / scheduling = hors-scope volontaire tant que le parcours clips n’est pas fiable chaque jour (`FACELESS_DISABLED=1` sur le worker).
 - Product direction: Opus-style atelier (vlog/file/YouTube → AI-assisted cuts → trim → viral polish with captions/effects/music/logo → vertical export ready to post); Opus = clipping engine, Viblo.ai = UX-friction inspiration (clear steps, export-first) — not a Viblo/OpenChatCut/Muse clone or full multitrack NLE; may borrow light presets only.
 - Communicates in French; prefer matching the user’s language in replies.
 - Implements priorities one-by-one using `ROADMAP.md` as the source of truth for ordered steps; avoid shipping a large batch at once.
 - Wants manual clip in/out with drag handles for start/end (not only AI auto-hooks); saving polish/render options alone does not enqueue jobs — always expose a visible re-render CTA that calls `rerenderAll` (or equivalent).
 - Clip and faceless UIs should be Opus-like no-scroll single-viewport ateliers (clips/scenes list | 9:16 Soft/Final stage | tools) — not OpenChatCut NLE/timeline/agent-chat or a long-scrolling settings page.
 - Clip stage polish before re-render: soft-preview look/LUT, CapCut-like karaoke/word-pop ASS captions with strong outline and a real Off option, punch, Split dual-pane with landscape face-framing dialog (not only haut↔bas swap).
+- Clip export: platform presets + **postTitle / postKeywords** (caption sociale + hashtags) générés à la proposition ou via CTA Générer / Copier.
 - Faceless: choose illustration style and voice before generation (not only mid-pipeline); look/voice regen must apply to all scenes, not a single image; style/voice tweaks need an explicit confirm CTA before enqueueing regen (no auto-wait between each change).
 - Faceless: character/cast coherence across scenes is required; illustration style chips must be visually distinct viral-ready families (replace weaker lookalikes with stronger user-approved references), not Anime clones with different labels.
 - Dashboard must list faceless projects when the Faceless tab is active (not clips-only); faceless hub/create UX must stay simple and Opus-like, not a pipeline-heavy long-scroll settings page.

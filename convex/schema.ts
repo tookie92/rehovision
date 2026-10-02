@@ -209,6 +209,10 @@ export default defineSchema({
     endSec: v.number(),
     // Texte pour captions (souvent extrait du transcript)
     captionText: v.optional(v.string()),
+    /** Titre / caption sociale (TikTok, Reels, Shorts) — pas le burn-in ASS */
+    postTitle: v.optional(v.string()),
+    /** Hashtags / keywords espace-séparés (ex. #vlog #storytime) */
+    postKeywords: v.optional(v.string()),
     status: v.union(
       v.literal("proposed"),
       v.literal("rendering"),
@@ -247,6 +251,7 @@ export default defineSchema({
       // ChatCut pipeline
       v.literal("transcribe"),
       v.literal("propose_clips"),
+      v.literal("clip_post_meta"),
       v.literal("render_clip"),
       v.literal("stitch_clips"),
     ),

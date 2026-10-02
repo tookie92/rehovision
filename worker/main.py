@@ -24,7 +24,7 @@ import requests
 from dotenv import load_dotenv
 
 from generators.image import generate_image, unload_pipeline as unload_image_pipeline
-from generators.propose_clips import propose_clips
+from generators.propose_clips import generate_post_meta, propose_clips
 from generators.render_clip import render_clip
 from generators.script import generate_script
 from generators.stitch_clips import stitch_clips
@@ -185,6 +185,32 @@ def submit_clip_pipeline_result(
     res.raise_for_status()
 
 
+def submit_clip_post_meta(
+    site_url: str,
+    job_id: str,
+    *,
+    post_title: str = "",
+    post_keywords: str = "",
+    error: str | None = None,
+) -> None:
+    body: dict[str, Any] = {}
+    if error:
+        body["error"] = error
+    else:
+        body["postTitle"] = post_title
+        body["postKeywords"] = post_keywords
+    res = requests.post(
+        f"{site_url}/worker/submitClipPostMeta",
+        params={"jobId": job_id},
+        headers={**_headers(), "Content-Type": "application/json"},
+        json=body,
+        timeout=60,
+    )
+    if not res.ok:
+        log.error("submitClipPostMeta %s: %s", res.status_code, res.text[:500])
+    res.raise_for_status()
+
+
 def submit_source_video(site_url: str, job_id: str, file_path: Path) -> str:
     """
     DEPRECATED pour YouTube (OOM httpAction 64MB).
@@ -320,6 +346,9 @@ def submit_job_error(site_url: str, job_id: str, error: str, job_type: str) -> N
     if job_type in CLIP_JSON_TYPES:
         submit_clip_pipeline_result(site_url, job_id, error=error)
         return
+    if job_type == "clip_post_meta":
+        submit_clip_post_meta(site_url, job_id, error=error)
+        return
 
     res = requests.post(
         f"{site_url}/worker/submitJobResult",
@@ -362,6 +391,15 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
             return
 
         if job_type == "image":
+            if os.getenv("FACELESS_DISABLED", "").strip().lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            ):
+                raise RuntimeError(
+                    "Faceless gelé (FACELESS_DISABLED=1) — priorité clips Étape 0"
+                )
             out = work_dir / "scene.png"
             raw_seed = payload.get("seed")
             try:
@@ -447,6 +485,21 @@ def process_job(site_url: str, job: dict[str, Any]) -> None:
             clips = propose_clips(transcript)
             submit_clip_pipeline_result(site_url, job_id, clips=clips)
             log.info("%s clips proposés", len(clips))
+            return
+
+        if job_type == "clip_post_meta":
+            meta = generate_post_meta(
+                title=str(payload.get("title") or ""),
+                caption=str(payload.get("captionText") or ""),
+                hook_reason=str(payload.get("hookReason") or ""),
+            )
+            submit_clip_post_meta(
+                site_url,
+                job_id,
+                post_title=meta["postTitle"],
+                post_keywords=meta["postKeywords"],
+            )
+            log.info("Post meta clip: %s", meta["postTitle"][:60])
             return
 
         if job_type == "render_clip":

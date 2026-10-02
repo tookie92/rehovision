@@ -69,18 +69,22 @@ YT_COOKIES=./cookies/youtube.txt
 
 Soit **Import → Fichier** (recommandé pour valider le parcours).
 
-## 6. Parcours golden (critère de done)
+## 6. Parcours golden cash (critère de done Étape 0)
+
+**Fichier d’abord** (pas YouTube). Faceless images gelées (`FACELESS_DISABLED=1`).
 
 1. Dashboard → Fichier → vlog MP4 → upload OK  
 2. Pipeline : Source → Analyse → Moments → Export  
 3. Clips ~30s, badge « Prêt à poster »  
-4. Changer captions / look → **Re-rendre N clips** → jobs en file  
-5. Trim manuel ou Ajuster → re-télécharger  
-6. Export TikTok/Reels/Shorts → fichier nommé `01-reels-….mp4`
-7. **Smart/Fill** → **Cadrer le sujet…** → Soft OK → **Re-rendre** = même crop Final  
-8. Multi-select 2–3 clips → **Assembler** → 1 reel téléchargeable  
+4. Bloc **Post** : caption + hashtags → **Copier** (ou **Générer** si vide)  
+5. Changer captions / look → **Re-rendre N clips** → jobs en file  
+6. Trim manuel ou Ajuster → re-télécharger  
+7. Export TikTok/Reels/Shorts → fichier nommé `01-reels-….mp4`  
+8. Poster **manuellement** 1 Short / Reel  
 
-Si tout ça passe : coche **Étape 0** dans `ROADMAP.md`.
+Optionnel ensuite : Smart/Fill cadrage, stitch 2–3 clips.
+
+Si 1–8 passent à chaque essai : coche **Étape 0** dans `ROADMAP.md`.
 
 ## 7. Après `smartFocus` / schema clips
 
