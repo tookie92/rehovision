@@ -59,6 +59,10 @@ export default defineSchema({
     seriesId: v.optional(v.string()),
     episodeNumber: v.optional(v.number()),
     previousEpisodeSummary: v.optional(v.string()),
+    /** Ref style image liée au look courant (Clay / Spider-Verse…) */
+    styleReferenceUrl: v.optional(v.string()),
+    styleReferenceStorageId: v.optional(v.id("_storage")),
+    styleReferenceLookId: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_studioId", ["studioId"])

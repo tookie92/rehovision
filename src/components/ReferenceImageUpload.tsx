@@ -8,23 +8,51 @@ import { ImageIcon, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 
-type Props = {
+type StudioProps = {
+  mode?: "studio";
   studioId: Id<"studios">;
+  projectId?: never;
+  lookId?: never;
   referenceImageUrl?: string | null;
+  disabled?: boolean;
+  compact?: boolean;
 };
 
+type ProjectProps = {
+  mode: "project";
+  projectId: Id<"videoProjects">;
+  studioId?: never;
+  /** Look auquel lier la ref (draft ou actif). */
+  lookId: string;
+  referenceImageUrl?: string | null;
+  disabled?: boolean;
+  compact?: boolean;
+};
+
+type Props = StudioProps | ProjectProps;
+
 /**
- * Upload d'une référence de STYLE DE DESSIN (ex. anime, aquarelle).
- * N'impose pas le contenu / personnage sur chaque scène.
+ * Upload d'une référence de STYLE DE DESSIN (ex. clay, comic).
+ * Mode projet : liée au look courant → worker SDXL + IP-Adapter.
+ * Mode studio : legacy / global (secondaire).
  */
-export function ReferenceImageUpload({ studioId, referenceImageUrl }: Props) {
+export function ReferenceImageUpload(props: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const generateUploadUrl = useMutation(api.studios.generateUploadUrl);
-  const setReferenceImage = useMutation(api.studios.setReferenceImage);
-  const clearReferenceImage = useMutation(api.studios.clearReferenceImage);
+  const setStudioRef = useMutation(api.studios.setReferenceImage);
+  const clearStudioRef = useMutation(api.studios.clearReferenceImage);
+  const setProjectRef = useMutation(api.videoProjects.setProjectStyleReference);
+  const clearProjectRef = useMutation(
+    api.videoProjects.clearProjectStyleReference,
+  );
 
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isProject = props.mode === "project";
+  const referenceImageUrl = props.referenceImageUrl;
+  const disabled = Boolean(props.disabled) || pending;
+  const compact = Boolean(props.compact);
 
   async function onFile(file: File | undefined) {
     if (!file) return;
@@ -52,7 +80,15 @@ export function ReferenceImageUpload({ studioId, referenceImageUrl }: Props) {
       const { storageId } = (await result.json()) as {
         storageId: Id<"_storage">;
       };
-      await setReferenceImage({ studioId, storageId });
+      if (isProject) {
+        await setProjectRef({
+          projectId: props.projectId,
+          storageId,
+          lookId: props.lookId,
+        });
+      } else {
+        await setStudioRef({ studioId: props.studioId, storageId });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur d'upload");
     } finally {
@@ -65,7 +101,11 @@ export function ReferenceImageUpload({ studioId, referenceImageUrl }: Props) {
     setError(null);
     setPending(true);
     try {
-      await clearReferenceImage({ studioId });
+      if (isProject) {
+        await clearProjectRef({ projectId: props.projectId });
+      } else {
+        await clearStudioRef({ studioId: props.studioId });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally {
@@ -73,31 +113,43 @@ export function ReferenceImageUpload({ studioId, referenceImageUrl }: Props) {
     }
   }
 
+  const inputId = isProject
+    ? "project-style-reference-image"
+    : "studio-reference-image";
+
   return (
-    <div className="space-y-3">
+    <div className={compact ? "space-y-2" : "space-y-3"}>
       <div>
-        <Label htmlFor="studio-reference-image">
-          Style de dessin (référence image) — optionnel
+        <Label htmlFor={inputId}>
+          {isProject
+            ? "Réf. style pour ce look"
+            : "Style de dessin (référence image) — legacy"}
         </Label>
         <p className="mt-1 text-xs text-muted-foreground">
-          Prioritaire sur le preset texte : anime, comic, aquarelle… Chaque
-          scène reprend ce trait / ces couleurs, avec un décor et des
-          personnages nouveaux (la photo n’est jamais recollée).
+          {isProject
+            ? "Ex. Clay = photo pâte à modeler. Active SDXL + IP-Adapter sur regen."
+            : "Global studio — préfère l’upload dans Ajuster (lié au look)."}
         </p>
       </div>
 
-      <div className="flex flex-wrap items-start gap-4">
-        <div className="relative flex h-36 w-28 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/40">
+      <div className="flex flex-wrap items-start gap-3">
+        <div
+          className={
+            compact
+              ? "relative flex h-24 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/40"
+              : "relative flex h-36 w-28 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/40"
+          }
+        >
           {referenceImageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={referenceImageUrl}
-              alt="Référence studio"
+              alt="Référence style"
               className="h-full w-full object-cover"
             />
           ) : (
             <ImageIcon
-              className="size-8 text-muted-foreground"
+              className="size-7 text-muted-foreground"
               aria-hidden
             />
           )}
@@ -106,18 +158,19 @@ export function ReferenceImageUpload({ studioId, referenceImageUrl }: Props) {
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <input
             ref={inputRef}
-            id="studio-reference-image"
+            id={inputId}
             type="file"
             accept="image/*"
             className="sr-only"
-            disabled={pending}
+            disabled={disabled}
             onChange={(e) => void onFile(e.target.files?.[0])}
           />
           <Button
             type="button"
             variant="outline"
+            size={compact ? "sm" : "default"}
             className="cursor-pointer gap-2 self-start"
-            disabled={pending}
+            disabled={disabled}
             onClick={() => inputRef.current?.click()}
           >
             <Upload className="size-4" aria-hidden />
@@ -125,14 +178,15 @@ export function ReferenceImageUpload({ studioId, referenceImageUrl }: Props) {
               ? "Envoi…"
               : referenceImageUrl
                 ? "Remplacer"
-                : "Uploader une image"}
+                : "Uploader"}
           </Button>
           {referenceImageUrl && (
             <Button
               type="button"
               variant="ghost"
+              size={compact ? "sm" : "default"}
               className="cursor-pointer gap-2 self-start text-muted-foreground"
-              disabled={pending}
+              disabled={disabled}
               onClick={() => void onClear()}
             >
               <X className="size-4" aria-hidden />

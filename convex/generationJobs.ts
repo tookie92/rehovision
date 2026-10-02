@@ -12,7 +12,7 @@ import { requireUserId } from "./lib/auth";
 import { assertWorkerSecret } from "./lib/workerAuth";
 import { buildImagePrompt } from "./lib/imagePrompt";
 import { parseGeneratedScript } from "./lib/scriptPrompt";
-import { enqueueAssetJobsForProject } from "./lib/enqueueAssets";
+import { enqueueAssetJobsForProject, resolveProjectStyleReference } from "./lib/enqueueAssets";
 import { sliceCaptionSegments } from "./lib/captionSegments";
 import { getFacelessLook } from "./lib/facelessPresets";
 
@@ -351,6 +351,7 @@ export const applyScriptResult = internalMutation({
     const imageSeed =
       project.imageSeed ??
       Math.floor(Math.random() * 2_147_483_647);
+    const projectRef = resolveProjectStyleReference(project);
 
     const scenes = script.scenes.map((scene) => ({
       order: scene.order,
@@ -361,7 +362,7 @@ export const applyScriptResult = internalMutation({
         visualStyle,
         narrationTone,
         topic: project.topic,
-        hasStyleReference: Boolean(studio.referenceImageUrl),
+        hasStyleReference: Boolean(projectRef),
         cast,
         negativePrompt,
       }),

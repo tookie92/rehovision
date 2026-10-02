@@ -186,15 +186,17 @@ export default function StudioPage() {
       )}
 
       <section className="space-y-3 rounded-xl border border-border bg-card/40 p-5">
+        <p className="text-xs font-medium text-muted-foreground">
+          Legacy / global — préfère l’upload dans Ajuster (lié au look).
+        </p>
         <ReferenceImageUpload
           studioId={studioId}
           referenceImageUrl={studio.referenceImageUrl}
         />
         {studio.referenceImageUrl && (
           <p className="text-xs text-muted-foreground">
-            Référence active : le preset d’illustration ne guide plus que
-            l’ambiance ; le trait vient de cette image. Régénère le script /
-            les images pour appliquer.
+            Référence studio active : n’influence plus les images si un look
+            projet est défini. Utilise Ajuster → réf. style pour ce look.
           </p>
         )}
       </section>

@@ -12,25 +12,41 @@ import {
   getFacelessVoice,
   resolveLookId,
   type CastMember,
+  type FacelessLookId,
 } from "./facelessPresets";
 
 export type AssetKind = "image" | "voiceover";
 
+/** Ref projet valide uniquement si liée au look courant. */
+export function resolveProjectStyleReference(
+  project: Doc<"videoProjects">,
+): { url: string; lookId: FacelessLookId } | null {
+  const lookId = project.lookId
+    ? resolveLookId(project.lookId)
+    : null;
+  if (!lookId) return null;
+  const url = project.styleReferenceUrl?.trim();
+  const refLook = project.styleReferenceLookId
+    ? resolveLookId(project.styleReferenceLookId)
+    : null;
+  if (!url || refLook !== lookId) return null;
+  return { url, lookId };
+}
+
 function resolveStyle(studio: Doc<"studios">, project: Doc<"videoProjects">) {
-  // Toujours résoudre via lookId preset (texte code à jour) — jamais un vieux studio.visualStyle seul.
   const lookId = project.lookId
     ? resolveLookId(project.lookId)
     : null;
   const look = lookId ? getFacelessLook(lookId) : null;
   const voice = project.voiceId ? getFacelessVoice(project.voiceId) : null;
+  const projectRef = resolveProjectStyleReference(project);
   return {
     lookId,
     visualStyle: look?.prompt ?? studio.visualStyle,
     narrationTone: look?.toneHint ?? studio.narrationTone,
     negativePrompt: look?.negativePrompt ?? "",
-    // Preset look = style texte ; une ref IP (souvent anime) écrase Clay/Spider-Verse.
-    useStyleReference: !look && Boolean(studio.referenceImageUrl),
-    referenceImageUrl: !look ? studio.referenceImageUrl : undefined,
+    useStyleReference: Boolean(projectRef),
+    referenceImageUrl: projectRef?.url,
     voiceInstruct:
       voice?.instruct ??
       studio.voiceInstruct ??
@@ -142,7 +158,6 @@ export async function enqueueAssetJobsForProject(
           visualStyle,
           negativePrompt,
           seed: imageSeed,
-          // Pas de ref IP si look preset (sinon anime ref → tout devient anime)
           referenceImageUrl,
         },
         createdAt: now,

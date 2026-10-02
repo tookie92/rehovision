@@ -10,7 +10,7 @@ import { buildImagePrompt } from "./lib/imagePrompt";
 import { bumpUsage, checkUsageLimit, checkStudioLimit } from "./usage";
 import { DEFAULT_STUDIO, DEFAULT_STUDIO_NAME } from "./lib/studioDefaults";
 import { getFacelessLook, getFacelessVoice } from "./lib/facelessPresets";
-import { enqueueAssetJobsForProject } from "./lib/enqueueAssets";
+import { enqueueAssetJobsForProject, resolveProjectStyleReference } from "./lib/enqueueAssets";
 import type { Id } from "./_generated/dataModel";
 
 const projectStatus = v.union(
@@ -59,6 +59,9 @@ const projectDoc = v.object({
   seriesId: v.optional(v.string()),
   episodeNumber: v.optional(v.number()),
   previousEpisodeSummary: v.optional(v.string()),
+  styleReferenceUrl: v.optional(v.string()),
+  styleReferenceStorageId: v.optional(v.id("_storage")),
+  styleReferenceLookId: v.optional(v.string()),
   createdAt: v.number(),
 });
 
@@ -680,13 +683,14 @@ export const queueSceneJobs = mutation({
     if (args.kinds.includes("image")) {
       const beat =
         scene.visualBeat?.trim() || scene.narrationText;
-      const hasRef = Boolean(studio.referenceImageUrl);
       const look = project.lookId
         ? getFacelessLook(project.lookId)
         : null;
       const visualStyle = look?.prompt ?? studio.visualStyle;
       const narrationTone = look?.toneHint ?? studio.narrationTone;
       const negativePrompt = look?.negativePrompt ?? "";
+      const projectRef = resolveProjectStyleReference(project);
+      const hasRef = Boolean(projectRef);
       const prompt = buildImagePrompt({
         visualBeat: beat,
         visualStyle,
@@ -712,7 +716,7 @@ export const queueSceneJobs = mutation({
           visualStyle,
           negativePrompt,
           seed: project.imageSeed,
-          referenceImageUrl: studio.referenceImageUrl,
+          referenceImageUrl: projectRef?.url,
         },
         createdAt: now,
         updatedAt: now,
@@ -877,13 +881,27 @@ export const applyLookAndRegenImages = mutation({
       visualStyle: look.prompt,
       narrationTone: look.toneHint,
       genre: look.genre,
-      referenceImageUrl: undefined,
-      referenceStorageId: undefined,
     });
-    await ctx.db.patch(project._id, {
+    const projectPatch: Record<string, unknown> = {
       lookId: look.id,
       imageSeed: newImageSeed,
-    });
+    };
+    const refLook = project.styleReferenceLookId
+      ? getFacelessLook(project.styleReferenceLookId).id
+      : null;
+    if (refLook && refLook !== look.id) {
+      if (project.styleReferenceStorageId) {
+        try {
+          await ctx.storage.delete(project.styleReferenceStorageId);
+        } catch {
+          // ignore
+        }
+      }
+      projectPatch.styleReferenceUrl = undefined;
+      projectPatch.styleReferenceStorageId = undefined;
+      projectPatch.styleReferenceLookId = undefined;
+    }
+    await ctx.db.patch(project._id, projectPatch);
 
     const updatedProject = (await ctx.db.get(project._id))!;
     const updatedStudio = (await ctx.db.get(studio._id))!;
@@ -901,9 +919,101 @@ export const applyLookAndRegenImages = mutation({
 });
 
 /**
+ * Attache une image de référence style au projet, liée au look courant.
+ * Active le chemin worker SDXL + IP-Adapter.
+ */
+export const setProjectStyleReference = mutation({
+  args: {
+    projectId: v.id("videoProjects"),
+    storageId: v.id("_storage"),
+    /** Look draft (avant Confirmer) — sinon lookId projet. */
+    lookId: v.optional(v.string()),
+  },
+  returns: v.object({
+    styleReferenceUrl: v.string(),
+    styleReferenceLookId: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Projet introuvable");
+
+    const studio = await ctx.db.get(project.studioId);
+    if (!studio || studio.userId !== userId) {
+      throw new Error("Non autorisé");
+    }
+
+    const lookIdRaw = args.lookId ?? project.lookId;
+    if (!lookIdRaw) {
+      throw new Error("Choisis un look avant d’uploader une référence");
+    }
+    const look = getFacelessLook(lookIdRaw);
+
+    const url = await ctx.storage.getUrl(args.storageId);
+    if (!url) {
+      throw new Error("Fichier introuvable dans le storage");
+    }
+
+    if (project.styleReferenceStorageId) {
+      try {
+        await ctx.storage.delete(project.styleReferenceStorageId);
+      } catch {
+        // ignore
+      }
+    }
+
+    await ctx.db.patch(args.projectId, {
+      styleReferenceUrl: url,
+      styleReferenceStorageId: args.storageId,
+      styleReferenceLookId: look.id,
+    });
+
+    return {
+      styleReferenceUrl: url,
+      styleReferenceLookId: look.id,
+    };
+  },
+});
+
+/**
+ * Retire la référence style du projet.
+ */
+export const clearProjectStyleReference = mutation({
+  args: { projectId: v.id("videoProjects") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Projet introuvable");
+
+    const studio = await ctx.db.get(project.studioId);
+    if (!studio || studio.userId !== userId) {
+      throw new Error("Non autorisé");
+    }
+
+    if (project.styleReferenceStorageId) {
+      try {
+        await ctx.storage.delete(project.styleReferenceStorageId);
+      } catch {
+        // ignore
+      }
+    }
+
+    await ctx.db.patch(args.projectId, {
+      styleReferenceUrl: undefined,
+      styleReferenceStorageId: undefined,
+      styleReferenceLookId: undefined,
+    });
+
+    return null;
+  },
+});
+
+/**
  * Met à jour le cast bible puis regen toutes les images (cohérence personnages).
  */
 export const updateCastAndRegenImages = mutation({
+
   args: {
     projectId: v.id("videoProjects"),
     cast: v.array(
@@ -992,12 +1102,25 @@ export const applyLookAndVoice = mutation({
         visualStyle: look.prompt,
         narrationTone: look.toneHint,
         genre: look.genre,
-        // Une ancienne ref IP (souvent anime) écrase Clay / Spider-Verse.
-        referenceImageUrl: undefined,
-        referenceStorageId: undefined,
       });
       projectPatch.lookId = look.id;
       projectPatch.imageSeed = Math.floor(Math.random() * 2_147_483_647);
+      // Invalide une ref liée à un autre look (pas celle déjà uploadée pour ce look)
+      const refLook = project.styleReferenceLookId
+        ? getFacelessLook(project.styleReferenceLookId).id
+        : null;
+      if (refLook && refLook !== look.id) {
+        if (project.styleReferenceStorageId) {
+          try {
+            await ctx.storage.delete(project.styleReferenceStorageId);
+          } catch {
+            // ignore
+          }
+        }
+        projectPatch.styleReferenceUrl = undefined;
+        projectPatch.styleReferenceStorageId = undefined;
+        projectPatch.styleReferenceLookId = undefined;
+      }
       kinds.push("image");
     }
 

@@ -30,6 +30,7 @@ import {
   type FacelessVoiceId,
 } from "@/lib/facelessPresets";
 import { downloadUrl, safeDownloadName, facelessCardStatus } from "@/lib/clipStatus";
+import { ReferenceImageUpload } from "@/components/ReferenceImageUpload";
 
 const PIPELINE_STEPS = [
   { key: "script", label: "Script" },
@@ -557,6 +558,23 @@ export default function ProjectPage() {
           })}
         </div>
       </div>
+
+      {selectedLook && (
+        <div className="rounded-lg border border-border/60 bg-card/20 p-2.5">
+          <ReferenceImageUpload
+            mode="project"
+            projectId={projectId}
+            lookId={selectedLook}
+            referenceImageUrl={
+              project.styleReferenceLookId === selectedLook
+                ? project.styleReferenceUrl
+                : null
+            }
+            disabled={busy === "adjust" || hasActiveAssetJobs}
+            compact
+          />
+        </div>
+      )}
 
       <div>
         <p className="font-display text-[13px] tracking-tight text-foreground">
