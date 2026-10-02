@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
@@ -170,6 +170,21 @@ export default function ProjectPage() {
   const [castDraft, setCastDraft] = useState<CastMember[] | null>(null);
   const [showAdjust, setShowAdjust] = useState(false);
   const [showMore, setShowMore] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showMore) return;
+    function onPointerDown(e: MouseEvent) {
+      if (
+        moreRef.current &&
+        !moreRef.current.contains(e.target as Node)
+      ) {
+        setShowMore(false);
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [showMore]);
 
   const hasActiveScriptJob = Boolean(
     jobs?.some(
@@ -296,7 +311,7 @@ export default function ProjectPage() {
       project.status === "exported" ||
       project.status === "generating");
 
-  const adjustOpen = showAdjust && !pipelineRunning;
+  const adjustOpen = showAdjust;
 
   const activeLook = resolveLookId(
     (project.lookId as string | undefined) ??
@@ -509,13 +524,202 @@ export default function ProjectPage() {
   const voiceLabel =
     FACELESS_VOICES.find((v) => v.id === activeVoice)?.label ?? "Voix";
 
+  const adjustPanel = (
+    <div className="space-y-5">
+      <div>
+        <p className="font-display text-[13px] tracking-tight text-foreground">
+          Style
+        </p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {FACELESS_LOOKS.map((look) => {
+            const active = activeLook === look.id;
+            return (
+              <button
+                key={look.id}
+                type="button"
+                title={look.hint}
+                disabled={busy === "style" || hasActiveAssetJobs}
+                onClick={() => void onApplyLook(look.id)}
+                className={
+                  active
+                    ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/40"
+                    : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                }
+              >
+                {look.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div>
+        <p className="font-display text-[13px] tracking-tight text-foreground">
+          Voix
+        </p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {FACELESS_VOICES.map((voice) => {
+            const active = activeVoice === voice.id;
+            return (
+              <button
+                key={voice.id}
+                type="button"
+                title={voice.hint}
+                disabled={busy === "voice" || hasActiveAssetJobs}
+                onClick={() => void onApplyVoice(voice.id)}
+                className={
+                  active
+                    ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/40"
+                    : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                }
+              >
+                {voice.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div>
+        <p className="font-display text-[13px] tracking-tight text-foreground">
+          Cast
+        </p>
+        {cast.length === 0 ? (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Apparaît après le script.
+          </p>
+        ) : (
+          <div className="mt-2 space-y-2">
+            {cast.map((member, i) => (
+              <div
+                key={member.id || i}
+                className="rounded-lg border border-border/70 bg-card/30 p-2"
+              >
+                <input
+                  value={member.name}
+                  onChange={(e) =>
+                    updateCastField(i, "name", e.target.value)
+                  }
+                  placeholder="Nom"
+                  className="mb-1 w-full bg-transparent text-xs font-semibold text-foreground outline-none"
+                />
+                <textarea
+                  value={member.appearance}
+                  onChange={(e) =>
+                    updateCastField(i, "appearance", e.target.value)
+                  }
+                  placeholder="Appearance (EN)"
+                  rows={2}
+                  className="mb-1 w-full resize-none bg-transparent text-[10px] leading-snug text-muted-foreground outline-none"
+                />
+                <input
+                  value={member.clothing}
+                  onChange={(e) =>
+                    updateCastField(i, "clothing", e.target.value)
+                  }
+                  placeholder="Clothing (EN)"
+                  className="w-full bg-transparent text-[10px] text-muted-foreground outline-none"
+                />
+              </div>
+            ))}
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 w-full cursor-pointer"
+              disabled={
+                busy === "cast" ||
+                hasActiveAssetJobs ||
+                castDraft === null
+              }
+              onClick={() => void onSaveCast()}
+            >
+              {busy === "cast" ? "…" : "Appliquer cast"}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {focused && draft && (
+        <div>
+          <p className="font-display text-[13px] tracking-tight text-foreground">
+            Scène
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant={editing ? "secondary" : "outline"}
+              className="h-8 cursor-pointer"
+              onClick={() => setEditing((v) => !v)}
+            >
+              {editing ? "Fermer" : "Éditer"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 cursor-pointer"
+              disabled={hasActiveAssetJobs}
+              onClick={() => void onRegenScene(focused._id, ["image"])}
+            >
+              <ImageIcon className="size-3.5" weight="bold" />
+              Image
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 cursor-pointer"
+              disabled={hasActiveAssetJobs}
+              onClick={() =>
+                void onRegenScene(focused._id, ["voiceover"])
+              }
+            >
+              <Microphone className="size-3.5" weight="bold" />
+              Voix
+            </Button>
+          </div>
+          {editing && (
+            <div className="mt-2 space-y-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Narration</Label>
+                <Textarea
+                  rows={3}
+                  value={draft.narrationText}
+                  onChange={(e) =>
+                    setDrafts((prev) => ({
+                      ...prev,
+                      [focused._id]: {
+                        ...draft,
+                        narrationText: e.target.value,
+                      },
+                    }))
+                  }
+                />
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 cursor-pointer"
+                disabled={savingId === focused._id}
+                onClick={() => void onSaveScene(focused._id)}
+              >
+                {savingId === focused._id ? "…" : "Sauver"}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div
       data-atelier-workspace
       className="atelier-grain fixed inset-x-0 bottom-0 top-14 z-30 flex h-[calc(100dvh-3.5rem)] max-h-[calc(100dvh-3.5rem)] flex-col overflow-hidden bg-background"
     >
       {/* Top bar */}
-      <header className="relative z-[1] flex shrink-0 flex-wrap items-center gap-2 border-b border-border/70 bg-card/40 px-3 py-2 backdrop-blur-md md:px-4">
+      <header className="relative z-30 flex shrink-0 flex-wrap items-center gap-2 overflow-visible border-b border-border/70 bg-card/95 px-3 py-2 backdrop-blur-md md:px-4">
         <Link
           href="/dashboard?tab=faceless"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -567,20 +771,31 @@ export default function ProjectPage() {
               {busy === "assets" ? "…" : "Relancer images + voix"}
             </Button>
           )}
-          <div className="relative">
+          <div className="relative" ref={moreRef}>
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
               className="h-8 cursor-pointer"
               onClick={() => setShowMore((v) => !v)}
               aria-expanded={showMore}
+              aria-haspopup="menu"
             >
               Plus
-              <CaretDown className="size-3.5" weight="bold" />
+              <CaretDown
+                className={
+                  showMore
+                    ? "size-3.5 rotate-180 transition-transform"
+                    : "size-3.5 transition-transform"
+                }
+                weight="bold"
+              />
             </Button>
             {showMore && (
-              <div className="absolute right-0 top-full z-20 mt-1 min-w-44 rounded-lg border border-border bg-card p-1 shadow-lg">
+              <div
+                role="menu"
+                className="absolute right-0 top-full z-50 mt-1 min-w-44 rounded-lg border border-border bg-card p-1 shadow-xl"
+              >
                 {!hidePrimaryScript && (
                   <button
                     type="button"
@@ -629,7 +844,7 @@ export default function ProjectPage() {
       </header>
 
       {(error || info) && (
-        <div className="relative z-[1] shrink-0 border-b border-border/60 px-3 py-1.5 text-xs md:px-4">
+        <div className="relative z-10 shrink-0 border-b border-border/60 px-3 py-1.5 text-xs md:px-4">
           {error ? (
             <p className="text-destructive" role="alert">
               {error}
@@ -643,13 +858,13 @@ export default function ProjectPage() {
       )}
 
       {pipelineRunning && (
-        <div className="relative z-[1] shrink-0 border-b border-border/50 px-3 py-2 md:px-4">
+        <div className="relative z-10 shrink-0 border-b border-border/50 px-3 py-2 md:px-4">
           <FacelessStepProgress jobs={jobs} />
         </div>
       )}
 
       {/* Corps atelier */}
-      <div className="relative z-[1] grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_280px] xl:grid-cols-[240px_minmax(0,1fr)_300px]">
+      <div className="relative z-0 grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_280px] xl:grid-cols-[240px_minmax(0,1fr)_300px]">
         {/* Filmstrip scènes */}
         <aside className="atelier-panel min-h-0 overflow-y-auto border-b border-border p-2 lg:border-b-0 lg:border-r">
           <p className="atelier-label mb-2 px-1">Scènes</p>
@@ -769,26 +984,13 @@ export default function ProjectPage() {
             </p>
           </div>
 
-          {canExport && (
-            <Button
-              type="button"
-              size="sm"
-              className="cta-signal mt-4 h-9 w-full cursor-pointer border-0 hover:bg-signal"
-              disabled={downloading}
-              onClick={() => void onExport()}
-            >
-              <DownloadSimple className="size-3.5" weight="bold" />
-              {downloading ? "…" : "Exporter"}
-            </Button>
-          )}
-
           <button
             type="button"
-            className="mt-5 flex w-full cursor-pointer items-center justify-between rounded-lg border border-border/80 px-3 py-2 text-left text-xs font-medium text-foreground hover:border-signal/30 disabled:opacity-50"
-            disabled={pipelineRunning}
+            aria-expanded={adjustOpen}
+            className="mt-5 flex w-full cursor-pointer items-center justify-between rounded-lg border border-border/80 bg-card/50 px-3 py-2.5 text-left text-xs font-medium text-foreground hover:border-signal/40"
             onClick={() => setShowAdjust((v) => !v)}
           >
-            Ajuster
+            Ajuster style, voix, cast
             <CaretDown
               className={
                 adjustOpen
@@ -800,200 +1002,32 @@ export default function ProjectPage() {
           </button>
 
           {adjustOpen && (
-            <div className="mt-3 space-y-5 border-t border-border pt-3">
-              <div>
-                <p className="font-display text-[13px] tracking-tight text-foreground">
-                  Style
-                </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {FACELESS_LOOKS.map((look) => {
-                    const active = activeLook === look.id;
-                    return (
-                      <button
-                        key={look.id}
-                        type="button"
-                        title={look.hint}
-                        disabled={busy === "style" || hasActiveAssetJobs}
-                        onClick={() => void onApplyLook(look.id)}
-                        className={
-                          active
-                            ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/40"
-                            : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-                        }
-                      >
-                        {look.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <p className="font-display text-[13px] tracking-tight text-foreground">
-                  Voix
-                </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {FACELESS_VOICES.map((voice) => {
-                    const active = activeVoice === voice.id;
-                    return (
-                      <button
-                        key={voice.id}
-                        type="button"
-                        title={voice.hint}
-                        disabled={busy === "voice" || hasActiveAssetJobs}
-                        onClick={() => void onApplyVoice(voice.id)}
-                        className={
-                          active
-                            ? "cursor-pointer rounded-lg bg-signal/20 px-2.5 py-1.5 text-xs font-semibold text-signal ring-1 ring-signal/40"
-                            : "cursor-pointer rounded-lg bg-secondary/80 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-                        }
-                      >
-                        {voice.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <p className="font-display text-[13px] tracking-tight text-foreground">
-                  Cast
-                </p>
-                {cast.length === 0 ? (
-                  <p className="mt-2 text-[11px] text-muted-foreground">
-                    Apparait après le script.
-                  </p>
-                ) : (
-                  <div className="mt-2 space-y-2">
-                    {cast.map((member, i) => (
-                      <div
-                        key={member.id || i}
-                        className="rounded-lg border border-border/70 bg-card/30 p-2"
-                      >
-                        <input
-                          value={member.name}
-                          onChange={(e) =>
-                            updateCastField(i, "name", e.target.value)
-                          }
-                          placeholder="Nom"
-                          className="mb-1 w-full bg-transparent text-xs font-semibold text-foreground outline-none"
-                        />
-                        <textarea
-                          value={member.appearance}
-                          onChange={(e) =>
-                            updateCastField(i, "appearance", e.target.value)
-                          }
-                          placeholder="Appearance (EN)"
-                          rows={2}
-                          className="mb-1 w-full resize-none bg-transparent text-[10px] leading-snug text-muted-foreground outline-none"
-                        />
-                        <input
-                          value={member.clothing}
-                          onChange={(e) =>
-                            updateCastField(i, "clothing", e.target.value)
-                          }
-                          placeholder="Clothing (EN)"
-                          className="w-full bg-transparent text-[10px] text-muted-foreground outline-none"
-                        />
-                      </div>
-                    ))}
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="h-8 w-full cursor-pointer"
-                      disabled={
-                        busy === "cast" ||
-                        hasActiveAssetJobs ||
-                        castDraft === null
-                      }
-                      onClick={() => void onSaveCast()}
-                    >
-                      {busy === "cast" ? "…" : "Appliquer cast"}
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              {focused && draft && (
-                <div>
-                  <p className="font-display text-[13px] tracking-tight text-foreground">
-                    Scène
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={editing ? "secondary" : "outline"}
-                      className="h-8 cursor-pointer"
-                      onClick={() => setEditing((v) => !v)}
-                    >
-                      {editing ? "Fermer" : "Éditer"}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-8 cursor-pointer"
-                      disabled={hasActiveAssetJobs}
-                      onClick={() =>
-                        void onRegenScene(focused._id, ["image"])
-                      }
-                    >
-                      <ImageIcon className="size-3.5" weight="bold" />
-                      Image
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-8 cursor-pointer"
-                      disabled={hasActiveAssetJobs}
-                      onClick={() =>
-                        void onRegenScene(focused._id, ["voiceover"])
-                      }
-                    >
-                      <Microphone className="size-3.5" weight="bold" />
-                      Voix
-                    </Button>
-                  </div>
-                  {editing && (
-                    <div className="mt-2 space-y-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Narration</Label>
-                        <Textarea
-                          rows={3}
-                          value={draft.narrationText}
-                          onChange={(e) =>
-                            setDrafts((prev) => ({
-                              ...prev,
-                              [focused._id]: {
-                                ...draft,
-                                narrationText: e.target.value,
-                              },
-                            }))
-                          }
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="h-8 cursor-pointer"
-                        disabled={savingId === focused._id}
-                        onClick={() => void onSaveScene(focused._id)}
-                      >
-                        {savingId === focused._id ? "…" : "Sauver"}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
+            <div className="mt-3 border-t border-border pt-3">
+              {adjustPanel}
             </div>
           )}
         </aside>
       </div>
 
+      {/* Sheet mobile Ajuster */}
+      {showAdjust && (
+        <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col bg-background/95 backdrop-blur-md lg:hidden">
+          <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+            <p className="font-display text-sm tracking-tight">Ajuster</p>
+            <button
+              type="button"
+              className="cursor-pointer rounded-lg px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setShowAdjust(false)}
+            >
+              Fermer
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">{adjustPanel}</div>
+        </div>
+      )}
+
       {/* Barre bas mobile */}
-      <footer className="relative z-[1] shrink-0 border-t border-border/70 bg-card/50 px-3 py-2 backdrop-blur-md lg:hidden">
+      <footer className="relative z-20 shrink-0 border-t border-border/70 bg-card/95 px-3 py-2 backdrop-blur-md lg:hidden">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -1018,9 +1052,13 @@ export default function ProjectPage() {
           >
             Final
           </button>
-          <span className="text-[11px] text-muted-foreground">
-            {lookLabel} · {voiceLabel}
-          </span>
+          <button
+            type="button"
+            onClick={() => setShowAdjust(true)}
+            className="cursor-pointer rounded-lg border border-border/80 bg-card/50 px-2.5 py-1 text-xs font-medium text-foreground"
+          >
+            Ajuster
+          </button>
           {canExport && (
             <Button
               type="button"
