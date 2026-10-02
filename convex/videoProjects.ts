@@ -2,7 +2,10 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireUserId } from "./lib/auth";
 import { getScriptSystemPrompt } from "./lib/genrePrompt";
-import { buildScriptUserPrompt } from "./lib/scriptPrompt";
+import {
+  buildScriptUserPrompt,
+  summarizeScenesForNextEpisode,
+} from "./lib/scriptPrompt";
 import { buildImagePrompt } from "./lib/imagePrompt";
 import { bumpUsage, checkUsageLimit, checkStudioLimit } from "./usage";
 import { DEFAULT_STUDIO, DEFAULT_STUDIO_NAME } from "./lib/studioDefaults";
@@ -53,6 +56,9 @@ const projectDoc = v.object({
   imageSeed: v.optional(v.number()),
   autoGenerateAssets: v.optional(v.boolean()),
   finalVideoUrl: v.optional(v.string()),
+  seriesId: v.optional(v.string()),
+  episodeNumber: v.optional(v.number()),
+  previousEpisodeSummary: v.optional(v.string()),
   createdAt: v.number(),
 });
 
@@ -163,6 +169,7 @@ export const createAndStartReel = mutation({
 
     const now = Date.now();
     const imageSeed = Math.floor(Math.random() * 2_147_483_647);
+    const seriesId = `${now.toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
     const projectId = await ctx.db.insert("videoProjects", {
       studioId,
       title: topic,
@@ -172,6 +179,8 @@ export const createAndStartReel = mutation({
       voiceId: voice.id,
       imageSeed,
       autoGenerateAssets: true,
+      seriesId,
+      episodeNumber: 1,
       createdAt: now,
     });
 
@@ -184,6 +193,7 @@ export const createAndStartReel = mutation({
       narrationTone: look.toneHint,
       visualStyle: look.prompt,
       genre: look.genre,
+      episodeNumber: 1,
     });
 
     await ctx.db.insert("generationJobs", {
@@ -206,6 +216,119 @@ export const createAndStartReel = mutation({
     });
 
     return { projectId, studioId };
+  },
+});
+
+/**
+ * Crée l'épisode suivant d'une série (même look / voix / cast / topic).
+ */
+export const createNextEpisode = mutation({
+  args: {
+    projectId: v.id("videoProjects"),
+    planSlug: v.optional(v.string()),
+  },
+  returns: v.object({
+    projectId: v.id("videoProjects"),
+    studioId: v.id("studios"),
+    episodeNumber: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const source = await ctx.db.get(args.projectId);
+    if (!source) throw new Error("Projet introuvable");
+
+    const studio = await ctx.db.get(source.studioId);
+    if (!studio || studio.userId !== userId) {
+      throw new Error("Non autorisé");
+    }
+
+    const scenes = await ctx.db
+      .query("scenes")
+      .withIndex("by_videoProjectId", (q) =>
+        q.eq("videoProjectId", source._id),
+      )
+      .collect();
+    if (scenes.length === 0) {
+      throw new Error("Génère d'abord le script de l'épisode actuel");
+    }
+
+    await checkUsageLimit(ctx, userId, args.planSlug ?? "solo");
+
+    const look = getFacelessLook(source.lookId ?? studio.visualStyle);
+    const voice = getFacelessVoice(source.voiceId);
+    const seriesId =
+      source.seriesId ??
+      `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    if (!source.seriesId) {
+      await ctx.db.patch(source._id, {
+        seriesId,
+        episodeNumber: source.episodeNumber ?? 1,
+      });
+    }
+
+    const episodeNumber = (source.episodeNumber ?? 1) + 1;
+    const sortedScenes = [...scenes].sort((a, b) => a.order - b.order);
+    const previousEpisodeSummary = summarizeScenesForNextEpisode(
+      sortedScenes,
+    );
+    const baseTitle = source.title.replace(/\s*[—–-]\s*Ép\.?\s*\d+\s*$/i, "").trim();
+    const title = `${baseTitle} — Ép. ${episodeNumber}`;
+    const now = Date.now();
+    const imageSeed =
+      source.imageSeed ?? Math.floor(Math.random() * 2_147_483_647);
+    const cast = source.cast ?? [];
+
+    const projectId = await ctx.db.insert("videoProjects", {
+      studioId: source.studioId,
+      title,
+      topic: source.topic,
+      status: "draft",
+      lookId: look.id,
+      voiceId: voice.id,
+      cast,
+      imageSeed,
+      autoGenerateAssets: true,
+      seriesId,
+      episodeNumber,
+      previousEpisodeSummary,
+      createdAt: now,
+    });
+
+    await bumpUsage(ctx, userId, { videosGenerated: 1 });
+
+    const systemPrompt = getScriptSystemPrompt(look.genre);
+    const userPrompt = buildScriptUserPrompt({
+      topic: source.topic,
+      title,
+      narrationTone: look.toneHint,
+      visualStyle: look.prompt,
+      genre: look.genre,
+      episodeNumber,
+      previousEpisodeSummary,
+      lockedCast: cast,
+    });
+
+    await ctx.db.insert("generationJobs", {
+      type: "script",
+      videoProjectId: projectId,
+      status: "pending",
+      provider: "local",
+      payload: {
+        systemPrompt,
+        userPrompt,
+        visualStyle: look.prompt,
+        narrationTone: look.toneHint,
+        voiceInstruct: voice.instruct,
+        genre: look.genre,
+        topic: source.topic,
+        title,
+        episodeNumber,
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return { projectId, studioId: source.studioId, episodeNumber };
   },
 });
 
@@ -354,6 +477,10 @@ export const generateScript = mutation({
       narrationTone: studio.narrationTone,
       visualStyle: studio.visualStyle,
       genre: studio.genre ?? "true_crime",
+      episodeNumber: project.episodeNumber ?? 1,
+      previousEpisodeSummary: project.previousEpisodeSummary,
+      lockedCast:
+        (project.episodeNumber ?? 1) > 1 ? (project.cast ?? null) : null,
     });
 
     const jobId = await ctx.db.insert("generationJobs", {

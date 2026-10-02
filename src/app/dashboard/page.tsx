@@ -759,6 +759,9 @@ function DashboardPageInner() {
                         Faceless ·{" "}
                         {FACELESS_LOOKS.find((l) => l.id === p.lookId)?.label ??
                           studioName}
+                        {p.episodeNumber != null && p.episodeNumber > 0
+                          ? ` · Ép. ${p.episodeNumber}`
+                          : ""}
                         {p.finalVideoUrl ? " · vidéo prête" : ""}
                       </p>
                     </Link>

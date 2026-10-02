@@ -55,10 +55,15 @@ export default defineSchema({
     imageSeed: v.optional(v.number()),
     autoGenerateAssets: v.optional(v.boolean()),
     finalVideoUrl: v.optional(v.string()),
+    /** Série multi-épisodes (même sujet / cast / look) */
+    seriesId: v.optional(v.string()),
+    episodeNumber: v.optional(v.number()),
+    previousEpisodeSummary: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_studioId", ["studioId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_seriesId", ["seriesId"]),
 
   scenes: defineTable({
     videoProjectId: v.id("videoProjects"),

@@ -1,6 +1,6 @@
 /**
  * Defaults Studio pour le flux sujet → reel.
- * Aligné sur FACELESS_LOOKS / VOICES (défaut = Anime + Narrateur grave).
+ * Aligné sur FACELESS_LOOKS / VOICES (défaut = Photo concept + Narrateur grave).
  */
 
 import {

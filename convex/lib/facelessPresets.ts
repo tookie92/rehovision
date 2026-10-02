@@ -1,14 +1,14 @@
 /**
- * Presets faceless : looks viraux DISTINCTS (refs Clay / Spider-Verse / Sketch / Photo).
- * Chaque look a un `negativePrompt` pour éviter le collapse entre familles.
+ * Presets faceless : 4 looks d’imitation littérale des refs
+ * (Photo concept / Spider-Verse / Clay / Polar noir).
+ * Flux ignore le canal négatif → avoid: dans le prompt positif via imagePrompt.
  */
 
 export type FacelessLookId =
-  | "clay"
-  | "spiderverse"
-  | "sketch"
   | "photoreal"
-  | "anime";
+  | "spiderverse"
+  | "clay"
+  | "polar_noir";
 
 export type FacelessVoiceId =
   | "narrator_m"
@@ -24,7 +24,7 @@ export type FacelessLook = {
   label: string;
   hint: string;
   prompt: string;
-  /** Tokens à éviter — injectés dans le prompt Flux / negative SDXL */
+  /** Tokens à éviter — injectés dans avoid: (Flux) / negative SDXL */
   negativePrompt: string;
   toneHint: string;
   genre: "true_crime" | "kids" | "history" | "custom";
@@ -49,59 +49,48 @@ export type CastMember = {
 
 export const FACELESS_LOOKS: FacelessLook[] = [
   {
-    id: "clay",
-    label: "Clay",
-    hint: "Stop-motion pâte à modeler, folk",
-    prompt:
-      "handcrafted stop-motion claymation still, polymer clay characters with fingerprints, large round doll eyes, soft matte clay skin, miniature ornate set, warm ochre terracotta palette, Aardman-like tactile craft, soft studio key light",
-    negativePrompt:
-      "photorealistic, anime, manga, flat vector, comic halftone, spider-verse, neon rim light, oil painting sketch, charcoal drawing",
-    toneHint: "enjoué, clair",
-    genre: "kids",
-  },
-  {
-    id: "spiderverse",
-    label: "Spider-Verse",
-    hint: "3D comic, halftones, néon",
-    prompt:
-      "Spider-Verse stylized 3D comic still, bold ink outlines, visible CMYK halftone dots, chromatic aberration, neon rim lighting, high contrast noir-comic lighting, exaggerated proportions, graphic novel energy, not Japanese anime",
-    negativePrompt:
-      "anime, manga, cel shading, big anime eyes, claymation, photoreal skin pores, watercolor sketch, flat vector icons, polaroid photo",
-    toneHint: "intense, rythmé",
-    genre: "true_crime",
-  },
-  {
-    id: "sketch",
-    label: "Sketch",
-    hint: "Encre + aquarelle dramatique",
-    prompt:
-      "expressive mixed-media courtroom sketch illustration, bold charcoal ink outlines, dramatic cross-hatching, watercolor washes in burnt orange and gold, dark moody background, gestural energetic strokes, editorial magazine art",
-    negativePrompt:
-      "photorealistic, clay, 3d render, anime, manga, spider-verse halftone, flat vector, clean corporate photo, plastic CGI",
-    toneHint: "grave, mystérieux",
-    genre: "true_crime",
-  },
-  {
     id: "photoreal",
     label: "Photo concept",
     hint: "Studio high-key, métaphore visuelle",
     prompt:
-      "conceptual high-key studio photograph, sharp photoreal detail, vast white negative space, polished reflective floor, clean modern lighting, single powerful visual metaphor, fashion-editorial composition, vertical 9:16",
+      "exact conceptual fashion-editorial photograph, ultra-sharp photoreal DSLR 85mm, seamless pure white void background, polished reflective concrete floor with soft subject reflections, clinical even studio lighting, real skin fabric metal textures, single powerful visual metaphor, vertical 9:16",
     negativePrompt:
-      "anime, manga, cartoon, clay, comic book, sketch drawing, watercolor, halftone, neon rim light, cluttered background, grainy polaroid",
+      "illustration, drawing, cartoon, anime, manga, claymation, polymer clay, plasticine, spider-verse, CMYK halftone, comic ink, charcoal sketch, watercolor, painted, CGI plastic skin",
     toneHint: "posé, narratif",
     genre: "custom",
   },
   {
-    id: "anime",
-    label: "Anime",
-    hint: "Cel-shading manga",
+    id: "spiderverse",
+    label: "Spider-Verse",
+    hint: "Into the Spider-Verse : yeux/bouche comic CGI",
     prompt:
-      "Japanese anime cel-shaded illustration, crisp clean lineart, large expressive anime eyes, flat cel colors, light screentone, 2D animation still",
+      "exact Into the Spider-Verse Sony Pictures Animation movie still, comic-book CGI face with stylized half-lidded eyes sharp irises thick ink lids, closed or tight mouth line matching Miles Morales profile style, dense visible CMYK Ben-Day halftone dots on clothing, bold black ink outlines, blue and magenta neon rim lights, RGB chromatic aberration fringing, hand-drawn white scratch accents, volumetric smoke, elongated neck proportions, printed comic texture",
     negativePrompt:
-      "photorealistic, 3d render, clay, western comic, spider-verse, ben-day dots, charcoal sketch, oil painting",
-    toneHint: "expressif, clair",
-    genre: "custom",
+      "claymation, polymer clay, plasticine, stop-motion, Aardman, soft matte clay skin, fingerprints in clay, oversized white doll eyes, tiny black pupils, photoreal photo, anime cel, watercolor, flat vector",
+    toneHint: "intense, rythmé",
+    genre: "true_crime",
+  },
+  {
+    id: "clay",
+    label: "Clay",
+    hint: "Pâte à modeler + yeux de poupée Aardman",
+    prompt:
+      "exact handcrafted stop-motion claymation frame, polymer clay plasticine characters with visible fingerprints and tool marks, oversized bulging round white doll eyes with tiny black pinpoint pupils slightly vacant stare, soft matte clay skin, Aardman Wallace-and-Gromit craft, miniature practical set, warm sunny ochre terracotta palette, tactile handmade miniature world",
+    negativePrompt:
+      "photorealistic, DSLR photo, spider-verse, CMYK halftone, Ben-Day dots, neon rim light, chromatic aberration, comic ink outlines, anime, charcoal sketch, oil painting, smooth CGI skin, sharp irises",
+    toneHint: "enjoué, clair",
+    genre: "kids",
+  },
+  {
+    id: "polar_noir",
+    label: "Polar noir",
+    hint: "Croquis tribunal encre + aquarelle",
+    prompt:
+      "exact dramatic courtroom sketch illustration, raw marker ink and colored-pencil strokes, bold charcoal cross-hatching and energetic scribbles, burnt orange and gold light on subject, deep midnight blue black background, gestural unfinished edges, true-crime editorial magazine art, high contrast polar noir mood, vertical 9:16",
+    negativePrompt:
+      "photorealistic, claymation, polymer clay, plasticine, doll eyes, spider-verse, CMYK halftone, neon rim, 3d render, anime, clean vector, soft pastel, bright sunny daylight",
+    toneHint: "grave, mystérieux",
+    genre: "true_crime",
   },
 ];
 
@@ -158,7 +147,7 @@ export const FACELESS_VOICES: FacelessVoice[] = [
   },
 ];
 
-export const DEFAULT_FACELESS_LOOK_ID: FacelessLookId = "clay";
+export const DEFAULT_FACELESS_LOOK_ID: FacelessLookId = "photoreal";
 export const DEFAULT_FACELESS_VOICE_ID: FacelessVoiceId = "narrator_m";
 
 export function getFacelessLook(
@@ -184,12 +173,15 @@ const LOOK_ALIASES: Record<string, FacelessLookId> = {
   comic_us: "spiderverse",
   cinematic: "photoreal",
   clay3d: "clay",
-  flat: "sketch",
-  flatvector: "sketch",
-  surreal: "sketch",
+  sketch: "polar_noir",
+  flat: "polar_noir",
+  flatvector: "polar_noir",
+  surreal: "polar_noir",
   storybook: "clay",
-  noir: "sketch",
-  noirphoto: "sketch",
+  noir: "polar_noir",
+  noirphoto: "polar_noir",
+  anime: "polar_noir",
+  manga: "polar_noir",
 };
 
 export function resolveLookId(
@@ -213,39 +205,41 @@ export function matchFacelessLookId(
   if (
     v.includes("spider-verse") ||
     v.includes("spiderverse") ||
+    v.includes("into the spider") ||
+    v.includes("ben-day") ||
     v.includes("halftone") ||
-    v.includes("neon rim")
+    v.includes("chromatic aberration")
   )
     return "spiderverse";
   if (
     v.includes("clay") ||
     v.includes("aardman") ||
     v.includes("stop-motion") ||
-    v.includes("polymer clay")
+    v.includes("polymer clay") ||
+    v.includes("plasticine") ||
+    v.includes("doll eyes")
   )
     return "clay";
   if (
-    v.includes("charcoal") ||
-    v.includes("cross-hatching") ||
-    v.includes("watercolor") ||
+    v.includes("polar noir") ||
     v.includes("courtroom sketch") ||
-    v.includes("mixed-media")
+    v.includes("cross-hatching") ||
+    v.includes("charcoal") ||
+    v.includes("colored-pencil") ||
+    v.includes("burnt orange")
   )
-    return "sketch";
+    return "polar_noir";
   if (
     v.includes("high-key") ||
     v.includes("photoreal") ||
-    v.includes("conceptual") ||
-    v.includes("negative space")
+    v.includes("white void") ||
+    v.includes("dslr") ||
+    v.includes("conceptual fashion")
   )
     return "photoreal";
-  if (v.includes("anime") || v.includes("manga") || v.includes("cel"))
-    return "anime";
-  if (v.includes("ben-day") || v.includes("comic book") || v.includes("pulp"))
-    return "spiderverse";
-  if (v.includes("vector") || v.includes("motion-graphics")) return "sketch";
-  if (v.includes("polaroid") || v.includes("found-footage")) return "sketch";
-  if (v.includes("cinematic")) return "photoreal";
+  if (v.includes("cinematic") || v.includes("editorial photograph"))
+    return "photoreal";
+  if (v.includes("anime") || v.includes("manga")) return "polar_noir";
   return null;
 }
 

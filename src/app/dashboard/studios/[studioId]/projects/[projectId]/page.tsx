@@ -138,10 +138,11 @@ export default function ProjectPage() {
   const deleteScene = useMutation(api.videoProjects.deleteScene);
   const queueSceneJobs = useMutation(api.videoProjects.queueSceneJobs);
   const applyLookAndVoice = useMutation(api.videoProjects.applyLookAndVoice);
+  const createNextEpisode = useMutation(api.videoProjects.createNextEpisode);
   const deleteVideoProject = useMutation(api.videoProjects.deleteVideoProject);
 
   const [busy, setBusy] = useState<
-    "script" | "assets" | "adjust" | "delete" | null
+    "script" | "assets" | "adjust" | "episode" | "delete" | null
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -291,6 +292,11 @@ export default function ProjectPage() {
       hasActiveAssembly ||
       project.status === "generating");
   const canExport = Boolean(project.finalVideoUrl);
+  const canNextEpisode =
+    scenes.length > 0 &&
+    !writingPhase &&
+    !hasActiveScriptJob &&
+    busy === null;
   const canRelaunch =
     !writingPhase &&
     !generatingPhase &&
@@ -446,6 +452,21 @@ export default function ProjectPage() {
     };
     next[index] = { ...cur, [field]: value };
     setCastDraft(next);
+  }
+
+  async function onNextEpisode() {
+    setError(null);
+    setBusy("episode");
+    try {
+      const res = await createNextEpisode({ projectId });
+      setInfo(`Épisode ${res.episodeNumber} en file`);
+      router.push(
+        `/dashboard/studios/${res.studioId}/projects/${res.projectId}`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+      setBusy(null);
+    }
   }
 
   async function onDeleteProject() {
@@ -721,6 +742,11 @@ export default function ProjectPage() {
         <span className="rounded-md bg-secondary/80 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
           {facelessCardStatus(project).label}
         </span>
+        {project.episodeNumber != null && project.episodeNumber > 0 && (
+          <span className="rounded-md bg-signal/15 px-2 py-0.5 text-[11px] font-semibold text-signal">
+            Ép. {project.episodeNumber}
+          </span>
+        )}
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           {writingPhase && (
             <span className="rounded-md bg-amber-500/15 px-2.5 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
@@ -742,6 +768,18 @@ export default function ProjectPage() {
             >
               <DownloadSimple className="size-3.5" weight="bold" />
               {downloading ? "…" : "Exporter"}
+            </Button>
+          )}
+          {canNextEpisode && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 cursor-pointer transition-transform duration-150 ease-out active:scale-[0.97]"
+              disabled={busy === "episode"}
+              onClick={() => void onNextEpisode()}
+            >
+              {busy === "episode" ? "…" : "Épisode suivant"}
             </Button>
           )}
           {canRelaunch && (

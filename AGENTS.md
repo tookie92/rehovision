@@ -8,9 +8,9 @@
 - Wants manual clip in/out with drag handles for start/end (not only AI auto-hooks); saving polish/render options alone does not enqueue jobs — always expose a visible re-render CTA that calls `rerenderAll` (or equivalent).
 - Clip and faceless UIs should be Opus-like no-scroll single-viewport ateliers (clips/scenes list | 9:16 Soft/Final stage | tools) — not OpenChatCut NLE/timeline/agent-chat or a long-scrolling settings page.
 - Clip stage polish before re-render: soft-preview look/LUT, CapCut-like karaoke/word-pop ASS captions with strong outline and a real Off option, punch, Split dual-pane with landscape face-framing dialog (not only haut↔bas swap).
-- Faceless: choose illustration style and voice before generation (not only mid-pipeline); look/voice regen must apply to all scenes, not a single image.
-- Faceless: character/cast coherence across scenes is required; illustration style chips must be visually distinct families (viral-ready), not Anime lookalikes with different labels.
-- Dashboard must list faceless projects when the Faceless tab is active (not clips-only).
+- Faceless: choose illustration style and voice before generation (not only mid-pipeline); look/voice regen must apply to all scenes, not a single image; style/voice tweaks need an explicit confirm CTA before enqueueing regen (no auto-wait between each change).
+- Faceless: character/cast coherence across scenes is required; illustration style chips must be visually distinct viral-ready families (replace weaker lookalikes with stronger user-approved references), not Anime clones with different labels.
+- Dashboard must list faceless projects when the Faceless tab is active (not clips-only); faceless hub/create UX must stay simple and Opus-like, not a pipeline-heavy long-scroll settings page.
 - Once core ROADMAP étapes are done, leave voluntary hors-scope and optional items alone unless explicitly requested.
 
 ## Learned Workspace Facts
