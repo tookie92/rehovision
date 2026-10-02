@@ -641,8 +641,8 @@ export function ClipStagePreview({
                 Chargement Soft (source)…
               </p>
               <p className="text-[10px] text-white/55">
-                Si c’est long : décoche Soft → Final, ou ouvre l’app en LAN
-                http://IP:3000
+                Lent ? Passe en Final (bouton sous la preview) — le Soft
+                charge toute la vidéo source.
               </p>
             </div>
           )}

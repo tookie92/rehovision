@@ -371,7 +371,7 @@ function DashboardPageInner() {
           window.location.protocol === "https:";
         if (viaHttpsTunnel) {
           setPhase(
-            "Envoi via tunnel (lent) — préfère http://IP_UBUNTU:3000 en LAN…",
+            "Envoi via tunnel (plus lent) — upload LAN direct si tu ouvres Next en http sur le réseau local…",
           );
         }
         const body = await uploadToWorker(file, setUploadPct);
