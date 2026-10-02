@@ -34,6 +34,8 @@ function uploadWithProgress(
     const xhr = new XMLHttpRequest();
     xhr.open("POST", uploadUrl);
     xhr.responseType = "json";
+    // Cloudflare tunnel ~100s — garder une marge sous ce plafond
+    xhr.timeout = 90_000;
     const hdrs = {
       "Content-Type":
         file instanceof File
@@ -83,21 +85,69 @@ function uploadWithProgress(
     };
     xhr.onerror = () => reject(new Error("Upload réseau échoué"));
     xhr.onabort = () => reject(new Error("Upload annulé"));
+    xhr.ontimeout = () =>
+      reject(new Error("Upload timeout (tunnel Cloudflare) — nouvel essai…"));
     xhr.send(file);
   });
 }
 
-/** Upload par chunks via Next → worker (contourne Cloudflare 413 ~100 Mo). */
+async function uploadWithRetries(
+  uploadUrl: string,
+  blob: Blob,
+  onProgress: (pct: number) => void,
+  headers: Record<string, string>,
+  attempts = 4,
+): Promise<Record<string, unknown>> {
+  let lastErr: Error | null = null;
+  for (let a = 1; a <= attempts; a++) {
+    try {
+      return await uploadWithProgress(uploadUrl, blob, onProgress, headers);
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      // Pas de retry sur 4xx métier (sauf 408/429)
+      const m = lastErr.message.match(/Upload échoué \((\d+)\)/);
+      const code = m ? Number(m[1]) : 0;
+      if (code >= 400 && code < 500 && code !== 408 && code !== 429) {
+        throw lastErr;
+      }
+      if (a < attempts) {
+        await new Promise((r) => setTimeout(r, 800 * a));
+      }
+    }
+  }
+  throw lastErr ?? new Error("Upload échoué");
+}
+
+/**
+ * Chunks via Next (HTTPS/Cloudflare) ou direct worker (HTTP LAN).
+ * 8 Mo était trop lent via CF (~67 Ko/s) → timeout tunnel ~100 s.
+ */
 async function uploadFileChunked(
   file: File,
   onProgress: (pct: number) => void,
+  direct?: { base: string; secret: string },
 ): Promise<Record<string, unknown>> {
-  const chunkSize = 8 * 1024 * 1024; // 8 Mo
+  // LAN direct : gros chunks OK. Via Cloudflare : 1.5 Mo sous timeout ~100 s.
+  const viaCf = !direct;
+  const chunkSize = viaCf ? 1536 * 1024 : 16 * 1024 * 1024;
   const total = Math.max(1, Math.ceil(file.size / chunkSize));
-  const initRes = await fetch(
-    "/api/worker-upload-chunk?path=/upload/init",
-    { method: "POST" },
-  );
+  const initUrl = direct
+    ? `${direct.base}/upload/init`
+    : "/api/worker-upload-chunk?path=/upload/init";
+  const chunkUrl = direct
+    ? `${direct.base}/upload/chunk`
+    : "/api/worker-upload-chunk?path=/upload/chunk";
+  const completeUrl = direct
+    ? `${direct.base}/upload/complete`
+    : "/api/worker-upload-chunk?path=/upload/complete";
+  const secretHdr = direct
+    ? { "x-worker-secret": direct.secret }
+    : ({} as Record<string, string>);
+
+  const initRes = await fetch(initUrl, {
+    method: "POST",
+    headers: { ...secretHdr },
+  });
   const initBody = (await initRes.json()) as {
     fileId?: string;
     error?: string;
@@ -111,33 +161,42 @@ async function uploadFileChunked(
     const start = i * chunkSize;
     const end = Math.min(file.size, start + chunkSize);
     const blob = file.slice(start, end);
-    await uploadWithProgress(
-      "/api/worker-upload-chunk?path=/upload/chunk",
-      blob,
-      (chunkPct) => {
-        const base = (i / total) * 100;
-        const span = (1 / total) * 100;
-        onProgress(Math.min(99, Math.round(base + (span * chunkPct) / 100)));
-      },
-      {
-        "Content-Type": "application/octet-stream",
-        "x-file-id": fileId,
-        "x-chunk-index": String(i),
-        "x-chunk-total": String(total),
-      },
-    );
+    try {
+      await uploadWithRetries(
+        chunkUrl,
+        blob,
+        (chunkPct) => {
+          const basePct = (i / total) * 100;
+          const span = (1 / total) * 100;
+          onProgress(
+            Math.min(99, Math.round(basePct + (span * chunkPct) / 100)),
+          );
+        },
+        {
+          "Content-Type": "application/octet-stream",
+          "x-file-id": fileId,
+          "x-chunk-index": String(i),
+          "x-chunk-total": String(total),
+          ...secretHdr,
+        },
+        viaCf ? 4 : 2,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Chunk ${i + 1}/${total} échoué (${Math.round(start / 1024 / 1024)} Mo) — ${msg}`,
+      );
+    }
   }
 
-  const doneRes = await fetch(
-    "/api/worker-upload-chunk?path=/upload/complete",
-    {
-      method: "POST",
-      headers: {
-        "x-file-id": fileId,
-        "x-filename": file.name,
-      },
+  const doneRes = await fetch(completeUrl, {
+    method: "POST",
+    headers: {
+      "x-file-id": fileId,
+      "x-filename": file.name,
+      ...secretHdr,
     },
-  );
+  });
   const doneBody = (await doneRes.json()) as Record<string, unknown>;
   if (!doneRes.ok) {
     throw new Error(
@@ -253,8 +312,28 @@ function DashboardPageInner() {
       if (useWorkerUpload) {
         setPhase("Envoi vers le worker…");
         setUploadPct(0);
-        // Chunks via proxy Next (anti Cloudflare 413 ~100 Mo sur app.rehovision.com)
-        const body = await uploadFileChunked(file, setUploadPct);
+        // HTTP LAN → direct :8787 (rapide). HTTPS (app.rehovision.com) → chunks 1.5 Mo via Next.
+        let direct:
+          | { base: string; secret: string }
+          | undefined;
+        if (
+          typeof window !== "undefined" &&
+          window.location.protocol === "http:"
+        ) {
+          try {
+            const infoRes = await fetch("/api/worker-upload-info");
+            const info = (await infoRes.json()) as {
+              mediaBase?: string;
+              secret?: string;
+            };
+            if (infoRes.ok && info.mediaBase && info.secret) {
+              direct = { base: info.mediaBase, secret: info.secret };
+            }
+          } catch {
+            /* fallback proxy */
+          }
+        }
+        const body = await uploadFileChunked(file, setUploadPct, direct);
         const fileId = String(body.fileId || "");
         const mediaUrl = String(body.mediaUrl || "");
         if (!fileId || !mediaUrl) {
