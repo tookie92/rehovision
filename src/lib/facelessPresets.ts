@@ -53,20 +53,20 @@ export const FACELESS_LOOKS: FacelessLook[] = [
     label: "Photo concept",
     hint: "Studio high-key, métaphore visuelle",
     prompt:
-      "exact conceptual fashion-editorial photograph, ultra-sharp photoreal DSLR 85mm, seamless pure white void background, polished reflective concrete floor with soft subject reflections, clinical even studio lighting, real skin fabric metal textures, single powerful visual metaphor, vertical 9:16",
+      "exact conceptual fashion-editorial photograph, ultra-sharp photoreal DSLR 85mm, seamless pure white void background, polished reflective concrete floor, clinical studio light, real skin fabric metal textures, single visual metaphor",
     negativePrompt:
-      "illustration, drawing, cartoon, anime, manga, claymation, polymer clay, plasticine, spider-verse, CMYK halftone, comic ink, charcoal sketch, watercolor, painted, CGI plastic skin",
+      "anime, manga, cel shading, cartoon, claymation, polymer clay, spider-verse, CMYK halftone, comic ink, charcoal sketch, watercolor, painted",
     toneHint: "posé, narratif",
     genre: "custom",
   },
   {
     id: "spiderverse",
     label: "Spider-Verse",
-    hint: "Into the Spider-Verse : yeux/bouche comic CGI",
+    hint: "Into the Spider-Verse : halftones + néon",
     prompt:
-      "exact Into the Spider-Verse Sony Pictures Animation movie still, comic-book CGI face with stylized half-lidded eyes sharp irises thick ink lids, closed or tight mouth line matching Miles Morales profile style, dense visible CMYK Ben-Day halftone dots on clothing, bold black ink outlines, blue and magenta neon rim lights, RGB chromatic aberration fringing, hand-drawn white scratch accents, volumetric smoke, elongated neck proportions, printed comic texture",
+      "Into the Spider-Verse movie still, dense CMYK Ben-Day halftone dots, RGB chromatic aberration, bold black ink outlines, blue and magenta neon rim light, hand-drawn white scratch lines, comic-book CGI printed texture, stylized half-lidded comic eyes thick ink lids tight mouth line",
     negativePrompt:
-      "claymation, polymer clay, plasticine, stop-motion, Aardman, soft matte clay skin, fingerprints in clay, oversized white doll eyes, tiny black pupils, photoreal photo, anime cel, watercolor, flat vector",
+      "anime, manga, cel shading, big anime eyes, smooth flat anime face, claymation, polymer clay, plasticine, doll eyes, photoreal photo, watercolor, soft global illumination",
     toneHint: "intense, rythmé",
     genre: "true_crime",
   },
@@ -75,9 +75,9 @@ export const FACELESS_LOOKS: FacelessLook[] = [
     label: "Clay",
     hint: "Pâte à modeler + yeux de poupée Aardman",
     prompt:
-      "exact handcrafted stop-motion claymation frame, polymer clay plasticine characters with visible fingerprints and tool marks, oversized bulging round white doll eyes with tiny black pinpoint pupils slightly vacant stare, soft matte clay skin, Aardman Wallace-and-Gromit craft, miniature practical set, warm sunny ochre terracotta palette, tactile handmade miniature world",
+      "exact stop-motion claymation frame, polymer clay plasticine with fingerprints, oversized bulging white doll eyes tiny black pinpoint pupils, soft matte clay skin, Aardman Wallace-and-Gromit craft, miniature set, warm ochre terracotta",
     negativePrompt:
-      "photorealistic, DSLR photo, spider-verse, CMYK halftone, Ben-Day dots, neon rim light, chromatic aberration, comic ink outlines, anime, charcoal sketch, oil painting, smooth CGI skin, sharp irises",
+      "anime, manga, cel shading, photorealistic, DSLR, spider-verse, CMYK halftone, Ben-Day, neon rim, chromatic aberration, comic ink, sharp irises, smooth CGI skin",
     toneHint: "enjoué, clair",
     genre: "kids",
   },
@@ -86,9 +86,9 @@ export const FACELESS_LOOKS: FacelessLook[] = [
     label: "Polar noir",
     hint: "Croquis tribunal encre + aquarelle",
     prompt:
-      "exact dramatic courtroom sketch illustration, raw marker ink and colored-pencil strokes, bold charcoal cross-hatching and energetic scribbles, burnt orange and gold light on subject, deep midnight blue black background, gestural unfinished edges, true-crime editorial magazine art, high contrast polar noir mood, vertical 9:16",
+      "exact courtroom sketch illustration, raw marker ink colored-pencil, bold charcoal cross-hatching scribbles, burnt orange gold light, deep midnight blue black background, gestural unfinished edges, polar noir editorial",
     negativePrompt:
-      "photorealistic, claymation, polymer clay, plasticine, doll eyes, spider-verse, CMYK halftone, neon rim, 3d render, anime, clean vector, soft pastel, bright sunny daylight",
+      "anime, manga, cel shading, photorealistic, claymation, polymer clay, doll eyes, spider-verse, CMYK halftone, neon rim, 3d render, clean vector, bright sunny daylight",
     toneHint: "grave, mystérieux",
     genre: "true_crime",
   },
@@ -274,13 +274,13 @@ export function formatCastLock(
   cast: CastMember[] | undefined | null,
 ): string | null {
   if (!cast || cast.length === 0) return null;
-  const parts = cast.slice(0, 4).map((c) => {
+  const parts = cast.slice(0, 3).map((c) => {
     const bits = [
-      c.name?.trim().slice(0, 40),
-      c.appearance?.trim().slice(0, 90),
-      c.clothing?.trim().slice(0, 50),
+      c.name?.trim().slice(0, 30),
+      c.appearance?.trim().slice(0, 60),
+      c.clothing?.trim().slice(0, 40),
     ].filter(Boolean);
     return bits.join(", ");
   });
-  return `SAME CAST every scene (identical face hair age skin outfit, no new faces): ${parts.join(" | ")}`;
+  return `SAME CAST every scene: ${parts.join(" | ")}`;
 }

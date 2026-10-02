@@ -1,5 +1,6 @@
 /**
- * Prompt image faceless : look d'abord (CLIP), puis cast lock + ancrage époque, puis beat.
+ * Prompt image faceless : look ENTIER d'abord (Flux truncate), puis époque/cast/beat.
+ * Flux ignore le canal négatif → anti-tokens dans le positif (NOT …) en tête.
  */
 
 import { formatCastLock, type CastMember } from "./facelessPresets";
@@ -14,7 +15,7 @@ export type ImagePromptInput = {
   negativePrompt?: string | null;
 };
 
-/** Extrait une année / époque du sujet pour ancrer les images (Flux ignore le negative). */
+/** Extrait une année / époque du sujet pour ancrer les images. */
 export function extractPeriodLock(topic: string): string | null {
   const t = topic.trim();
   if (!t) return null;
@@ -32,16 +33,31 @@ export function extractPeriodLock(topic: string): string | null {
 const PERIOD_AVOID =
   "modern car, automobile, SUV, smartphone, plastic, LED screen, sneakers, jeans, hoodie, contemporary clothing";
 
+/** Convertit negativePrompt en préfixe NOT (Flux n'a pas de vrai negative). */
+function notPrefix(negativePrompt: string | null | undefined): string | null {
+  if (!negativePrompt?.trim()) return null;
+  const tokens = negativePrompt
+    .split(/,|\band\b/i)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  if (tokens.length === 0) return null;
+  return tokens.map((t) => `NOT ${t}`).join(", ");
+}
+
 export function buildImagePrompt(input: ImagePromptInput): string {
-  const beat = input.visualBeat.trim().slice(0, 160);
-  const style = input.visualStyle.trim().slice(0, 160);
-  const tone = input.narrationTone.trim().slice(0, 40);
-  const topic = input.topic.trim().slice(0, 60);
+  // Style : ne PAS truncater (signatures graphiques perdues → collapse anime).
+  const style = input.visualStyle.trim();
+  const beat = input.visualBeat.trim().slice(0, 120);
+  const tone = input.narrationTone.trim().slice(0, 30);
+  const topic = input.topic.trim().slice(0, 50);
   const castLock = formatCastLock(input.cast);
   const periodLock = extractPeriodLock(input.topic);
+  const anti = notPrefix(input.negativePrompt);
 
-  // Style d'abord (CLIP / Flux truncation), puis époque + cast, puis beat.
   const parts: string[] = [];
+  // Anti-collapse EN TÊTE, puis look complet, puis contenu.
+  if (anti) parts.push(anti);
   if (style) parts.push(style);
   if (periodLock) parts.push(periodLock);
   if (castLock) parts.push(castLock);
@@ -58,13 +74,8 @@ export function buildImagePrompt(input: ImagePromptInput): string {
     parts.push("match the attached style reference");
   }
 
-  const avoidBits: string[] = [];
-  if (input.negativePrompt?.trim()) {
-    avoidBits.push(input.negativePrompt.trim().slice(0, 120));
-  }
-  if (periodLock) avoidBits.push(PERIOD_AVOID);
-  if (avoidBits.length) {
-    parts.push(`avoid: ${avoidBits.join(", ")}`);
+  if (periodLock) {
+    parts.push(`avoid: ${PERIOD_AVOID}`);
   }
 
   return parts.join(". ").replace(/\s+/g, " ").trim();
