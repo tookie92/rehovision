@@ -10,30 +10,19 @@ import {
   LinkSimple,
   UploadSimple,
   SpinnerGap,
-  Sparkle,
-  Trash,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardNav } from "@/components/DashboardNav";
 import {
   PROJECT_STATUS_LABEL,
   isPipelineActive,
-  facelessCardStatus,
   projectStatusTone,
-  facelessStatusTone,
 } from "@/lib/clipStatus";
-import {
-  FACELESS_VOICES,
-  DEFAULT_FACELESS_VOICE_ID,
-  type FacelessVoiceId,
-} from "@/lib/facelessPresets";
 
 type Mode = "youtube" | "file";
-type DashTab = "clips" | "faceless";
 
 function uploadWithProgress(
   uploadUrl: string,
@@ -109,17 +98,12 @@ function DashboardPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const clipProjects = useQuery(api.clipProjects.listMine, { limit: 30 });
-  const facelessProjects = useQuery(api.videoProjects.getRecentProjects, {
-    limit: 30,
-  });
   const generateUploadUrl = useMutation(api.clipProjects.generateUploadUrl);
   const createFromUpload = useMutation(api.clipProjects.createFromUpload);
   const createFromLocalUpload = useMutation(
     api.clipProjects.createFromLocalUpload,
   );
   const createFromYoutube = useMutation(api.clipProjects.createFromYoutube);
-  const createAndStartReel = useMutation(api.videoProjects.createAndStartReel);
-  const deleteVideoProject = useMutation(api.videoProjects.deleteVideoProject);
 
   const useWorkerUpload =
     process.env.NEXT_PUBLIC_WORKER_UPLOAD === "1" ||
@@ -128,26 +112,16 @@ function DashboardPageInner() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<Mode>("file");
   const tabParam = searchParams.get("tab");
-  const [dashTab, setDashTab] = useState<DashTab>(
-    tabParam === "faceless" ? "faceless" : "clips",
-  );
 
+  // Faceless gelé — redirige ?tab=faceless vers hub clips
   useEffect(() => {
-    setDashTab(tabParam === "faceless" ? "faceless" : "clips");
-  }, [tabParam]);
+    if (tabParam === "faceless") {
+      router.replace("/dashboard");
+    }
+  }, [tabParam, router]);
 
-  function setTab(next: DashTab) {
-    setDashTab(next);
-    setError(null);
-    router.replace(next === "faceless" ? "/dashboard?tab=faceless" : "/dashboard");
-  }
   const [title, setTitle] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
-  const [facelessTopic, setFacelessTopic] = useState("");
-  const [facelessVoiceId, setFacelessVoiceId] = useState<FacelessVoiceId>(
-    DEFAULT_FACELESS_VOICE_ID,
-  );
-  const [facelessPending, setFacelessPending] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [pending, setPending] = useState(false);
@@ -168,27 +142,6 @@ function DashboardPageInner() {
     setFile(f);
     setMode("file");
   }, []);
-
-  async function onFacelessSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    const topic = facelessTopic.trim();
-    if (!topic) {
-      setError("Écris un sujet pour le reel faceless");
-      return;
-    }
-    setFacelessPending(true);
-    try {
-      const { projectId, studioId } = await createAndStartReel({
-        topic,
-        voiceId: facelessVoiceId,
-      });
-      router.push(`/dashboard/studios/${studioId}/projects/${projectId}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur");
-      setFacelessPending(false);
-    }
-  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -295,125 +248,16 @@ function DashboardPageInner() {
       <DashboardNav />
 
       <header className="mb-8 max-w-2xl">
-        <p className="atelier-label mb-3 text-signal">Atelier</p>
+        <p className="atelier-label mb-3 text-signal">Atelier clips</p>
         <h1 className="font-display text-[clamp(1.85rem,4.5vw,2.75rem)] leading-[1.05] text-foreground">
-          {dashTab === "clips"
-            ? "Transforme un vlog en clips"
-            : "Un sujet. Un reel 9:16."}
+          Transforme un vlog en clips
         </h1>
         <p className="mt-3 max-w-lg text-base leading-relaxed text-muted-foreground">
-          {dashTab === "clips"
-            ? "Importe une vidéo. L’IA coupe les meilleurs moments en 9:16 prêts à poster."
-            : "Choisis un style et une voix, écris ton sujet — on s’occupe du reste."}
+          Importe une vidéo. L’IA coupe les meilleurs moments en 9:16 prêts à
+          poster. Faceless est gelé pour prioriser ce parcours.
         </p>
-        <div
-          role="tablist"
-          aria-label="Mode atelier"
-          className="mt-5 inline-flex rounded-xl border border-border bg-card/60 p-1"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={dashTab === "clips"}
-            onClick={() => setTab("clips")}
-            className={
-              dashTab === "clips"
-                ? "inline-flex cursor-pointer items-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-medium text-foreground"
-                : "inline-flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm text-muted-foreground hover:text-foreground"
-            }
-          >
-            <FilmStrip className="size-4" weight="bold" />
-            Clips
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={dashTab === "faceless"}
-            onClick={() => setTab("faceless")}
-            className={
-              dashTab === "faceless"
-                ? "inline-flex cursor-pointer items-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-medium text-foreground"
-                : "inline-flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm text-muted-foreground hover:text-foreground"
-            }
-          >
-            <Sparkle className="size-4" weight="bold" />
-            Faceless
-          </button>
-        </div>
       </header>
 
-      {dashTab === "faceless" ? (
-        <form onSubmit={onFacelessSubmit} className="mb-14 max-w-xl space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="faceless-topic">Sujet</Label>
-            <Textarea
-              id="faceless-topic"
-              value={facelessTopic}
-              onChange={(e) => setFacelessTopic(e.target.value)}
-              placeholder="ex. Pourquoi le Titanic a coulé — en 60 secondes"
-              disabled={facelessPending}
-              rows={3}
-              className="min-h-[5.5rem] resize-none text-base"
-              autoFocus
-            />
-            <p className="text-xs text-muted-foreground">
-              Le style se choisit ensuite dans l’atelier (upload d’une image de
-              référence).
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Voix</Label>
-            <div
-              role="listbox"
-              aria-label="Voix"
-              className="flex flex-wrap gap-1.5"
-            >
-              {FACELESS_VOICES.map((voice) => {
-                const active = facelessVoiceId === voice.id;
-                return (
-                  <button
-                    key={voice.id}
-                    type="button"
-                    role="option"
-                    aria-selected={active}
-                    disabled={facelessPending}
-                    title={voice.hint}
-                    onClick={() => setFacelessVoiceId(voice.id)}
-                    className={
-                      active
-                        ? "cursor-pointer rounded-lg bg-signal/20 px-3 py-2 text-sm font-semibold text-signal ring-1 ring-signal/45"
-                        : "cursor-pointer rounded-lg bg-secondary/80 px-3 py-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
-                    }
-                  >
-                    {voice.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <Button
-            type="submit"
-            disabled={facelessPending}
-            className="cta-signal h-11 cursor-pointer border-0 px-8 hover:bg-signal"
-          >
-            {facelessPending ? (
-              <>
-                <SpinnerGap className="size-4 animate-spin" weight="bold" />
-                Lancement…
-              </>
-            ) : (
-              "Générer"
-            )}
-          </Button>
-          {error && (
-            <p className="text-sm text-destructive" role="alert">
-              {error}
-            </p>
-          )}
-        </form>
-      ) : (
       <form onSubmit={onSubmit} className="mb-14">
         <div
           role="tablist"
@@ -597,29 +441,20 @@ function DashboardPageInner() {
           </p>
         )}
       </form>
-      )}
 
       <section>
         <div className="mb-4 flex items-baseline justify-between gap-3">
           <h2 className="font-display text-lg tracking-tight">
-            {dashTab === "faceless" ? "Mes reels faceless" : "Mes projets clips"}
+            Mes projets clips
           </h2>
-          {dashTab === "clips" && clipProjects && clipProjects.length > 0 && (
+          {clipProjects && clipProjects.length > 0 && (
             <p className="font-mono text-[11px] text-muted-foreground">
               {clipProjects.length} récent{clipProjects.length > 1 ? "s" : ""}
             </p>
           )}
-          {dashTab === "faceless" &&
-            facelessProjects &&
-            facelessProjects.length > 0 && (
-              <p className="font-mono text-[11px] text-muted-foreground">
-                {facelessProjects.length} récent
-                {facelessProjects.length > 1 ? "s" : ""}
-              </p>
-            )}
         </div>
 
-        {dashTab === "clips" && clipProjects === undefined && (
+        {clipProjects === undefined && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <Skeleton className="h-28 rounded-xl" />
             <Skeleton className="h-28 rounded-xl" />
@@ -627,15 +462,8 @@ function DashboardPageInner() {
           </div>
         )}
 
-        {dashTab === "faceless" && facelessProjects === undefined && (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <Skeleton className="h-28 rounded-xl" />
-            <Skeleton className="h-28 rounded-xl" />
-            <Skeleton className="h-28 rounded-xl" />
-          </div>
-        )}
 
-        {dashTab === "clips" && clipProjects && clipProjects.length === 0 && (
+        {clipProjects && clipProjects.length === 0 && (
           <div className="rounded-2xl border border-dashed border-border px-6 py-12 text-center">
             <p className="text-sm text-muted-foreground">
               Aucun clip pour l’instant. Importe une vidéo ci-dessus.
@@ -643,17 +471,8 @@ function DashboardPageInner() {
           </div>
         )}
 
-        {dashTab === "faceless" &&
-          facelessProjects &&
-          facelessProjects.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-border px-6 py-12 text-center">
-              <p className="text-sm text-muted-foreground">
-                Aucun reel faceless encore. Lance un sujet ci-dessus.
-              </p>
-            </div>
-          )}
 
-        {dashTab === "clips" && clipProjects && clipProjects.length > 0 && (
+        {clipProjects && clipProjects.length > 0 && (
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {clipProjects.map((p) => {
               const active = isPipelineActive(p.status);
@@ -696,69 +515,7 @@ function DashboardPageInner() {
           </ul>
         )}
 
-        {dashTab === "faceless" &&
-          facelessProjects &&
-          facelessProjects.length > 0 && (
-            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {facelessProjects.map(({ project: p, studioName }) => {
-                const card = facelessCardStatus(p);
-                return (
-                  <li key={p._id} className="relative">
-                    <Link
-                      href={`/dashboard/studios/${p.studioId}/projects/${p._id}`}
-                      className="group flex h-full flex-col rounded-xl border border-border bg-card/50 p-4 pr-10 shadow-[0_16px_40px_-28px_rgb(15_59_39_/_0.28)] transition-all duration-200 hover:-translate-y-0.5 hover:border-signal/40 hover:bg-card dark:shadow-[0_16px_40px_-24px_rgb(0_0_0_/_0.45)]"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground group-hover:text-signal">
-                          {p.title || p.topic}
-                        </p>
-                        <span
-                          className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium ${facelessStatusTone(card.label)}`}
-                        >
-                          {card.active && (
-                            <span className="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-amber-400 align-middle" />
-                          )}
-                          {card.label}
-                        </span>
-                      </div>
-                      <p className="mt-3 line-clamp-1 text-xs text-muted-foreground">
-                        Faceless · {studioName}
-                        {p.episodeNumber != null && p.episodeNumber > 0
-                          ? ` · Ép. ${p.episodeNumber}`
-                          : ""}
-                        {p.finalVideoUrl ? " · vidéo prête" : ""}
-                      </p>
-                    </Link>
-                    <button
-                      type="button"
-                      aria-label="Supprimer le reel"
-                      className="absolute right-2 top-2 inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (
-                          !confirm(
-                            `Supprimer « ${p.title || p.topic} » ? Irréversible.`,
-                          )
-                        ) {
-                          return;
-                        }
-                        void deleteVideoProject({ projectId: p._id }).catch(
-                          (err: unknown) => {
-                            setError(
-                              err instanceof Error ? err.message : "Erreur",
-                            );
-                          },
-                        );
-                      }}
-                    >
-                      <Trash className="size-3.5" weight="bold" />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+        
       </section>
       </div>
     </div>
