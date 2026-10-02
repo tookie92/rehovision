@@ -17,14 +17,20 @@ import {
 export type AssetKind = "image" | "voiceover";
 
 function resolveStyle(studio: Doc<"studios">, project: Doc<"videoProjects">) {
-  const look = project.lookId
-    ? getFacelessLook(resolveLookId(project.lookId))
+  // Toujours résoudre via lookId preset (texte code à jour) — jamais un vieux studio.visualStyle seul.
+  const lookId = project.lookId
+    ? resolveLookId(project.lookId)
     : null;
+  const look = lookId ? getFacelessLook(lookId) : null;
   const voice = project.voiceId ? getFacelessVoice(project.voiceId) : null;
   return {
+    lookId,
     visualStyle: look?.prompt ?? studio.visualStyle,
     narrationTone: look?.toneHint ?? studio.narrationTone,
     negativePrompt: look?.negativePrompt ?? "",
+    // Preset look = style texte ; une ref IP (souvent anime) écrase Clay/Spider-Verse.
+    useStyleReference: !look && Boolean(studio.referenceImageUrl),
+    referenceImageUrl: !look ? studio.referenceImageUrl : undefined,
     voiceInstruct:
       voice?.instruct ??
       studio.voiceInstruct ??
@@ -40,6 +46,8 @@ export async function enqueueAssetJobsForProject(
     studio: Doc<"studios">;
     userId: string;
     kinds?: AssetKind[];
+    /** Force un nouveau seed (changement de look). */
+    newImageSeed?: number;
   },
 ): Promise<number> {
   const { project, studio, userId } = args;
@@ -60,11 +68,33 @@ export async function enqueueAssetJobsForProject(
 
   const now = Date.now();
   let jobCount = 0;
-  const hasRef = Boolean(studio.referenceImageUrl);
-  const { visualStyle, narrationTone, negativePrompt, voiceInstruct, voiceSpeed } =
-    resolveStyle(studio, project);
+  const resolved = resolveStyle(studio, project);
+  const {
+    visualStyle,
+    narrationTone,
+    negativePrompt,
+    voiceInstruct,
+    voiceSpeed,
+    useStyleReference,
+    referenceImageUrl,
+  } = resolved;
   const cast = (project.cast ?? []) as CastMember[];
-  const imageSeed = project.imageSeed;
+  const imageSeed =
+    args.newImageSeed ??
+    project.imageSeed ??
+    Math.floor(Math.random() * 2_147_483_647);
+
+  if (args.newImageSeed != null && args.newImageSeed !== project.imageSeed) {
+    await ctx.db.patch(project._id, { imageSeed: args.newImageSeed });
+  }
+
+  // Sync studio.visualStyle sur le prompt look courant (évite stale DB).
+  if (resolved.lookId && visualStyle !== studio.visualStyle) {
+    await ctx.db.patch(studio._id, {
+      visualStyle,
+      narrationTone,
+    });
+  }
 
   // Annule jobs actifs des kinds demandés sur ce projet
   const existing = await ctx.db
@@ -95,7 +125,7 @@ export async function enqueueAssetJobsForProject(
         visualStyle,
         narrationTone,
         topic: project.topic,
-        hasStyleReference: hasRef,
+        hasStyleReference: useStyleReference,
         cast,
         negativePrompt,
       });
@@ -112,7 +142,8 @@ export async function enqueueAssetJobsForProject(
           visualStyle,
           negativePrompt,
           seed: imageSeed,
-          referenceImageUrl: studio.referenceImageUrl,
+          // Pas de ref IP si look preset (sinon anime ref → tout devient anime)
+          referenceImageUrl,
         },
         createdAt: now,
         updatedAt: now,

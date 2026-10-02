@@ -49,46 +49,46 @@ export type CastMember = {
 
 export const FACELESS_LOOKS: FacelessLook[] = [
   {
-    id: "photoreal",
-    label: "Photo concept",
-    hint: "Studio high-key, métaphore visuelle",
+    id: "clay",
+    label: "Clay",
+    hint: "Pâte à modeler + yeux de poupée Aardman",
     prompt:
-      "exact conceptual fashion-editorial photograph, ultra-sharp photoreal DSLR 85mm, seamless pure white void background, polished reflective concrete floor, clinical studio light, real skin fabric metal textures, single visual metaphor",
+      "CLAYMATION ONLY polymer clay plasticine stop-motion, fingerprints on clay, oversized bulging white doll eyes with tiny black pupils, soft matte clay skin, Aardman Wallace and Gromit miniature set, warm ochre terracotta clay world",
     negativePrompt:
-      "anime, manga, cel shading, cartoon, claymation, polymer clay, spider-verse, CMYK halftone, comic ink, charcoal sketch, watercolor, painted",
-    toneHint: "posé, narratif",
-    genre: "custom",
+      "anime, manga, cel shading, 2d animation, digital illustration, photorealistic, DSLR, spider-verse, CMYK, Ben-Day, neon rim, chromatic aberration, comic ink, sharp anime eyes, smooth CGI",
+    toneHint: "enjoué, clair",
+    genre: "kids",
   },
   {
     id: "spiderverse",
     label: "Spider-Verse",
     hint: "Into the Spider-Verse : halftones + néon",
     prompt:
-      "Into the Spider-Verse movie still, dense CMYK Ben-Day halftone dots, RGB chromatic aberration, bold black ink outlines, blue and magenta neon rim light, hand-drawn white scratch lines, comic-book CGI printed texture, stylized half-lidded comic eyes thick ink lids tight mouth line",
+      "SPIDER-VERSE ONLY Into the Spider-Verse still, dense CMYK Ben-Day halftone dots everywhere, RGB chromatic aberration, bold black ink outlines, blue magenta neon rim light, white scratch lines, comic-book CGI, half-lidded comic eyes thick lids",
     negativePrompt:
-      "anime, manga, cel shading, big anime eyes, smooth flat anime face, claymation, polymer clay, plasticine, doll eyes, photoreal photo, watercolor, soft global illumination",
+      "anime, manga, cel shading, big anime eyes, smooth flat anime face, claymation, polymer clay, plasticine, doll eyes, photoreal photo, watercolor, soft lighting",
     toneHint: "intense, rythmé",
     genre: "true_crime",
   },
   {
-    id: "clay",
-    label: "Clay",
-    hint: "Pâte à modeler + yeux de poupée Aardman",
+    id: "photoreal",
+    label: "Photo concept",
+    hint: "Studio high-key, métaphore visuelle",
     prompt:
-      "exact stop-motion claymation frame, polymer clay plasticine with fingerprints, oversized bulging white doll eyes tiny black pinpoint pupils, soft matte clay skin, Aardman Wallace-and-Gromit craft, miniature set, warm ochre terracotta",
+      "PHOTO ONLY conceptual fashion-editorial photograph, photoreal DSLR 85mm, pure white void background, polished reflective floor, clinical studio light, real skin fabric metal, visual metaphor",
     negativePrompt:
-      "anime, manga, cel shading, photorealistic, DSLR, spider-verse, CMYK halftone, Ben-Day, neon rim, chromatic aberration, comic ink, sharp irises, smooth CGI skin",
-    toneHint: "enjoué, clair",
-    genre: "kids",
+      "anime, manga, cel shading, cartoon, claymation, polymer clay, spider-verse, CMYK, comic ink, charcoal, watercolor, painted",
+    toneHint: "posé, narratif",
+    genre: "custom",
   },
   {
     id: "polar_noir",
     label: "Polar noir",
     hint: "Croquis tribunal encre + aquarelle",
     prompt:
-      "exact courtroom sketch illustration, raw marker ink colored-pencil, bold charcoal cross-hatching scribbles, burnt orange gold light, deep midnight blue black background, gestural unfinished edges, polar noir editorial",
+      "POLAR NOIR SKETCH ONLY courtroom sketch, raw marker ink charcoal cross-hatching scribbles, burnt orange gold light, midnight blue black background, unfinished edges, editorial true-crime drawing",
     negativePrompt:
-      "anime, manga, cel shading, photorealistic, claymation, polymer clay, doll eyes, spider-verse, CMYK halftone, neon rim, 3d render, clean vector, bright sunny daylight",
+      "anime, manga, cel shading, photorealistic, claymation, polymer clay, doll eyes, spider-verse, CMYK, neon rim, 3d render, clean vector, sunny daylight",
     toneHint: "grave, mystérieux",
     genre: "true_crime",
   },

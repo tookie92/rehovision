@@ -872,12 +872,18 @@ export const applyLookAndRegenImages = mutation({
     }
 
     const look = getFacelessLook(args.lookId);
+    const newImageSeed = Math.floor(Math.random() * 2_147_483_647);
     await ctx.db.patch(studio._id, {
       visualStyle: look.prompt,
       narrationTone: look.toneHint,
       genre: look.genre,
+      referenceImageUrl: undefined,
+      referenceStorageId: undefined,
     });
-    await ctx.db.patch(project._id, { lookId: look.id });
+    await ctx.db.patch(project._id, {
+      lookId: look.id,
+      imageSeed: newImageSeed,
+    });
 
     const updatedProject = (await ctx.db.get(project._id))!;
     const updatedStudio = (await ctx.db.get(studio._id))!;
@@ -887,6 +893,7 @@ export const applyLookAndRegenImages = mutation({
       studio: updatedStudio,
       userId,
       kinds: ["image"],
+      newImageSeed,
     });
 
     return { jobCount };
@@ -985,8 +992,12 @@ export const applyLookAndVoice = mutation({
         visualStyle: look.prompt,
         narrationTone: look.toneHint,
         genre: look.genre,
+        // Une ancienne ref IP (souvent anime) écrase Clay / Spider-Verse.
+        referenceImageUrl: undefined,
+        referenceStorageId: undefined,
       });
       projectPatch.lookId = look.id;
+      projectPatch.imageSeed = Math.floor(Math.random() * 2_147_483_647);
       kinds.push("image");
     }
 
@@ -1008,6 +1019,9 @@ export const applyLookAndVoice = mutation({
         .filter((c) => c.name || c.appearance);
       projectPatch.cast = cast;
       if (!kinds.includes("image")) kinds.push("image");
+      if (projectPatch.imageSeed === undefined) {
+        projectPatch.imageSeed = Math.floor(Math.random() * 2_147_483_647);
+      }
     }
 
     if (Object.keys(projectPatch).length > 0) {
@@ -1026,6 +1040,10 @@ export const applyLookAndVoice = mutation({
       studio: updatedStudio,
       userId,
       kinds,
+      newImageSeed:
+        typeof projectPatch.imageSeed === "number"
+          ? projectPatch.imageSeed
+          : undefined,
     });
 
     return { jobCount, kinds };
