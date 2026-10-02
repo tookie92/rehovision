@@ -249,10 +249,10 @@ function SoftSplitVideos({
         <video
           ref={topRef}
           key={`split-a-${sourceUrl}-${startSec}`}
-          src={sourceUrl}
+          src={`${sourceUrl}#t=${startSec},${endSec}`}
           playsInline
           muted
-          preload="metadata"
+          preload="auto"
           className="absolute inset-0 h-full w-full object-cover"
           style={{
             ...styleBase,
@@ -280,10 +280,10 @@ function SoftSplitVideos({
         <video
           ref={botRef}
           key={`split-b-${sourceUrl}-${startSec}`}
-          src={sourceUrl}
+          src={`${sourceUrl}#t=${startSec},${endSec}`}
           playsInline
           muted
-          preload="metadata"
+          preload="auto"
           className="absolute inset-0 h-full w-full object-cover"
           style={{
             ...styleBase,
@@ -334,8 +334,10 @@ export function ClipStagePreview({
   postMetaBusy = false,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [mediaLoading, setMediaLoading] = useState(true);
   const [mode, setMode] = useState<"soft" | "final">(
-    softPreview || !clip.resultUrl ? "soft" : "final",
+    // Clip déjà rendu → Final d’abord (rapide). Soft = polish source lourde.
+    softPreview && !clip.resultUrl ? "soft" : clip.resultUrl ? "final" : "soft",
   );
 
   const canFinal = Boolean(clip.resultUrl);
@@ -362,8 +364,10 @@ export function ClipStagePreview({
   const focusBot = splitFocusBot ?? DEFAULT_SPLIT_FOCUS_BOT;
 
   useEffect(() => {
+    // Soft forcé seulement si pas encore de Final, ou checkbox Soft cochée
     if (softPreview && canSoft) setMode("soft");
-    else if (canFinal && !softPreview) setMode("final");
+    else if (canFinal) setMode("final");
+    else if (canSoft) setMode("soft");
   }, [
     clip.startSec,
     clip.endSec,
@@ -381,14 +385,27 @@ export function ClipStagePreview({
     smartFocus,
   ]);
 
+  const softSrc = sourceUrl
+    ? `${sourceUrl}${sourceUrl.includes("#") ? "" : `#t=${Math.max(0, clip.startSec)},${Math.max(clip.startSec + 0.5, clip.endSec)}`}`
+    : undefined;
+
+  useEffect(() => {
+    setMediaLoading(true);
+  }, [softSrc, clip.resultUrl, activeMode]);
+
   useEffect(() => {
     if (softSplit) return;
     const el = videoRef.current;
     if (!el || activeMode !== "soft" || !sourceUrl) return;
     const onMeta = () => {
-      el.currentTime = clip.startSec;
+      // #t= déjà positionné ; resync si le navigateur ignore le fragment
+      if (Math.abs(el.currentTime - clip.startSec) > 0.35) {
+        el.currentTime = clip.startSec;
+      }
       void el.play().catch(() => undefined);
     };
+    const onReady = () => setMediaLoading(false);
+    const onWait = () => setMediaLoading(true);
     const onTime = () => {
       if (el.currentTime >= clip.endSec - 0.05) {
         el.currentTime = clip.startSec;
@@ -399,12 +416,19 @@ export function ClipStagePreview({
     };
     el.addEventListener("loadedmetadata", onMeta);
     el.addEventListener("timeupdate", onTime);
+    el.addEventListener("canplay", onReady);
+    el.addEventListener("playing", onReady);
+    el.addEventListener("waiting", onWait);
     if (el.readyState >= 1) onMeta();
+    if (el.readyState >= 3) onReady();
     return () => {
       el.removeEventListener("loadedmetadata", onMeta);
       el.removeEventListener("timeupdate", onTime);
+      el.removeEventListener("canplay", onReady);
+      el.removeEventListener("playing", onReady);
+      el.removeEventListener("waiting", onWait);
     };
-  }, [activeMode, sourceUrl, clip.startSec, clip.endSec, softSplit]);
+  }, [activeMode, sourceUrl, clip.startSec, clip.endSec, softSplit, softSrc]);
 
   const duration = formatClipDuration(clip.startSec, clip.endSec);
   const captionRaw =
@@ -584,12 +608,12 @@ export function ClipStagePreview({
             <video
               ref={videoRef}
               key={`soft-${sourceUrl}-${clip.startSec}-${clip.endSec}`}
-              src={sourceUrl}
+              src={softSrc}
               controls={!compact}
               playsInline
               muted
               loop={false}
-              preload="metadata"
+              preload="auto"
               className={
                 layoutMode === "fit"
                   ? "h-full w-full object-contain transition-[object-position] duration-300"
@@ -602,6 +626,18 @@ export function ClipStagePreview({
                   combinedScale !== 1 ? `scale(${combinedScale})` : undefined,
               }}
             />
+          )}
+          {mediaLoading && activeMode === "soft" && !softSplit && (
+            <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-black/70 px-4 text-center">
+              <span className="size-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              <p className="text-[11px] text-white/85">
+                Chargement Soft (source)…
+              </p>
+              <p className="text-[10px] text-white/55">
+                Si c’est long : décoche Soft → Final, ou ouvre l’app en LAN
+                http://IP:3000
+              </p>
+            </div>
           )}
           {showGrain && (
             <div

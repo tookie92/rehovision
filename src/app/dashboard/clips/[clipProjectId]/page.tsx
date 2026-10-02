@@ -82,7 +82,7 @@ export default function ClipProjectPage() {
   const [focusedClipId, setFocusedClipId] = useState<Id<"clips"> | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sortMode, setSortMode] = useState<"order" | "score">("score");
-  const [preferSoft, setPreferSoft] = useState(true);
+  const [preferSoft, setPreferSoft] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [localFocusTop, setLocalFocusTop] = useState<SplitFocusPane | null>(
     null,
