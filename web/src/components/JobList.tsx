@@ -21,9 +21,6 @@ function jobTitle(job: Doc<"jobs">): string {
     if (text) return text.length > 80 ? `${text.slice(0, 80)}…` : text;
     return p.sourceStorageId ? "Doublage audio" : "Doublage";
   }
-  if (job.type === "clips") {
-    return String(p.title ?? p.fileName ?? "Clip stub");
-  }
   return job.type;
 }
 
@@ -33,12 +30,10 @@ function jobMeta(job: Doc<"jobs">): string {
   if (job.type === "dub" || job.type === "narration") {
     return `${p.sourceLang ?? "?"} → ${p.targetLang ?? "?"}`;
   }
-  if (job.type === "clips") {
-    return `hook ${p.hookDurationS ?? p.durationS ?? "?"}s · stub ffmpeg`;
-  }
   return job.type;
 }
 
+/** Liste générique (musique / doublage). Les clips utilisent ClipProjectsList. */
 export function JobList({
   jobs,
   loading,
@@ -100,10 +95,7 @@ export function JobList({
           )}
           {job.status === "done" && job.resultStorageId && (
             <div className="mt-3">
-              <MediaByStorage
-                storageId={job.resultStorageId}
-                kind={job.type === "clips" ? "video" : "audio"}
-              />
+              <MediaByStorage storageId={job.resultStorageId} kind="audio" />
             </div>
           )}
         </li>

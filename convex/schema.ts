@@ -12,6 +12,10 @@ export const jobType = v.union(
   v.literal("dub"),
   v.literal("narration"),
   v.literal("clips"),
+  /** Couche 3 — appliquer un plan d'édition (segments keep/discard) */
+  v.literal("clip_edit"),
+  /** Couche 4 — appliquer une suggestion (hook / cut / zoom) */
+  v.literal("clip_suggest"),
 );
 
 export const jobStatus = v.union(
@@ -29,6 +33,8 @@ export default defineSchema({
     sessionId: v.string(),
     progress: v.optional(v.number()),
     resultStorageId: v.optional(v.id("_storage")),
+    /** Métadonnées résultat (ex. propositions de segments Couche 3) */
+    resultMeta: v.optional(v.any()),
     error: v.optional(v.string()),
     createdAt: v.number(),
     startedAt: v.optional(v.number()),

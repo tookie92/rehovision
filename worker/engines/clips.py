@@ -1,6 +1,7 @@
 """
 Couche 2 stub — pas d'IA hooks encore.
 Télécharge la source → ffmpeg coupe les N premières secondes → MP4 H.264.
+Propose aussi des segments Couche 3 (heuristique silence).
 """
 from __future__ import annotations
 
@@ -9,7 +10,10 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
+
+from engines.edit import propose_segments
+from engines.suggest import propose_suggestions
 
 log = logging.getLogger("engines.clips")
 
@@ -25,7 +29,7 @@ def run_clips_stub(
     source_path: Path,
     hook_duration_s: int = 15,
     on_progress: ProgressCb | None = None,
-) -> Path:
+) -> tuple[Path, list[dict[str, Any]], list[dict[str, Any]]]:
     def prog(p: int, msg: str) -> None:
         log.info("[%d%%] %s", p, msg)
         if on_progress:
@@ -74,8 +78,28 @@ def run_clips_stub(
         out = _synthetic_clip(ffmpeg, duration, out)
         if not out.is_file():
             raise RuntimeError(f"ffmpeg échec: {err}")
-    prog(75, f"Clip stub prêt: {out.name} ({out.stat().st_size} o)")
-    return out
+    prog(70, f"Clip stub prêt: {out.name} ({out.stat().st_size} o)")
+    try:
+        proposals = propose_segments(out)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Propositions segments échouées: %s", exc)
+        proposals = [
+            {
+                "id": "seg_1",
+                "start": 0.0,
+                "end": float(duration),
+                "label": "Segment 1",
+                "keep": True,
+                "reason": "fallback-full",
+            }
+        ]
+    try:
+        suggestions = propose_suggestions(out, proposals)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Suggestions Couche 4 échouées: %s", exc)
+        suggestions = []
+    prog(78, f"{len(proposals)} segments · {len(suggestions)} suggestions")
+    return out, proposals, suggestions
 
 
 def _synthetic_clip(ffmpeg: str, duration: int, out: Path) -> Path:

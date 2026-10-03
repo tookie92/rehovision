@@ -23,7 +23,9 @@ from convex import ConvexClient  # noqa: E402
 
 from engines.clips import run_clips_stub  # noqa: E402
 from engines.dub import run_dub  # noqa: E402
+from engines.edit import render_edit  # noqa: E402
 from engines.music import generate_music, release_gpu  # noqa: E402
+from engines.suggest import apply_suggestion  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -151,6 +153,7 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
     set_progress(10)
     _reset_vram_peak()
     t0 = time.perf_counter()
+    result_meta: dict | None = None
     try:
         if job_type == "music":
             prompt = str(params.get("prompt") or "ambient music")
@@ -196,30 +199,84 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 raise RuntimeError("Vidéo source requise (sourceStorageId)")
             hook_s = int(params.get("hookDurationS") or params.get("durationS") or 15)
             source_path = download_storage_file(client, str(source_storage))
-            # Forcer une extension vidéo si Convex renvoie .bin
             if source_path.suffix.lower() in ("", ".bin"):
                 renamed = source_path.with_suffix(".mp4")
                 source_path.rename(renamed)
                 source_path = renamed
             log.info("Job %s clips — hook=%ss source=%s", job_id, hook_s, source_path.name)
-            audio_path = run_clips_stub(
+            audio_path, proposals, suggestions = run_clips_stub(
                 source_path=source_path,
                 hook_duration_s=hook_s,
                 on_progress=set_progress,
             )
+            result_meta = {
+                "layer": 4,
+                "proposals": proposals,
+                "suggestions": suggestions,
+                "engine": "silence+energy-heuristic",
+            }
+        elif job_type == "clip_edit":
+            source_storage = params.get("sourceStorageId")
+            if not source_storage:
+                raise RuntimeError("sourceStorageId requis pour clip_edit")
+            segments = params.get("segments") or []
+            if not isinstance(segments, list) or not segments:
+                raise RuntimeError("segments requis")
+            source_path = download_storage_file(client, str(source_storage))
+            if source_path.suffix.lower() in ("", ".bin"):
+                renamed = source_path.with_suffix(".mp4")
+                source_path.rename(renamed)
+                source_path = renamed
+            log.info("Job %s clip_edit — %d segments", job_id, len(segments))
+            audio_path = render_edit(
+                source_path=source_path,
+                segments=segments,
+                on_progress=set_progress,
+            )
+            result_meta = {
+                "layer": 3,
+                "appliedSegments": segments,
+                "parentJobId": params.get("parentJobId"),
+            }
+        elif job_type == "clip_suggest":
+            source_storage = params.get("sourceStorageId")
+            suggestion = params.get("suggestion")
+            if not source_storage or not isinstance(suggestion, dict):
+                raise RuntimeError("sourceStorageId + suggestion requis")
+            source_path = download_storage_file(client, str(source_storage))
+            if source_path.suffix.lower() in ("", ".bin"):
+                renamed = source_path.with_suffix(".mp4")
+                source_path.rename(renamed)
+                source_path = renamed
+            log.info(
+                "Job %s clip_suggest — %s",
+                job_id,
+                suggestion.get("kind"),
+            )
+            audio_path = apply_suggestion(
+                source_path=source_path,
+                suggestion=suggestion,
+                base_segments=params.get("baseSegments"),
+                on_progress=set_progress,
+            )
+            result_meta = {
+                "layer": 4,
+                "appliedSuggestion": suggestion,
+                "parentJobId": params.get("parentJobId"),
+            }
         else:
             raise RuntimeError(f"Type non supporté: {job_type}")
 
         set_progress(80)
         storage_id = upload_file(client, token, audio_path)
-        client.mutation(
-            "worker:completeJob",
-            {
-                "token": token,
-                "jobId": job_id,
-                "resultStorageId": storage_id,
-            },
-        )
+        complete_args: dict = {
+            "token": token,
+            "jobId": job_id,
+            "resultStorageId": storage_id,
+        }
+        if result_meta is not None:
+            complete_args["resultMeta"] = result_meta
+        client.mutation("worker:completeJob", complete_args)
         elapsed = time.perf_counter() - t0
         vram = _vram_mb()
         log.info(
@@ -267,7 +324,14 @@ def main() -> None:
         if job is None:
             time.sleep(2)
             continue
-        if job.get("type") not in ("music", "dub", "narration", "clips"):
+        if job.get("type") not in (
+            "music",
+            "dub",
+            "narration",
+            "clips",
+            "clip_edit",
+            "clip_suggest",
+        ):
             client.mutation(
                 "worker:failJob",
                 {

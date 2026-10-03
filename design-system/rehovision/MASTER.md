@@ -15,5 +15,5 @@ Inspired by ElevenLabs speech studio + ui-ux-pro-max (atelier clair).
 - Large script textarea
 - Explicit voice-consent checkbox before dub submit
 - Job history with status chips + progress
-- Clips Couche 2 stub: upload vidéo → ffmpeg hook N secondes (voir pages/clips.md)
-- shadcn-lite: `components/ui/{button,label,badge,progress,skeleton}`
+- Clips: carte Projet (source + versions enfants), pas liste plate (voir pages/clips.md)
+- shadcn-lite: `components/ui/{button,label,badge,progress,skeleton,toast}`

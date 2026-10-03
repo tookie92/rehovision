@@ -26,9 +26,19 @@
 - [x] Job `clips` + upload vidéo → worker ffmpeg (coupe N s)
 - [ ] Hooks IA / polish / export (après ACE + GPU libre)
 
+## Couche 3 (édition hybride)
+- [x] Propositions de segments (silence ffmpeg / découpe égale)
+- [x] UI Garder / Jeter + Appliquer → job `clip_edit`
+- [ ] Trim fin par poignées + reorder drag (plus tard)
+
+## Couche 4 (suggestions lite)
+- [x] Suggestions heuristiques : hook ouverture, hook énergie, coupe faible, zoom punch-in
+- [x] Job `clip_suggest` + UI 1 clic Appliquer
+- [ ] Suggestions vision / ML (après GPU libre + modèles)
+
 ## Suite produit (ordre recommandé)
 1. Auth minimale avant expo publique
-2. Clips IA (hooks → polish → export) — cash
+2. Clips IA lourds (vision hooks / polish) — cash
 3. Export / titres-hashtags
 4. Hors-scope tant que clips pas fiables : faceless, scheduling
 

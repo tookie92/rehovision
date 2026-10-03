@@ -1,11 +1,15 @@
 # Clips — page override
 
-Conserve le MASTER atelier clair ElevenLabs (pas le dark pink Glassmorphism générique).
+Conserve le MASTER atelier clair ElevenLabs.
 
-## Règles
-- Onglet outil dans la nav latérale (comme Doublage / Musique)
-- Une composition : upload + options + CTA principal — pas de dashboard dense
-- Feedback : barre de progression job, Skeleton pendant chargement liste
-- shadcn : Button, Label, Badge, Progress, Skeleton alignés sur tokens `--ink/--signal/--bg`
-- Stub Couche 2 : ffmpeg coupe les N premières secondes (pas d’IA hooks encore)
-- Touch targets ≥ 44px, labels visibles, `prefers-reduced-motion`
+## UX projet (corrigé)
+- **1 carte = 1 projet** : source en haut, versions enfants en dessous
+- Libellés : « Créer cette version », « Inclure / Exclure » (pas Appliquer / Garder flous)
+- Onglets : Suggestions | Découpe manuelle (progressive disclosure)
+- Lien explicite : `← depuis « titre source »`
+- Toast de confirmation après création + scroll vers la zone versions
+- La source n’est jamais remplacée
+
+## Technique
+- Parent `clips` + enfants `clip_edit` / `clip_suggest` via `params.parentJobId`
+- `ClipProjectsList` + `ClipProjectCard` + `ClipEditor`

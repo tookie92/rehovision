@@ -56,7 +56,12 @@ export default function HomePage() {
     jobs?.filter((j) => {
       if (tab === "music") return j.type === "music";
       if (tab === "dub") return j.type === "dub" || j.type === "narration";
-      if (tab === "clips") return j.type === "clips";
+      if (tab === "clips")
+        return (
+          j.type === "clips" ||
+          j.type === "clip_edit" ||
+          j.type === "clip_suggest"
+        );
       return true;
     }) ?? undefined;
 

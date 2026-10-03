@@ -65,6 +65,7 @@ export const completeJob = mutation({
     token: v.string(),
     jobId: v.id("jobs"),
     resultStorageId: v.id("_storage"),
+    resultMeta: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     assertWorkerToken(args.token);
@@ -76,6 +77,7 @@ export const completeJob = mutation({
       status: "done",
       progress: 100,
       resultStorageId: args.resultStorageId,
+      ...(args.resultMeta !== undefined ? { resultMeta: args.resultMeta } : {}),
       finishedAt: Date.now(),
       error: undefined,
     });

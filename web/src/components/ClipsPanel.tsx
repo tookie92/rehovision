@@ -5,7 +5,7 @@ import { useMutation } from "convex/react";
 import { Clapperboard } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import type { Doc } from "@convex/_generated/dataModel";
-import { JobList } from "./JobList";
+import { ClipProjectsList } from "./ClipProjectsList";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
 
@@ -51,7 +51,6 @@ export function ClipsPanel({
           fileName: file.name,
           title: title.trim() || file.name,
           engine: "stub-ffmpeg",
-          note: "Couche 2 stub — coupe les N premières secondes (hooks IA plus tard)",
         },
       });
       setFile(null);
@@ -71,8 +70,9 @@ export function ClipsPanel({
           Clips
         </h1>
         <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">
-          Upload une vidéo → stub ffmpeg (extrait les N premières secondes). Les
-          hooks IA / polish arriveront après ACE-Step.
+          Un projet = une vidéo source. Les suggestions et la découpe créent des{" "}
+          <strong className="font-semibold text-[var(--ink)]">versions</strong>{" "}
+          listées sous la source — pas à la place.
         </p>
       </div>
 
@@ -102,13 +102,13 @@ export function ClipsPanel({
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Hook vlog — test stub"
+            placeholder="Mon vlog"
             className="min-h-11 w-full rounded-xl border border-[var(--line)] bg-[var(--bg)] px-4 outline-none transition-shadow duration-200 focus:ring-2 focus:ring-[var(--signal)]/30"
           />
         </Label>
 
         <fieldset className="space-y-2">
-          <legend className="text-sm font-medium">Durée du hook (stub)</legend>
+          <legend className="text-sm font-medium">Durée extraite (stub)</legend>
           <div className="flex flex-wrap gap-2">
             {HOOKS.map((d) => (
               <Button
@@ -129,17 +129,17 @@ export function ClipsPanel({
           className="w-full sm:w-auto sm:min-w-[200px]"
         >
           <Clapperboard className="size-4" aria-hidden />
-          {submitting ? "Envoi…" : "Extraire le clip"}
+          {submitting ? "Envoi…" : "Créer le projet"}
         </Button>
-        <p className="text-xs text-[var(--muted)]">
-          Stub Couche 2 : pas de détection de hooks. Prouve upload → worker →
-          preview MP4.
-        </p>
       </form>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Historique clips</h2>
-        <JobList jobs={jobs} loading={jobsLoading} />
+        <h2 className="text-lg font-semibold">Tes projets</h2>
+        <ClipProjectsList
+          jobs={jobs}
+          loading={jobsLoading}
+          sessionId={sessionId}
+        />
       </section>
     </section>
   );
