@@ -3,22 +3,17 @@ import type { AuthConfig } from "convex/server";
 /**
  * Auth JWT Clerk → Convex (self-hosted).
  * @see https://docs.convex.dev/auth/clerk
- * @see https://clerk.com/docs/guides/development/integrations/databases/convex
  *
- * Convex valide `aud === applicationID` ("convex") + issuer = `domain`.
- * Self-hosted : `npx convex env set` → 404 → issuer en dur (Frontend API URL).
- * Requis côté Clerk : JWT template nommé **convex** avec claim `"aud": "convex"`
- * (ou intégration Convex activée → session token avec aud).
+ * Issuer = Clerk Frontend API URL (identique à CLERK_FRONTEND_API_URL dans .env.local).
+ * En dur : self-hosted `convex env set` / analyse process.env casse souvent le deploy.
+ * `applicationID: "convex"` = claim JWT `aud` (template Clerk nommé « convex »).
+ *
+ * Garantir le template : `npm run clerk:ensure-convex`
  */
-const CLERK_FAPI =
-  process.env.CLERK_FRONTEND_API_URL ||
-  process.env.CLERK_JWT_ISSUER_DOMAIN ||
-  "https://distinct-marten-9832.clerk.accounts.dev";
-
 export default {
   providers: [
     {
-      domain: CLERK_FAPI.replace(/\/$/, ""),
+      domain: "https://distinct-marten-9832.clerk.accounts.dev",
       applicationID: "convex",
     },
   ],

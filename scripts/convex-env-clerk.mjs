@@ -38,9 +38,9 @@ function loadEnvLocal() {
 
 const fileEnv = loadEnvLocal();
 const url =
-  process.env.CONVEX_SELF_HOSTED_URL ??
-  fileEnv.CONVEX_SELF_HOSTED_URL ??
-  fileEnv.NEXT_PUBLIC_CONVEX_URL;
+  process.env.CONVEX_SELF_HOSTED_DEPLOY_URL ??
+  fileEnv.CONVEX_SELF_HOSTED_DEPLOY_URL ??
+  "http://127.0.0.1:3220";
 const adminKey =
   process.env.CONVEX_SELF_HOSTED_ADMIN_KEY ??
   fileEnv.CONVEX_SELF_HOSTED_ADMIN_KEY;
