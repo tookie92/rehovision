@@ -1,8 +1,7 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
 # dependencies
-/node_modules
-/.pnp
+node_modules/
+web/node_modules/
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -14,7 +13,9 @@
 /coverage
 
 # next.js
-/.next/
+web/.next/
+web/out/
+.next/
 /out/
 
 # production
@@ -30,28 +31,26 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
 .env*
 !.env.example
 
 # Python worker
 worker/.venv/
-worker/bin/
+worker/venv_omnivoice/
 worker/.env
 worker/models/
 worker/data/
+worker/outputs/
+worker/logs/
+worker/vendor/
+worker/.omnivoice_python
 __pycache__/
 *.pyc
 
-# YouTube cookies (secrets — never commit)
-worker/cookies/*
-!worker/cookies/README.md
-
-# vercel
-.vercel
-
 # typescript
 *.tsbuildinfo
-next-env.d.ts
+web/next-env.d.ts
+
+# clerk (legacy)
 .clerk/
-worker/logs/

@@ -8,23 +8,10 @@
  * @module
  */
 
-import type * as clipProjects from "../clipProjects.js";
-import type * as generationJobs from "../generationJobs.js";
-import type * as health from "../health.js";
-import type * as http from "../http.js";
+import type * as jobs from "../jobs.js";
 import type * as lib_auth from "../lib/auth.js";
-import type * as lib_captionSegments from "../lib/captionSegments.js";
-import type * as lib_enqueueAssets from "../lib/enqueueAssets.js";
-import type * as lib_facelessPresets from "../lib/facelessPresets.js";
-import type * as lib_genrePrompt from "../lib/genrePrompt.js";
-import type * as lib_imagePrompt from "../lib/imagePrompt.js";
-import type * as lib_plans from "../lib/plans.js";
-import type * as lib_scriptPrompt from "../lib/scriptPrompt.js";
-import type * as lib_studioDefaults from "../lib/studioDefaults.js";
-import type * as lib_workerAuth from "../lib/workerAuth.js";
-import type * as studios from "../studios.js";
-import type * as usage from "../usage.js";
-import type * as videoProjects from "../videoProjects.js";
+import type * as library from "../library.js";
+import type * as worker from "../worker.js";
 
 import type {
   ApiFromModules,
@@ -33,23 +20,10 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  clipProjects: typeof clipProjects;
-  generationJobs: typeof generationJobs;
-  health: typeof health;
-  http: typeof http;
+  jobs: typeof jobs;
   "lib/auth": typeof lib_auth;
-  "lib/captionSegments": typeof lib_captionSegments;
-  "lib/enqueueAssets": typeof lib_enqueueAssets;
-  "lib/facelessPresets": typeof lib_facelessPresets;
-  "lib/genrePrompt": typeof lib_genrePrompt;
-  "lib/imagePrompt": typeof lib_imagePrompt;
-  "lib/plans": typeof lib_plans;
-  "lib/scriptPrompt": typeof lib_scriptPrompt;
-  "lib/studioDefaults": typeof lib_studioDefaults;
-  "lib/workerAuth": typeof lib_workerAuth;
-  studios: typeof studios;
-  usage: typeof usage;
-  videoProjects: typeof videoProjects;
+  library: typeof library;
+  worker: typeof worker;
 }>;
 
 /**

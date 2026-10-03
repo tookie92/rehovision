@@ -1,19 +1,13 @@
-import { QueryCtx, MutationCtx } from "../_generated/server";
-
 /**
- * Identité Clerk de l'utilisateur courant.
- * `subject` = userId Clerk (stable).
+ * AVERTISSEMENT : Aucune authentification utilisateur.
+ * WORKER_TOKEN protège uniquement les endpoints worker.
+ * Plus tard : remplacer sessionId par identity.subject (Convex Auth / Clerk).
  */
-export async function requireIdentity(ctx: QueryCtx | MutationCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    throw new Error("Non authentifié");
-  }
-  return identity;
-}
+import { ConvexError } from "convex/values";
 
-/** userId Clerk de l'utilisateur authentifié. */
-export async function requireUserId(ctx: QueryCtx | MutationCtx): Promise<string> {
-  const identity = await requireIdentity(ctx);
-  return identity.subject;
+export function assertWorkerToken(token: string) {
+  const expected = process.env.WORKER_TOKEN;
+  if (!expected || token !== expected) {
+    throw new ConvexError("Unauthorized worker");
+  }
 }

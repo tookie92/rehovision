@@ -1,0 +1,19 @@
+[Unit]
+Description=Rehovision GPU worker (ACE-Step / musique)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=joseph
+Group=joseph
+WorkingDirectory=/home/joseph/rehovision/worker
+Environment=PATH=/home/joseph/rehovision/worker/.venv/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-/home/joseph/rehovision/worker/.env
+ExecStart=/home/joseph/rehovision/worker/.venv/bin/python main.py
+Restart=always
+RestartSec=8
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
