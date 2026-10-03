@@ -9,22 +9,22 @@ export const CAPTION_STYLES = [
   {
     id: "viral",
     label: "Viral",
-    hint: "Blanc + karaoke cyan",
+    hint: "Blanc + mot jaune karaoke (CapCut)",
   },
   {
     id: "bold_green",
     label: "Bold green",
-    hint: "Vert pop type shorts",
+    hint: "Vert pop outline noir",
   },
   {
     id: "yellow_pop",
     label: "Yellow pop",
-    hint: "Jaune outline noir",
+    hint: "Jaune full outline noir",
   },
   {
     id: "minimal",
     label: "Minimal",
-    hint: "Plus petit, bas d’écran",
+    hint: "Plus discret, bas d’écran",
   },
   {
     id: "neon_pink",
@@ -34,10 +34,9 @@ export const CAPTION_STYLES = [
   {
     id: "impact",
     label: "Impact",
-    hint: "Gros blanc outline épais",
+    hint: "Très gros + outline épais",
   },
 ] as const;
-
 export const LOOK_FILTERS = [
   { id: "off", label: "Off", hint: "Couleurs natives" },
   { id: "warm", label: "Warm", hint: "Tons chauds" },

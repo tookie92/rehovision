@@ -30,7 +30,9 @@ export function softLookNeedsRealRender(look: LookFilterId): boolean {
 
 export type SoftCaptionStyle = {
   color: string;
+  highlight: string;
   stroke: string;
+  strokeWidth: string;
   sizeClass: string;
   weight: string;
   uppercase: boolean;
@@ -45,8 +47,10 @@ export function softCaptionStyle(
     case "bold_green":
       return {
         color: "#39ff7a",
+        highlight: "#ffffff",
         stroke: "#000",
-        sizeClass: "text-lg md:text-xl",
+        strokeWidth: "4px",
+        sizeClass: "text-xl md:text-2xl",
         weight: "font-black",
         uppercase: true,
         tracking: "tracking-wide",
@@ -54,8 +58,10 @@ export function softCaptionStyle(
     case "yellow_pop":
       return {
         color: "#ffe566",
+        highlight: "#ffffff",
         stroke: "#000",
-        sizeClass: "text-lg md:text-xl",
+        strokeWidth: "4px",
+        sizeClass: "text-xl md:text-2xl",
         weight: "font-black",
         uppercase: true,
         tracking: "tracking-wide",
@@ -63,17 +69,21 @@ export function softCaptionStyle(
     case "minimal":
       return {
         color: "#fff",
+        highlight: "#ffe566",
         stroke: "transparent",
-        sizeClass: "text-sm md:text-base",
-        weight: "font-medium",
+        strokeWidth: "0px",
+        sizeClass: "text-base md:text-lg",
+        weight: "font-semibold",
         uppercase: false,
         tracking: "tracking-normal",
       };
     case "neon_pink":
       return {
         color: "#ff4fd8",
+        highlight: "#ffffff",
         stroke: "#1a0014",
-        sizeClass: "text-lg md:text-xl",
+        strokeWidth: "4px",
+        sizeClass: "text-xl md:text-2xl",
         weight: "font-black",
         uppercase: true,
         tracking: "tracking-wide",
@@ -81,8 +91,10 @@ export function softCaptionStyle(
     case "impact":
       return {
         color: "#fff",
+        highlight: "#ffe566",
         stroke: "#000",
-        sizeClass: "text-xl md:text-2xl",
+        strokeWidth: "5px",
+        sizeClass: "text-2xl md:text-3xl",
         weight: "font-black",
         uppercase: true,
         tracking: "tracking-wider",
@@ -91,10 +103,12 @@ export function softCaptionStyle(
     default:
       return {
         color: "#fff",
+        highlight: "#ffe566",
         stroke: "#000",
-        sizeClass: "text-lg md:text-xl",
-        weight: "font-extrabold",
-        uppercase: false,
+        strokeWidth: "4px",
+        sizeClass: "text-xl md:text-2xl",
+        weight: "font-black",
+        uppercase: true,
         tracking: "tracking-wide",
       };
   }

@@ -443,7 +443,8 @@ export function ClipStagePreview({
   const captionText = caption?.uppercase
     ? captionRaw.toUpperCase()
     : captionRaw;
-  const captionWords = captionText.split(/\s+/).filter(Boolean).slice(0, 14);
+  // CapCut Soft : 2 mots max, dernier = highlight karaoke
+  const captionWords = captionText.split(/\s+/).filter(Boolean).slice(0, 2);
 
   /** Soft Smart/Fill : object-position manuel (smartFocus) ou FaceDetector. */
   const [objectPos, setObjectPos] = useState("50% 35%");
@@ -673,31 +674,36 @@ export function ClipStagePreview({
             />
           )}
           {caption && (
-            <div className="pointer-events-none absolute inset-x-2 bottom-10 text-center">
+            <div className="pointer-events-none absolute inset-x-3 bottom-12 text-center">
               <p
-                className={`${caption.sizeClass} ${caption.weight} ${caption.tracking} leading-tight`}
+                className={`font-display ${caption.sizeClass} ${caption.weight} ${caption.tracking} leading-[1.05]`}
                 style={{
-                  color: caption.color,
                   WebkitTextStroke:
                     caption.stroke === "transparent"
                       ? undefined
-                      : `2.5px ${caption.stroke}`,
+                      : `${caption.strokeWidth} ${caption.stroke}`,
                   paintOrder: "stroke fill",
                   textShadow:
                     caption.stroke === "transparent"
-                      ? "0 2px 10px rgba(0,0,0,0.75)"
-                      : "0 2px 0 rgba(0,0,0,0.85)",
+                      ? "0 2px 12px rgba(0,0,0,0.8)"
+                      : "0 3px 0 rgba(0,0,0,0.95), 0 0 18px rgba(0,0,0,0.45)",
                 }}
               >
-                {captionWords.map((w, i) => (
-                  <span
-                    key={`${w}-${i}`}
-                    className="soft-word-pop mr-[0.28em] last:mr-0"
-                    style={{ animationDelay: `${(i % 6) * 0.09}s` }}
-                  >
-                    {w}
-                  </span>
-                ))}
+                {captionWords.map((w, i) => {
+                  const active = i === captionWords.length - 1;
+                  return (
+                    <span
+                      key={`${w}-${i}`}
+                      className="soft-word-pop mr-[0.32em] inline-block last:mr-0"
+                      style={{
+                        color: active ? caption.highlight : caption.color,
+                        animationDelay: `${i * 0.1}s`,
+                      }}
+                    >
+                      {w}
+                    </span>
+                  );
+                })}
               </p>
             </div>
           )}

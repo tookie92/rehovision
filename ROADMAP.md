@@ -38,7 +38,7 @@ Checklist détaillée : [`OPS.md`](./OPS.md).
 ## Déjà livré (clips)
 
 - [x] Pipeline : YouTube / fichier → Whisper → hooks Ollama → rendu 9:16
-- [x] Captions ASS karaoke + styles + Off
+- [x] Captions ASS karaoke CapCut-like (Montserrat + outline fort + fontsdir ffmpeg, 2 mots/ligne, Soft aligné)
 - [x] Reframe Smart / Fill / Fit / Split + cadrage
 - [x] Trim manuel In/Out + ajuster clip
 - [x] Pack viral : logo + musique ducking + punch + looks
