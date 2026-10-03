@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -199,6 +200,7 @@ export function SplitFrameDialog({
     width: 0,
     height: 0,
   });
+  const [loadError, setLoadError] = useState(false);
   const [boxTop, setBoxTop] = useState<NormBox>(() =>
     focusToBox(focusTop, 16 / 9),
   );
@@ -210,10 +212,14 @@ export function SplitFrameDialog({
   const measure = useCallback(() => {
     const video = videoRef.current;
     const stage = stageRef.current;
-    if (!video || !stage) return;
+    if (!stage) return;
     const sw = stage.clientWidth;
     const sh = stage.clientHeight;
-    const va = video.videoWidth > 0 ? video.videoWidth / video.videoHeight : videoAspect;
+    if (sw < 2 || sh < 2) return;
+    const va =
+      video && video.videoWidth > 0
+        ? video.videoWidth / video.videoHeight
+        : videoAspect;
     let width = sw;
     let height = width / va;
     if (height > sh) {
@@ -234,6 +240,17 @@ export function SplitFrameDialog({
     setBoxBot(focusToBox(focusBot, videoAspect));
   }, [open, focusTop, focusBot, videoAspect]);
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    setLoadError(false);
+    measure();
+    const stage = stageRef.current;
+    if (!stage || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(stage);
+    return () => ro.disconnect();
+  }, [open, measure]);
+
   useEffect(() => {
     if (!open) return;
     const video = videoRef.current;
@@ -242,23 +259,41 @@ export function SplitFrameDialog({
       if (video.videoWidth > 0) {
         setVideoAspect(video.videoWidth / video.videoHeight);
       }
-      video.currentTime = startSec;
+      setLoadError(false);
+      try {
+        video.currentTime = Math.max(0, startSec);
+      } catch {
+        /* ignore */
+      }
       void video.play().catch(() => undefined);
       requestAnimationFrame(measure);
     };
+    const onReady = () => {
+      measure();
+      if (video.paused) void video.play().catch(() => undefined);
+    };
+    const onErr = () => setLoadError(true);
     const onTime = () => {
       if (video.currentTime >= endSec - 0.05) {
         video.currentTime = startSec;
       }
     };
     video.addEventListener("loadedmetadata", onMeta);
+    video.addEventListener("loadeddata", onReady);
+    video.addEventListener("canplay", onReady);
+    video.addEventListener("error", onErr);
     video.addEventListener("timeupdate", onTime);
     window.addEventListener("resize", measure);
     if (video.readyState >= 1) onMeta();
+    else video.load();
     return () => {
       video.removeEventListener("loadedmetadata", onMeta);
+      video.removeEventListener("loadeddata", onReady);
+      video.removeEventListener("canplay", onReady);
+      video.removeEventListener("error", onErr);
       video.removeEventListener("timeupdate", onTime);
       window.removeEventListener("resize", measure);
+      video.pause();
     };
   }, [open, sourceUrl, startSec, endSec, measure]);
 
@@ -273,6 +308,8 @@ export function SplitFrameDialog({
 
   if (!open) return null;
 
+  const mediaSrc = playbackUrl(sourceUrl);
+
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-[rgb(6_18_12_/_0.82)] p-3 backdrop-blur-sm"
@@ -282,7 +319,7 @@ export function SplitFrameDialog({
       onClick={onClose}
     >
       <div
-        className="atelier-rise flex max-h-[min(94dvh,920px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-signal/20 bg-[#0c1f16] shadow-[0_32px_80px_-24px_rgb(0_0_0_/_0.75),0_0_0_1px_color-mix(in_oklab,var(--signal)_18%,transparent)]"
+        className="atelier-rise flex h-[min(94dvh,920px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-signal/20 bg-[#0c1f16] shadow-[0_32px_80px_-24px_rgb(0_0_0_/_0.75),0_0_0_1px_color-mix(in_oklab,var(--signal)_18%,transparent)]"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/8 px-4 py-3.5">
@@ -323,25 +360,36 @@ export function SplitFrameDialog({
 
         <div
           ref={stageRef}
-          className="relative min-h-[260px] flex-1 bg-black sm:min-h-[460px]"
+          className="relative min-h-0 flex-1 bg-black"
         >
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
           <video
             ref={videoRef}
             key={sourceUrl}
-            src={playbackUrl(sourceUrl, `t=${startSec}`)}
+            src={mediaSrc || undefined}
             playsInline
             muted
-            preload="metadata"
-            className="pointer-events-none absolute"
+            preload="auto"
+            className="pointer-events-none absolute bg-black"
             style={{
               left: videoRect.left,
               top: videoRect.top,
-              width: videoRect.width,
-              height: videoRect.height,
+              width: Math.max(videoRect.width, 1),
+              height: Math.max(videoRect.height, 1),
             }}
           />
-          {videoRect.width > 0 && (
+          {loadError && (
+            <p className="absolute inset-0 z-10 flex items-center justify-center px-6 text-center text-sm text-white/70">
+              Impossible de charger la source. Ferme et réouvre, ou vérifie
+              l’upload.
+            </p>
+          )}
+          {!loadError && videoRect.width < 2 && (
+            <p className="absolute inset-0 z-10 flex items-center justify-center text-sm text-white/50">
+              Chargement…
+            </p>
+          )}
+          {videoRect.width > 0 && !loadError && (
             <>
               <CropBox
                 label="Haut"
