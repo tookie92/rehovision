@@ -40,6 +40,7 @@ Checklist détaillée : [`OPS.md`](./OPS.md).
 - [x] Pipeline : YouTube / fichier → Whisper → hooks Ollama → rendu 9:16
 - [x] Captions ASS karaoke CapCut-like (Montserrat + outline fort + fontsdir ffmpeg, 2 mots/ligne, Soft aligné)
 - [x] Reframe Smart / Fill / Fit / Split + cadrage
+- [x] **Cadre tracking** : Final OpenCV dense (~2.5 fps, EMA, crops ~1s concatenés) + Soft FaceDetector ~3×/s + EMA (plus un crop moyen fixe)
 - [x] Trim manuel In/Out + ajuster clip
 - [x] Pack viral : logo + musique ducking + punch + looks
 - [x] Export plateforme + bandeau « Prêt à poster »

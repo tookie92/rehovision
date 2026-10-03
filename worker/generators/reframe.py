@@ -1,5 +1,8 @@
 """
 Reframe 9:16 intelligent : suit le visage / sujet (OpenCV Haar).
+
+Mode smart (défaut) : tracking dense → crop par segments (~1s) concatenés
+(pas un seul crop moyen pour tout le clip — écart Opus-like).
 Fallback : crop centré (plein cadre) plutôt que letterbox.
 """
 
@@ -119,6 +122,101 @@ def _detect_face_center(image_path: Path) -> tuple[float, float, float] | None:
     return float(cx), float(cy), float(area)
 
 
+def _sample_face_track(
+    source_path: Path,
+    start_sec: float,
+    end_sec: float,
+    work_dir: Path,
+) -> list[tuple[float, float, float]]:
+    """
+    Track dense : [(t_abs, cx, cy), ...] lissé EMA.
+    fps d’échantillonnage via REFRAME_TRACK_FPS (défaut 2.5 ≈ toutes les 0.4s).
+    """
+    duration = max(0.2, float(end_sec) - float(start_sec))
+    fps = float(os.getenv("REFRAME_TRACK_FPS", "2.5"))
+    fps = max(1.0, min(8.0, fps))
+    # Cap samples pour clips longs (30s @ 2.5fps ≈ 75)
+    max_n = max(8, int(os.getenv("REFRAME_TRACK_MAX", "80")))
+    n = min(max_n, max(6, int(round(duration * fps))))
+
+    frames_dir = work_dir / "reframe_track"
+    if frames_dir.exists():
+        shutil.rmtree(frames_dir, ignore_errors=True)
+    frames_dir.mkdir(parents=True, exist_ok=True)
+
+    # Une passe ffmpeg (beaucoup plus rapide que N -ss)
+    pattern = str(frames_dir / "f_%04d.jpg")
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-ss",
+        f"{float(start_sec):.3f}",
+        "-i",
+        str(source_path),
+        "-t",
+        f"{duration:.3f}",
+        "-vf",
+        f"fps={fps:.3f}",
+        "-q:v",
+        "5",
+        pattern,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    files = sorted(frames_dir.glob("f_*.jpg"))
+    if proc.returncode != 0 or not files:
+        log.warning(
+            "Track extract failed (%s) — fallback per-frame",
+            (proc.stderr or "")[-200:],
+        )
+        files = []
+        times = np.linspace(start_sec, end_sec, n)
+        for i, t in enumerate(times):
+            fp = frames_dir / f"f_{i:04d}.jpg"
+            if _extract_frame(source_path, float(t), fp):
+                files.append(fp)
+
+    raw: list[tuple[float, float, float] | None] = []
+    for i, fp in enumerate(files):
+        t = float(start_sec) + (i / max(fps, 0.01))
+        t = min(t, float(end_sec))
+        hit = _detect_face_center(fp)
+        if hit is None:
+            raw.append(None)
+        else:
+            cx, cy, _area = hit
+            raw.append((t, cx, cy))
+
+    shutil.rmtree(frames_dir, ignore_errors=True)
+
+    # Forward-fill + EMA
+    alpha = float(os.getenv("REFRAME_EMA", "0.45"))
+    alpha = max(0.15, min(0.9, alpha))
+    track: list[tuple[float, float, float]] = []
+    prev: tuple[float, float] | None = None
+    for item in raw:
+        if item is None:
+            if prev is None:
+                continue
+            # hold last position (visage temporairement perdu)
+            t_hold = track[-1][0] + (1.0 / fps) if track else float(start_sec)
+            track.append((t_hold, prev[0], prev[1]))
+            continue
+        t, cx, cy = item
+        if prev is None:
+            prev = (cx, cy)
+        else:
+            prev = (
+                alpha * cx + (1 - alpha) * prev[0],
+                alpha * cy + (1 - alpha) * prev[1],
+            )
+        cx_s = min(0.92, max(0.08, prev[0]))
+        cy_s = min(0.75, max(0.18, prev[1]))
+        track.append((t, cx_s, cy_s))
+        prev = (cx_s, cy_s)
+
+    return track
+
+
 def estimate_subject_center(
     source_path: Path,
     start_sec: float,
@@ -126,63 +224,124 @@ def estimate_subject_center(
     work_dir: Path,
 ) -> tuple[float, float]:
     """
-    Échantillonne des frames et retourne (cx, cy) normalisés [0,1].
-    Centre image si aucun visage.
+    Centre sujet moyen (compat smart_focus / fill).
     """
-    n = max(5, int(os.getenv("REFRAME_SAMPLES", "12")))
-    duration = max(0.2, float(end_sec) - float(start_sec))
-    # Évite les extrémités (fade / coupe)
-    margin = min(0.35, duration * 0.08)
-    t0 = float(start_sec) + margin
-    t1 = float(end_sec) - margin
-    if t1 <= t0:
-        t0, t1 = float(start_sec), float(end_sec)
-
-    times = np.linspace(t0, t1, n)
-    weights: list[float] = []
-    cxs: list[float] = []
-    cys: list[float] = []
-
-    frames_dir = work_dir / "reframe_frames"
-    if frames_dir.exists():
-        shutil.rmtree(frames_dir, ignore_errors=True)
-    frames_dir.mkdir(parents=True, exist_ok=True)
-
-    for i, t in enumerate(times):
-        frame_path = frames_dir / f"f_{i:02d}.jpg"
-        if not _extract_frame(source_path, float(t), frame_path):
-            continue
-        hit = _detect_face_center(frame_path)
-        if hit is None:
-            continue
-        cx, cy, area = hit
-        w = max(area, 0.01)
-        cxs.append(cx)
-        cys.append(cy)
-        weights.append(w)
-
-    # Nettoyage frames (disk)
-    shutil.rmtree(frames_dir, ignore_errors=True)
-
-    if not cxs:
+    track = _sample_face_track(source_path, start_sec, end_sec, work_dir)
+    if not track:
         log.info("Aucun visage détecté — crop centré")
-        return 0.5, 0.42  # légèrement haut pour talking-head
-
-    warr = np.asarray(weights, dtype=np.float64)
-    warr = warr / warr.sum()
-    cx = float(np.average(np.asarray(cxs), weights=warr))
-    cy = float(np.average(np.asarray(cys), weights=warr))
-    # Clamp soft
+        return 0.5, 0.42
+    cx = float(np.median([p[1] for p in track]))
+    cy = float(np.median([p[2] for p in track]))
     cx = min(0.92, max(0.08, cx))
     cy = min(0.75, max(0.2, cy))
     log.info(
-        "Reframe sujet cx=%.2f cy=%.2f (%d/%d frames avec visage)",
+        "Reframe sujet médian cx=%.2f cy=%.2f (%d samples)",
         cx,
         cy,
-        len(cxs),
-        n,
+        len(track),
     )
     return cx, cy
+
+
+def _build_tracking_segments(
+    track: list[tuple[float, float, float]],
+    start_sec: float,
+    end_sec: float,
+) -> list[tuple[float, float, float, float]]:
+    """
+    Agrège le track en segments (rel_start, rel_end, cx, cy).
+    """
+    duration = max(0.2, float(end_sec) - float(start_sec))
+    seg_len = float(os.getenv("REFRAME_SEGMENT_SEC", "1.0"))
+    seg_len = max(0.5, min(3.0, seg_len))
+    # Deadzone : ne bouge le crop que si le visage bouge assez (anti-jitter)
+    dead = float(os.getenv("REFRAME_DEADZONE", "0.035"))
+
+    segments: list[tuple[float, float, float, float]] = []
+    t_cursor = 0.0
+    last_cx, last_cy = 0.5, 0.42
+    while t_cursor < duration - 0.05:
+        t1 = min(duration, t_cursor + seg_len)
+        abs0 = start_sec + t_cursor
+        abs1 = start_sec + t1
+        pts = [p for p in track if abs0 - 0.05 <= p[0] <= abs1 + 0.05]
+        if pts:
+            cx = float(np.median([p[1] for p in pts]))
+            cy = float(np.median([p[2] for p in pts]))
+        else:
+            cx, cy = last_cx, last_cy
+        if abs(cx - last_cx) < dead and abs(cy - last_cy) < dead and segments:
+            cx, cy = last_cx, last_cy
+        else:
+            last_cx, last_cy = cx, cy
+        segments.append((t_cursor, t1, cx, cy))
+        t_cursor = t1
+
+    if not segments:
+        segments.append((0.0, duration, 0.5, 0.42))
+    # Assure couverture jusqu’à la fin
+    if segments[-1][1] < duration - 0.01:
+        _a, _b, cx, cy = segments[-1]
+        segments.append((segments[-1][1], duration, cx, cy))
+    return segments
+
+
+def build_smart_tracking_filter(
+    source_path: Path,
+    start_sec: float,
+    end_sec: float,
+    work_dir: Path,
+    *,
+    zoom: float = 1.0,
+) -> str | None:
+    """
+    filter_complex : trim+crop par segment + concat → [vout].
+    None si tracking inutilisable (caller fallback crop fixe).
+    """
+    track = _sample_face_track(source_path, start_sec, end_sec, work_dir)
+    if len(track) < 3:
+        return None
+
+    width, height = _ffprobe_size(source_path)
+    duration = max(0.2, float(end_sec) - float(start_sec))
+    segments = _build_tracking_segments(track, start_sec, end_sec)
+    # Si tous les crops sont identiques → pas besoin de concat
+    boxes = [
+        compute_crop_box_zoomed(width, height, cx, cy, zoom)
+        for _a, _b, cx, cy in segments
+    ]
+    if len({b for b in boxes}) <= 1:
+        return None
+
+    parts: list[str] = []
+    labels: list[str] = []
+    for i, ((rel0, rel1, cx, cy), (cw, ch, x, y)) in enumerate(
+        zip(segments, boxes)
+    ):
+        # trim relatif au clip déjà -ss'd dans ffmpeg cut… NON :
+        # render_clip fait -ss start puis -t duration sur la source.
+        # Donc t=0 dans le filtre = début du clip.
+        dur = max(0.05, rel1 - rel0)
+        lab = f"v{i}"
+        parts.append(
+            f"[0:v]trim=start={rel0:.3f}:duration={dur:.3f},setpts=PTS-STARTPTS,"
+            f"crop={cw}:{ch}:{x}:{y},scale={OUT_W}:{OUT_H}[{lab}]"
+        )
+        labels.append(f"[{lab}]")
+
+    n = len(labels)
+    if n == 1:
+        parts.append(f"{labels[0]}null[vout]")
+    else:
+        parts.append(f"{''.join(labels)}concat=n={n}:v=1:a=0[vout]")
+
+    log.info(
+        "Smart track: %d samples → %d segments (%.1fs clip)",
+        len(track),
+        n,
+        duration,
+    )
+    return ";".join(parts)
 
 
 def compute_crop_box(
@@ -494,11 +653,14 @@ def build_reframe_vf(
         )
 
     zoom = 1.0
-    if (
+    manual_smart = (
         smart_focus
         and isinstance(smart_focus, dict)
         and mode in ("smart", "center")
-    ):
+        and "cx" in smart_focus
+    )
+
+    if manual_smart:
         try:
             cx = float(smart_focus.get("cx", 0.5))
             cy = float(smart_focus.get("cy", 0.42))
@@ -511,22 +673,47 @@ def build_reframe_vf(
             )
         except (TypeError, ValueError):
             cx, cy = 0.5, 0.42
-    elif mode == "center":
+        crop_w, crop_h, x, y = compute_crop_box_zoomed(
+            width, height, cx, cy, zoom
+        )
+        return f"crop={crop_w}:{crop_h}:{x}:{y},scale={OUT_W}:{OUT_H}", None
+
+    if mode == "center":
         cx, cy = 0.5, 0.42
-    else:
+        crop_w, crop_h, x, y = compute_crop_box_zoomed(
+            width, height, cx, cy, zoom
+        )
+        return f"crop={crop_w}:{crop_h}:{x}:{y},scale={OUT_W}:{OUT_H}", None
+
+    # smart (défaut) : tracking dense → filter_complex segments
+    track_on = os.getenv("REFRAME_TRACK", "1") not in ("0", "false", "False")
+    if mode == "smart" and track_on:
         try:
-            cx, cy = estimate_subject_center(
-                source_path, start_sec, end_sec, work_dir
+            fc = build_smart_tracking_filter(
+                source_path,
+                start_sec,
+                end_sec,
+                work_dir,
+                zoom=zoom,
             )
+            if fc:
+                return "", fc
         except Exception as e:
-            log.warning("Détection visage échouée (%s) — center crop", e)
-            cx, cy = 0.5, 0.42
+            log.warning("Smart track échoué (%s) — crop fixe", e)
+
+    try:
+        cx, cy = estimate_subject_center(
+            source_path, start_sec, end_sec, work_dir
+        )
+    except Exception as e:
+        log.warning("Détection visage échouée (%s) — center crop", e)
+        cx, cy = 0.5, 0.42
 
     crop_w, crop_h, x, y = compute_crop_box_zoomed(
         width, height, cx, cy, zoom
     )
     log.info(
-        "Crop %dx%d @ %d,%d (source %dx%d) → %dx%d mode=%s",
+        "Crop fixe %dx%d @ %d,%d (source %dx%d) → %dx%d mode=%s",
         crop_w,
         crop_h,
         x,

@@ -478,25 +478,29 @@ export function ClipStagePreview({
     }
 
     let cancelled = false;
-    const run = async () => {
-      type FaceBox = { boundingBox: DOMRectReadOnly };
-      type FaceDetectorLike = {
-        detect: (src: ImageBitmapSource) => Promise<FaceBox[]>;
-      };
-      const FD = (
-        window as unknown as {
-          FaceDetector?: new (o?: { fastMode?: boolean }) => FaceDetectorLike;
-        }
-      ).FaceDetector;
-      if (!FD || el.videoWidth < 2) {
-        if (!cancelled) setObjectPos("50% 35%");
-        return;
+    let ema: { cx: number; cy: number } | null = null;
+    const alpha = 0.4; // lissage — suit sans jitter
+    let busy = false;
+
+    type FaceBox = { boundingBox: DOMRectReadOnly };
+    type FaceDetectorLike = {
+      detect: (src: ImageBitmapSource) => Promise<FaceBox[]>;
+    };
+    const FD = (
+      window as unknown as {
+        FaceDetector?: new (o?: { fastMode?: boolean }) => FaceDetectorLike;
       }
+    ).FaceDetector;
+    const detector = FD ? new FD({ fastMode: true }) : null;
+
+    const run = async () => {
+      if (busy || cancelled || !detector || el.videoWidth < 2) return;
+      busy = true;
       try {
-        const detector = new FD({ fastMode: true });
         const faces = await detector.detect(el);
-        if (cancelled || faces.length === 0) {
-          if (!cancelled) setObjectPos("50% 35%");
+        if (cancelled) return;
+        if (faces.length === 0) {
+          // garde la dernière position (visage perdu un instant)
           return;
         }
         const best = faces.reduce((a, b) =>
@@ -506,15 +510,22 @@ export function ClipStagePreview({
             : b,
         );
         const box = best.boundingBox;
-        const cx = ((box.x + box.width / 2) / el.videoWidth) * 100;
-        const cy = ((box.y + box.height * 0.35) / el.videoHeight) * 100;
-        if (!cancelled) {
-          setObjectPos(
-            `${Math.min(92, Math.max(8, cx)).toFixed(1)}% ${Math.min(75, Math.max(18, cy)).toFixed(1)}%`,
-          );
+        const rawCx = ((box.x + box.width / 2) / el.videoWidth) * 100;
+        const rawCy = ((box.y + box.height * 0.35) / el.videoHeight) * 100;
+        if (!ema) ema = { cx: rawCx, cy: rawCy };
+        else {
+          ema = {
+            cx: alpha * rawCx + (1 - alpha) * ema.cx,
+            cy: alpha * rawCy + (1 - alpha) * ema.cy,
+          };
         }
+        const cx = Math.min(92, Math.max(8, ema.cx));
+        const cy = Math.min(75, Math.max(18, ema.cy));
+        setObjectPos(`${cx.toFixed(1)}% ${cy.toFixed(1)}%`);
       } catch {
-        if (!cancelled) setObjectPos("50% 35%");
+        /* ignore */
+      } finally {
+        busy = false;
       }
     };
 
@@ -522,7 +533,8 @@ export function ClipStagePreview({
     el.addEventListener("loadeddata", onReady);
     el.addEventListener("seeked", onReady);
     if (el.readyState >= 2) onReady();
-    const id = window.setInterval(() => void run(), 2500);
+    // ~3 Hz — assez pour suivre sans saturer FaceDetector
+    const id = window.setInterval(() => void run(), 350);
     return () => {
       cancelled = true;
       el.removeEventListener("loadeddata", onReady);
@@ -624,8 +636,8 @@ export function ClipStagePreview({
               preload="auto"
               className={
                 layoutMode === "fit"
-                  ? "h-full w-full object-contain transition-[object-position] duration-300"
-                  : "h-full w-full object-cover transition-[object-position] duration-300"
+                  ? "h-full w-full object-contain transition-[object-position] duration-200"
+                  : "h-full w-full object-cover transition-[object-position] duration-200"
               }
               style={{
                 objectPosition: objectPos,
@@ -741,7 +753,7 @@ export function ClipStagePreview({
           </p>
           {activeMode === "soft" && layoutMode === "smart" && (
             <p className="text-center text-[10px] text-muted-foreground">
-              Soft ≈ visage navigateur · Final = OpenCV après Re-rendre
+              Soft ≈ suivi visage ~3×/s · Final = track OpenCV (segments) après Re-rendre
             </p>
           )}
           {clip.hookReason && (
