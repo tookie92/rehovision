@@ -23,20 +23,32 @@ export function DashboardAuthGate({ children }: { children: React.ReactNode }) {
         <div className="space-y-3">
           <Skeleton className="h-40 w-full" />
           {stuck && (
-            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
               <p className="font-medium">Auth Convex bloquée</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Vérifie l&apos;intégration Clerk → Convex (JWT{" "}
-                <code className="text-foreground">aud: convex</code>),{" "}
-                <code className="text-foreground">CLERK_FRONTEND_API_URL</code>{" "}
-                sur le backend Convex (
-                <code className="text-foreground">npm run convex:env:clerk</code>
-                ), redéploie, puis redémarre{" "}
-                <code className="text-foreground">npm run dev</code>.
+              <p className="mt-1 text-xs opacity-90">
+                Clerk doit émettre un JWT{" "}
+                <code className="rounded bg-background/60 px-1">aud: convex</code>{" "}
+                (template JWT nommé{" "}
+                <code className="rounded bg-background/60 px-1">convex</code>
+                ). Issuer ={" "}
+                <code className="rounded bg-background/60 px-1">
+                  CLERK_FRONTEND_API_URL
+                </code>{" "}
+                dans{" "}
+                <code className="rounded bg-background/60 px-1">
+                  convex/auth.config.ts
+                </code>
+                . Puis{" "}
+                <code className="rounded bg-background/60 px-1">
+                  npm run convex:deploy:self-hosted
+                </code>{" "}
+                + restart web, et{" "}
+                <strong className="font-medium">reconnecte-toi</strong> (nouveau
+                token).
               </p>
               <Link
                 href="/sign-in"
-                className="mt-2 inline-block text-xs underline hover:text-foreground"
+                className="mt-2 inline-block text-xs underline hover:opacity-100"
               >
                 Reconnecter
               </Link>

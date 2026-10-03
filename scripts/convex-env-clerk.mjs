@@ -74,6 +74,20 @@ console.log(
   `[convex:env:clerk] Setting CLERK_FRONTEND_API_URL on ${url} (host=${host})…`,
 );
 
+// Toujours garantir le JWT template Clerk (indépendant de env set)
+{
+  const ensure = spawnSync("node", ["scripts/ensure-clerk-convex.mjs"], {
+    cwd: root,
+    stdio: "inherit",
+    env: process.env,
+  });
+  if (ensure.status !== 0) {
+    console.warn(
+      "[convex:env:clerk] ensure-clerk-convex a échoué — crée le template JWT « convex » dans Clerk Dashboard.",
+    );
+  }
+}
+
 const env = {
   ...process.env,
   CONVEX_SELF_HOSTED_URL: url,
