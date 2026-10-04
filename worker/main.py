@@ -21,6 +21,7 @@ load_dotenv(ROOT.parent / ".env.local")
 
 from convex import ConvexClient  # noqa: E402
 
+from engines.audiobook import run_audiobook  # noqa: E402
 from engines.clips import run_clips_stub  # noqa: E402
 from engines.dub import run_dub  # noqa: E402
 from engines.edit import render_edit  # noqa: E402
@@ -299,6 +300,86 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 "sourceLang": dub.source_lang,
                 "targetLang": dub.target_lang,
                 "voiceMode": resolved_mode,
+                "instruct": instruct_s[:500] if instruct_s else None,
+                "speed": speed_f,
+            }
+        elif job_type == "audiobook":
+            if not params.get("voiceConsent"):
+                raise RuntimeError("Consentement voix manquant (voiceConsent)")
+            text = str(params.get("text") or "").strip()
+            if not text:
+                raise RuntimeError("Texte du livre audio requis")
+            source_lang = str(params.get("sourceLang") or "fr")
+            target_lang = str(params.get("targetLang") or "fr")
+            title = str(params.get("title") or "Livre audio").strip() or "Livre audio"
+            voice_mode = str(params.get("voiceMode") or "").strip().lower()
+            if voice_mode in ("keep", "clone", "garder"):
+                clone_voice = True
+            elif voice_mode in (
+                "model",
+                "auto",
+                "modele",
+                "modèle",
+                "create",
+                "design",
+                "creator",
+            ):
+                clone_voice = False
+            else:
+                clone_voice = bool(params.get("cloneVoice", False))
+            instruct = params.get("instruct")
+            instruct_s = str(instruct).strip() if instruct else ""
+            if voice_mode in ("create", "design", "creator") and not instruct_s:
+                raise RuntimeError(
+                    "Mode « Créer une voix » : choisis au moins un attribut."
+                )
+            speed_raw = params.get("speed")
+            speed_f: float | None = None
+            if speed_raw is not None and str(speed_raw).strip() != "":
+                try:
+                    speed_f = float(speed_raw)
+                except (TypeError, ValueError) as exc:
+                    raise RuntimeError(f"speed invalide: {speed_raw}") from exc
+            max_chars = int(params.get("maxChars") or 600)
+            ref_storage = params.get("refStorageId") or params.get("voiceRefStorageId")
+            ref_path: Path | None = None
+            if ref_storage:
+                ref_path = download_storage_file(client, str(ref_storage))
+            log.info(
+                "Job %s audiobook — %s→%s chars=%d mode=%s clone=%s",
+                job_id,
+                source_lang,
+                target_lang,
+                len(text),
+                voice_mode or "model",
+                clone_voice,
+            )
+            book = run_audiobook(
+                text=text,
+                source_lang=source_lang,
+                target_lang=target_lang,
+                instruct=instruct_s or None,
+                clone_voice=clone_voice,
+                ref_audio_path=ref_path,
+                speed=speed_f,
+                max_chars=max_chars,
+                on_progress=set_progress,
+            )
+            audio_path = book.path
+            result_meta = {
+                "title": title[:200],
+                "chapterCount": len(book.chapters),
+                "chapters": book.chapters[:40],
+                "translated": book.translated,
+                "clone": book.clone,
+                "sourceLang": book.source_lang,
+                "targetLang": book.target_lang,
+                "charCount": book.char_count,
+                "voiceMode": (
+                    "keep"
+                    if book.clone
+                    else ("create" if instruct_s else "model")
+                ),
                 "instruct": instruct_s[:500] if instruct_s else None,
                 "speed": speed_f,
             }

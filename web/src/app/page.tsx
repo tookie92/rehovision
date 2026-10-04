@@ -6,6 +6,7 @@ import { api } from "@convex/_generated/api";
 import { getSessionId } from "../lib/session";
 import { AppSidebar, type AppTab } from "../components/AppSidebar";
 import { ClipsPanel } from "../components/ClipsPanel";
+import { AudiobookPanel } from "../components/AudiobookPanel";
 import { DubPanel } from "../components/DubPanel";
 import { MusicPanel } from "../components/MusicPanel";
 import { MediaByStorage } from "../components/MediaByStorage";
@@ -35,6 +36,7 @@ export default function HomePage() {
     jobs?.filter((j) => {
       if (tab === "music") return j.type === "music";
       if (tab === "dub") return j.type === "dub" || j.type === "narration";
+      if (tab === "audiobook") return j.type === "audiobook";
       if (tab === "clips")
         return (
           j.type === "clips" ||
@@ -77,6 +79,14 @@ export default function HomePage() {
 
           {tab === "dub" && (
             <DubPanel
+              sessionId={sessionId}
+              jobs={filteredJobs}
+              jobsLoading={!sessionId || jobs === undefined}
+            />
+          )}
+
+          {tab === "audiobook" && (
+            <AudiobookPanel
               sessionId={sessionId}
               jobs={filteredJobs}
               jobsLoading={!sessionId || jobs === undefined}

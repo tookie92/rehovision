@@ -11,6 +11,8 @@ export const jobType = v.union(
   v.literal("music"),
   v.literal("dub"),
   v.literal("narration"),
+  /** Vague B — livre audio (texte long chunké) */
+  v.literal("audiobook"),
   v.literal("clips"),
   /** Couche 3 — appliquer un plan d'édition (segments keep/discard) */
   v.literal("clip_edit"),

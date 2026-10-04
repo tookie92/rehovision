@@ -16,6 +16,12 @@ const STATUS_LABEL: Record<string, string> = {
 function jobTitle(job: Doc<"jobs">): string {
   const p = job.params as Record<string, unknown>;
   if (job.type === "music") return String(p.prompt ?? "Musique");
+  if (job.type === "audiobook") {
+    const title = String(p.title ?? "").trim();
+    if (title) return title;
+    const text = String(p.text ?? "");
+    return text.length > 80 ? `${text.slice(0, 80)}…` : text || "Livre audio";
+  }
   if (job.type === "dub" || job.type === "narration") {
     const text = String(p.text ?? "");
     if (text) return text.length > 80 ? `${text.slice(0, 80)}…` : text;
@@ -26,18 +32,25 @@ function jobTitle(job: Doc<"jobs">): string {
 
 function jobMeta(job: Doc<"jobs">): string {
   const p = job.params as Record<string, unknown>;
+  const meta = job.resultMeta as Record<string, unknown> | undefined;
   if (job.type === "music") {
     const mode = p.instrumental === false ? "vocal" : "instr";
     const bpm = p.bpm != null ? ` · ${p.bpm} BPM` : "";
     return `${p.durationS ?? "?"}s · ${mode}${bpm}`;
   }
+  if (job.type === "audiobook") {
+    const n = meta?.chapterCount ?? "?";
+    return `${p.sourceLang ?? "?"} → ${p.targetLang ?? "?"} · ${n} segment(s)`;
+  }
   if (job.type === "dub" || job.type === "narration") {
     const voice =
       p.voiceMode === "keep" || p.cloneVoice === true
         ? "ma voix"
-        : p.voiceMode === "model" || p.cloneVoice === false
-          ? "voix modèle"
-          : "voix";
+        : p.voiceMode === "create"
+          ? "voix créée"
+          : p.voiceMode === "model" || p.cloneVoice === false
+            ? "voix modèle"
+            : "voix";
     return `${p.sourceLang ?? "?"} → ${p.targetLang ?? "?"} · ${voice}`;
   }
   return job.type;

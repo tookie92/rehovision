@@ -1,7 +1,13 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { AudioLines, Clapperboard, Languages, Library } from "lucide-react";
+import {
+  AudioLines,
+  BookOpen,
+  Clapperboard,
+  Languages,
+  Library,
+} from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -15,10 +21,11 @@ import {
   useSidebar,
 } from "./ui/sidebar";
 
-export type AppTab = "dub" | "clips" | "music" | "library";
+export type AppTab = "dub" | "audiobook" | "clips" | "music" | "library";
 
 const NAV: { id: AppTab; label: string; icon: LucideIcon }[] = [
   { id: "dub", label: "Doublage", icon: Languages },
+  { id: "audiobook", label: "Livre audio", icon: BookOpen },
   { id: "clips", label: "Clips", icon: Clapperboard },
   { id: "music", label: "Musique", icon: AudioLines },
   { id: "library", label: "Bibliothèque", icon: Library },

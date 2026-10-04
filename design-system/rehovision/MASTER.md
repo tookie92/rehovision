@@ -12,8 +12,9 @@ Inspired by ElevenLabs speech studio + ui-ux-pro-max (atelier clair).
 
 ## Patterns
 - ElevenLabs-like left sidebar (shadcn `SidebarProvider` / `Sidebar` / `SidebarInset`) — brand + groupe Création + footer warn
-- Product nav: Doublage / Clips / Musique / Bibliothèque
+- Product nav: Doublage / Livre audio / Clips / Musique / Bibliothèque
 - Doublage: wizard 3 étapes (voir pages/dub.md) — Voice Lab, Mes voix (presets), rythme, tags ; aperçu texte lu, pas de cible obligatoire
+- Livre audio: Vague B (voir pages/audiobook.md) — découpe chapitres, jobs longs chunkés, concat
 - Musique: MusicPanel ACE-Step Create léger (voir pages/music.md) — caption + lyrics, résultat hero
 - Explicit voice-consent checkbox before dub generate
 - Job history with status chips + progress
