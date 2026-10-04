@@ -8,8 +8,12 @@ import type { Doc } from "@convex/_generated/dataModel";
 import { ClipProjectsList } from "./ClipProjectsList";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
+import {
+  CHUNK_THRESHOLD_BYTES,
+  uploadVideoChunked,
+} from "../lib/uploadVideoChunked";
 
-const HOOKS = [8, 15, 30] as const;
+const HOOKS = [8, 15, 30, 60, 90] as const;
 
 export function ClipsPanel({
   sessionId,
@@ -23,43 +27,59 @@ export function ClipsPanel({
   const createJob = useMutation(api.jobs.create);
   const generateUploadUrl = useMutation(api.jobs.generateUploadUrl);
   const [file, setFile] = useState<File | null>(null);
-  const [hookDurationS, setHookDurationS] = useState<(typeof HOOKS)[number]>(15);
+  const [hookDurationS, setHookDurationS] = useState<(typeof HOOKS)[number]>(30);
   const [title, setTitle] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+
+  async function uploadSource(f: File): Promise<string> {
+    if (f.size > CHUNK_THRESHOLD_BYTES) {
+      setUploadProgress("Envoi 0/…");
+      return uploadVideoChunked(f, sessionId, (done, total) => {
+        setUploadProgress(`Envoi ${done}/${total}…`);
+      });
+    }
+    setUploadProgress("Envoi…");
+    const uploadUrl = await generateUploadUrl({ sessionId });
+    const res = await fetch(uploadUrl, {
+      method: "POST",
+      headers: { "Content-Type": f.type || "video/mp4" },
+      body: f,
+    });
+    if (!res.ok) throw new Error(`Upload vidéo échoué (${res.status})`);
+    const body = (await res.json()) as { storageId?: string };
+    if (!body.storageId) throw new Error("Upload sans storageId");
+    return body.storageId;
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!sessionId || !file) return;
     setSubmitting(true);
+    setUploadProgress(null);
     try {
-      const uploadUrl = await generateUploadUrl({ sessionId });
-      const res = await fetch(uploadUrl, {
-        method: "POST",
-        headers: { "Content-Type": file.type || "video/mp4" },
-        body: file,
-      });
-      if (!res.ok) throw new Error(`Upload vidéo échoué (${res.status})`);
-      const body = (await res.json()) as { storageId?: string };
-      if (!body.storageId) throw new Error("Upload sans storageId");
-
+      const storageId = await uploadSource(file);
+      setUploadProgress("Création du projet…");
       await createJob({
         type: "clips",
         sessionId,
         params: {
-          sourceStorageId: body.storageId,
+          sourceStorageId: storageId,
           hookDurationS,
           fileName: file.name,
           title: title.trim() || file.name,
-          engine: "stub-ffmpeg",
+          engine: "hooks-ffmpeg",
         },
       });
       setFile(null);
       setTitle("");
+      setUploadProgress(null);
     } catch (err) {
       console.error(err);
       alert(err instanceof Error ? err.message : "Échec envoi");
     } finally {
       setSubmitting(false);
+      setUploadProgress(null);
     }
   }
 
@@ -70,9 +90,10 @@ export function ClipsPanel({
           Clips
         </h1>
         <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">
-          Un projet = une vidéo source. Les suggestions et la découpe créent des{" "}
-          <strong className="font-semibold text-[var(--ink)]">versions</strong>{" "}
-          listées sous la source — pas à la place.
+          Un projet = une vidéo source. On propose plusieurs hooks (début + pics
+          d’énergie) ; chaque suggestion crée une{" "}
+          <strong className="font-semibold text-[var(--ink)]">version</strong>{" "}
+          sous la source.
         </p>
       </div>
 
@@ -92,6 +113,9 @@ export function ClipsPanel({
           {file && (
             <span className="text-xs font-normal text-[var(--muted)]">
               {file.name} · {(file.size / (1024 * 1024)).toFixed(1)} Mo
+              {file.size > CHUNK_THRESHOLD_BYTES
+                ? " · upload chunké (>80 Mo)"
+                : ""}
             </span>
           )}
         </Label>
@@ -108,7 +132,7 @@ export function ClipsPanel({
         </Label>
 
         <fieldset className="space-y-2">
-          <legend className="text-sm font-medium">Durée extraite (stub)</legend>
+          <legend className="text-sm font-medium">Durée des hooks</legend>
           <div className="flex flex-wrap gap-2">
             {HOOKS.map((d) => (
               <Button
@@ -121,6 +145,10 @@ export function ClipsPanel({
               </Button>
             ))}
           </div>
+          <p className="text-xs text-[var(--muted)]">
+            60–90 s alignés Reels / Shorts. Plusieurs candidats sur toute la
+            timeline.
+          </p>
         </fieldset>
 
         <Button
@@ -129,7 +157,9 @@ export function ClipsPanel({
           className="w-full sm:w-auto sm:min-w-[200px]"
         >
           <Clapperboard className="size-4" aria-hidden />
-          {submitting ? "Envoi…" : "Créer le projet"}
+          {submitting
+            ? uploadProgress || "Envoi…"
+            : "Créer le projet"}
         </Button>
       </form>
 

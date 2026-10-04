@@ -97,8 +97,14 @@ export function ClipEditor({
     );
   }
 
+  /** Source originale du projet (timeline complète), pas le preview hook. */
+  const originalSourceId = (
+    (job.params as { sourceStorageId?: Id<"_storage"> }).sourceStorageId ||
+    job.resultStorageId
+  ) as Id<"_storage"> | undefined;
+
   async function createManualVersion() {
-    if (!sessionId || !job.resultStorageId || kept.length === 0) return;
+    if (!sessionId || !originalSourceId || kept.length === 0) return;
     setSubmitting(true);
     try {
       await createJob({
@@ -106,7 +112,7 @@ export function ClipEditor({
         sessionId,
         params: {
           parentJobId: job._id,
-          sourceStorageId: job.resultStorageId as Id<"_storage">,
+          sourceStorageId: originalSourceId,
           segments,
           title: `Découpe · ${sourceTitle}`,
           engine: "couche3-hybrid",
@@ -127,7 +133,7 @@ export function ClipEditor({
   }
 
   async function createFromSuggestion(sug: ClipSuggestion) {
-    if (!sessionId || !job.resultStorageId) return;
+    if (!sessionId || !originalSourceId) return;
     setApplyingId(sug.id);
     try {
       await createJob({
@@ -135,7 +141,7 @@ export function ClipEditor({
         sessionId,
         params: {
           parentJobId: job._id,
-          sourceStorageId: job.resultStorageId as Id<"_storage">,
+          sourceStorageId: originalSourceId,
           suggestion: sug,
           baseSegments: segments,
           title: `${sug.title} · ${sourceTitle}`,

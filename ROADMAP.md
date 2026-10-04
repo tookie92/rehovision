@@ -52,12 +52,12 @@ C’est un **coupeur** : source longue → extrait de tête + versions (inclure/
 
 ### 0. Qualité / infra (court)
 - [ ] Anti-hallucinations NLLB encore plus strict si besoin
-- [ ] Upload Clips gros fichiers (1 h / ~220 Mo) : limites proxy / nginx / Convex (souvent 413)
+- [x] Upload Clips gros fichiers : chunks 40 Mo via `/api/upload-video` → Convex **local** (bypass limite ~100 Mo Cloudflare Tunnel)
 - [ ] Auth minimale avant expo publique
 
-### Vague C — Clips « vrais Reels » (à cadrer)
-- [ ] Extraire **plusieurs** hooks (pas seulement le début)
-- [ ] Durées 60 s / 90 s (aligné plateformes)
+### Vague C — Clips « vrais Reels »
+- [x] Extraire **plusieurs** hooks (ouverture + énergie + milieu)
+- [x] Durées 60 s / 90 s (UI + worker, max 90)
 - [ ] Captions / export 9:16
 - [ ] Option **HyperFrames** en polish (titres, overlays, motion) — **en plus** de ffmpeg, pas à la place
 

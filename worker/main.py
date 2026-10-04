@@ -511,7 +511,8 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
             source_storage = params.get("sourceStorageId")
             if not source_storage:
                 raise RuntimeError("Vidéo source requise (sourceStorageId)")
-            hook_s = int(params.get("hookDurationS") or params.get("durationS") or 15)
+            hook_s = int(params.get("hookDurationS") or params.get("durationS") or 30)
+            hook_s = max(3, min(hook_s, 90))
             source_path = download_storage_file(client, str(source_storage))
             if source_path.suffix.lower() in ("", ".bin"):
                 renamed = source_path.with_suffix(".mp4")
@@ -527,7 +528,8 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 "layer": 4,
                 "proposals": proposals,
                 "suggestions": suggestions,
-                "engine": "silence+energy-heuristic",
+                "hookDurationS": hook_s,
+                "engine": "hooks-ffmpeg",
             }
         elif job_type == "clip_edit":
             source_storage = params.get("sourceStorageId")
