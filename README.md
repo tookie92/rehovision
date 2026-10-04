@@ -150,6 +150,20 @@ rehovision/
 
 ---
 
+## Déploiement après chaque modif
+
+```bash
+./deploy.sh                         # Convex + build web + restart systemd
+./deploy.sh "message de commit"     # + git commit/push avant deploy
+./deploy.sh --units                 # première fois : installe les .service
+```
+
+Services : `rehovision-web` (Next :3000), `rehovision-worker` (GPU).
+
+Suivi ACE-Step : `tail -f worker/logs/acestep-download.log` (marque `ALL DOWNLOADS DONE`).
+
+---
+
 ## Hors périmètre (volontaire)
 
-Auth, paiement, doublage, Whisper, OmniVoice, montage vidéo, déploiement public, multi-GPU.
+Auth, paiement, déploiement public large, multi-GPU, faceless/scheduling.

@@ -11,9 +11,10 @@ Inspired by ElevenLabs speech studio + ui-ux-pro-max (atelier clair).
 - Motion: 150–300ms, respect `prefers-reduced-motion`
 
 ## Patterns
-- Product tabs (Doublage / Clips / Musique / Bibliothèque)
+- ElevenLabs-like left sidebar (shadcn `SidebarProvider` / `Sidebar` / `SidebarInset`) — brand + groupe Création + footer warn
+- Product nav: Doublage / Clips / Musique / Bibliothèque
 - Large script textarea
 - Explicit voice-consent checkbox before dub submit
 - Job history with status chips + progress
 - Clips: carte Projet (source + versions enfants), pas liste plate (voir pages/clips.md)
-- shadcn-lite: `components/ui/{button,label,badge,progress,skeleton,toast}`
+- shadcn-lite: `components/ui/{button,label,badge,progress,skeleton,toast,sidebar}`

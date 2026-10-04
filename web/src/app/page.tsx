@@ -2,23 +2,22 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { FormEvent, useEffect, useState } from "react";
-import { AudioLines, Clapperboard, Languages, Library, Mic2 } from "lucide-react";
+import { AudioLines, Mic2 } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { getSessionId } from "../lib/session";
 import { LANGUAGES } from "../lib/languages";
+import { AppSidebar, type AppTab } from "../components/AppSidebar";
 import { JobList } from "../components/JobList";
 import { ClipsPanel } from "../components/ClipsPanel";
 import { MediaByStorage } from "../components/MediaByStorage";
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from "../components/ui/sidebar";
 
-type Tab = "dub" | "clips" | "music" | "library";
+type Tab = AppTab;
 type DubMode = "narration" | "doublage";
-
-const TABS: { id: Tab; label: string; icon: typeof Mic2 }[] = [
-  { id: "dub", label: "Doublage", icon: Languages },
-  { id: "clips", label: "Clips", icon: Clapperboard },
-  { id: "music", label: "Musique", icon: AudioLines },
-  { id: "library", label: "Bibliothèque", icon: Library },
-];
 
 export default function HomePage() {
   const [tab, setTab] = useState<Tab>("dub");
@@ -134,54 +133,28 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-dvh">
-      <header className="border-b border-[var(--line)] bg-[var(--bg-elevated)]">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <div>
-            <p className="font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight">
+    <SidebarProvider>
+      <a
+        href="#studio-main"
+        className="absolute left-4 top-4 z-[60] -translate-y-16 rounded-xl bg-[var(--ink)] px-4 py-2 text-sm text-white opacity-0 transition-[transform,opacity] duration-200 focus:translate-y-0 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--signal)]"
+      >
+        Aller au contenu
+      </a>
+      <AppSidebar tab={tab} onTabChange={setTab} />
+      <SidebarInset id="studio-main">
+        <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--line)] bg-[var(--bg-elevated)]/90 px-4 py-3 backdrop-blur-sm sm:px-6">
+          <SidebarTrigger />
+          <div className="min-w-0 lg:hidden">
+            <p className="font-[family-name:var(--font-display)] text-base font-semibold tracking-tight">
               Rehovision
             </p>
-            <p className="text-xs text-[var(--muted)]">Studio voix & musique</p>
           </div>
-          <p className="hidden text-xs text-[var(--muted)] sm:block">
+          <p className="ml-auto hidden text-xs text-[var(--muted)] sm:block">
             GPU local · 1 job à la fois
           </p>
-        </div>
-      </header>
+        </header>
 
-      <main className="mx-auto grid max-w-5xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[220px_1fr] lg:py-10">
-        <aside className="lg:sticky lg:top-6 lg:self-start">
-          <nav className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible" aria-label="Outils">
-            {TABS.map(({ id, label, icon: Icon }) => {
-              const active = tab === id;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setTab(id)}
-                  className={
-                    active
-                      ? "flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-[var(--ink)] px-3.5 py-2.5 text-sm font-semibold text-white transition-colors duration-200"
-                      : "flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-medium text-[var(--muted)] transition-colors duration-200 hover:bg-[var(--bg-subtle)] hover:text-[var(--ink)]"
-                  }
-                >
-                  <Icon className="size-4 shrink-0" aria-hidden />
-                  {label}
-                </button>
-              );
-            })}
-          </nav>
-          <p className="mt-4 hidden rounded-xl border border-[var(--warn-line)] bg-[var(--warn-bg)] px-3 py-2 text-xs leading-relaxed text-[var(--warn-ink)] lg:block">
-            Aucune authentification. Ne pas exposer publiquement avant Convex Auth
-            ou équivalent.
-          </p>
-        </aside>
-
-        <div className="min-w-0 space-y-8">
-          <p className="rounded-xl border border-[var(--warn-line)] bg-[var(--warn-bg)] px-3 py-2 text-xs text-[var(--warn-ink)] lg:hidden">
-            Aucune authentification. Ne pas exposer publiquement.
-          </p>
-
+        <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-6 sm:px-6 lg:py-10">
           {tab === "clips" && (
             <ClipsPanel
               sessionId={sessionId}
@@ -455,7 +428,7 @@ export default function HomePage() {
             </section>
           )}
         </div>
-      </main>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
