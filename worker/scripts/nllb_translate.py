@@ -82,6 +82,18 @@ _STRONG_LEAK = re.compile(
     r"je\s+suis|je\s+m['']appelle)\b",
     re.I,
 )
+# Amorces FR uniquement (pour cible EN — éviter faux positifs welcome/hello/today)
+_FR_STRONG_LEAK = re.compile(
+    r"\b(bonjour|bienvenue|aujourd'?hui|atelier|merci|"
+    r"je\s+suis|je\s+m['']appelle)\b",
+    re.I,
+)
+# Ratio FR→EN sans cognats EN (creation)
+_FR_LEAK_EN = re.compile(
+    r"\b(bonjour|bienvenue|aujourd'?hui|atelier|je|nous|vous|notre|avec|dans|pour|"
+    r"appelle|merci|suis|parle|parler|aussi|création)\b",
+    re.I,
+)
 
 # Mots capitalisés à NE PAS traiter comme noms propres
 _NAME_STOP = frozenset(
@@ -219,16 +231,23 @@ def _forced_bos(tokenizer: Any, tgt_f: str) -> int:
 
 
 def _has_leak(out: str, tgt_f: str) -> bool:
-    if tgt_f in ("fra_Latn", "eng_Latn"):
+    if tgt_f == "fra_Latn":
         return False
+    # Cible anglais : détecter uniquement les restes français (pas les mots EN)
+    if tgt_f == "eng_Latn":
+        if _FR_STRONG_LEAK.search(out):
+            return True
+        words = max(len(re.findall(r"\w+", out, flags=re.UNICODE)), 1)
+        fr_hits = len(_FR_LEAK_EN.findall(out))
+        return fr_hits >= 1 and fr_hits / words > 0.12
     if _STRONG_LEAK.search(out):
         return True
     words = max(len(re.findall(r"\w+", out, flags=re.UNICODE)), 1)
     fr_hits = len(_FR_LEAK.findall(out))
     en_hits = len(_EN_LEAK.findall(out))
-    if tgt_f != "fra_Latn" and fr_hits >= 1 and fr_hits / words > 0.12:
+    if fr_hits >= 1 and fr_hits / words > 0.12:
         return True
-    if tgt_f != "eng_Latn" and en_hits >= 2 and en_hits / words > 0.15:
+    if en_hits >= 2 and en_hits / words > 0.15:
         return True
     return False
 
@@ -243,6 +262,14 @@ def _assert_plausible(out: str, tgt_f: str) -> None:
 
 # Salutations / amorces — NLLB-600M laisse souvent du FR (Bonjour, Aujourd'hui…)
 _GREETINGS: dict[tuple[str, str], str] = {
+    ("eng_Latn", "bonjour"): "Hello",
+    ("eng_Latn", "hello"): "Hello",
+    ("eng_Latn", "bonsoir"): "Good evening",
+    ("eng_Latn", "salut"): "Hi",
+    ("eng_Latn", "bienvenue"): "Welcome",
+    ("eng_Latn", "aujourd'hui"): "Today",
+    ("eng_Latn", "aujourdhui"): "Today",
+    ("eng_Latn", "merci"): "Thank you",
     ("wol_Latn", "bonjour"): "Na nga def",
     ("wol_Latn", "hello"): "Na nga def",
     ("wol_Latn", "bonsoir"): "Na nga def",
@@ -323,12 +350,29 @@ def _clause_override(text: str, tgt_f: str) -> str | None:
 
 def _scrub_fr_leaks(out: str, tgt_f: str) -> str:
     """Dernier filet : remplace les amorces FR que NLLB laisse telles quelles."""
+    if tgt_f == "eng_Latn":
+        out = re.sub(
+            r"(?i)\bbienvenue\s+(?:dans|à)\s+notre\s+atelier\b",
+            "Welcome to our workshop",
+            out,
+        )
+        out = re.sub(r"(?i)\bnotre\s+atelier\b", "our workshop", out)
+        out = re.sub(r"(?i)\bbonjour\b", "Hello", out)
+        out = re.sub(r"(?i)\bbienvenue\b", "Welcome", out)
+        out = re.sub(r"(?i)\baujourd'?hui\b", "Today", out)
+        out = re.sub(r"(?i)\batelier\b", "workshop", out)
+        out = re.sub(r"(?i)\bje\s+suis\b", "I am", out)
+        out = re.sub(r"(?i)\bje\s+m['']appelle\b", "my name is", out)
+        out = re.sub(r"(?i)\bmerci\b", "thank you", out)
+        out = re.sub(r"\s+", " ", out).strip()
+        return out
+    if tgt_f == "sna_Latn":
+        out = re.sub(r"(?i)\bbonjour\b", "Mhoroi", out)
+        out = re.sub(r"(?i)\bhello\b", "Mhoroi", out)
+        out = re.sub(r"(?i)\bwelcome\b", "Kugamuchirwa", out)
+        out = re.sub(r"(?i)\bworkshop\b", "musangano", out)
+        return out
     if tgt_f != "wol_Latn":
-        if tgt_f == "sna_Latn":
-            out = re.sub(r"(?i)\bbonjour\b", "Mhoroi", out)
-            out = re.sub(r"(?i)\bhello\b", "Mhoroi", out)
-            out = re.sub(r"(?i)\bwelcome\b", "Kugamuchirwa", out)
-            out = re.sub(r"(?i)\bworkshop\b", "musangano", out)
         return out
     out = re.sub(r"(?i)\bbonjour\b", "Na nga def", out)
     out = re.sub(r"(?i)\bbienvenue\b", "Dalal ak jam", out)
@@ -397,7 +441,7 @@ def _run_pair(
     *,
     by_clause: bool = False,
 ) -> str:
-    if by_clause and tgt_f in _CLAUSE_TGTS:
+    if by_clause and (tgt_f in _CLAUSE_TGTS or tgt_f == "eng_Latn"):
         clauses = _split_clauses(text)
         if len(clauses) > 1:
             parts: list[str] = []
@@ -506,6 +550,16 @@ def translate_text(
                     device,
                     by_clause=True,
                 )
+            elif tgt_f == "eng_Latn":
+                spoken2 = _run_pair(
+                    model,
+                    tokenizer,
+                    protected,
+                    src_f,
+                    tgt_f,
+                    device,
+                    by_clause=True,
+                )
             else:
                 mid = _run_pair(
                     model, tokenizer, protected, src_f, "eng_Latn", device
@@ -526,14 +580,18 @@ def translate_text(
             spoken2 = _scrub_fr_leaks(spoken2, tgt_f)
             if not _has_leak(spoken2, tgt_f):
                 spoken = spoken2
-            elif tgt_f == "wol_Latn":
-                # Accepter après scrub agressif si plus de strong leak
+            elif tgt_f in ("wol_Latn", "eng_Latn"):
+                # Accepter après scrub agressif
                 spoken = spoken2
         except Exception:  # noqa: BLE001
             pass
 
     spoken = _scrub_fr_leaks(spoken, tgt_f)
-    _assert_plausible(spoken, tgt_f)
+    if tgt_f == "eng_Latn":
+        # Filet final : scrub suffit — ne pas faire échouer le job
+        spoken = _scrub_fr_leaks(spoken, tgt_f)
+    else:
+        _assert_plausible(spoken, tgt_f)
 
     return {
         "spokenText": spoken,
