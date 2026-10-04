@@ -3,6 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import {
   FormEvent,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -16,6 +17,7 @@ import {
   BookmarkPlus,
   Gauge,
   Mic2,
+  Play,
   Sparkles,
   Trash2,
   UserRound,
@@ -167,6 +169,17 @@ function parseInstructChips(instruct: string): {
   return { gender, age, pitch, accent, whisper };
 }
 
+async function fileToBase64(file: Blob): Promise<string> {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
 function SaveVoiceBar({
   showForm,
   saveName,
@@ -175,6 +188,7 @@ function SaveVoiceBar({
   onName,
   onSave,
   hint,
+  previewSlot,
 }: {
   showForm: boolean;
   saveName: string;
@@ -183,43 +197,50 @@ function SaveVoiceBar({
   onName: (v: string) => void;
   onSave: () => void;
   hint: string;
+  previewSlot?: ReactNode;
 }) {
   if (!showForm) {
     return (
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex min-h-11 items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-4 text-sm font-medium transition-colors hover:bg-[var(--bg-subtle)]"
-      >
-        <BookmarkPlus className="size-4 text-[var(--signal)]" aria-hidden />
-        {hint}
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        {previewSlot}
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex min-h-11 items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-4 text-sm font-medium transition-colors hover:bg-[var(--bg-subtle)]"
+        >
+          <BookmarkPlus className="size-4 text-[var(--signal)]" aria-hidden />
+          {hint}
+        </button>
+      </div>
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <input
-        value={saveName}
-        onChange={(e) => onName(e.target.value)}
-        placeholder="Nom de la voix…"
-        maxLength={64}
-        className="min-h-11 min-w-[12rem] flex-1 rounded-xl border border-[var(--line)] bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--signal)]/30"
-      />
-      <button
-        type="button"
-        disabled={saving || !saveName.trim()}
-        onClick={onSave}
-        className="min-h-11 rounded-xl bg-[var(--ink)] px-4 text-sm font-semibold text-white disabled:opacity-40"
-      >
-        {saving ? "…" : "Sauver"}
-      </button>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="min-h-11 rounded-xl border border-[var(--line)] bg-white px-3 text-sm"
-      >
-        Annuler
-      </button>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={saveName}
+          onChange={(e) => onName(e.target.value)}
+          placeholder="Nom de la voix…"
+          maxLength={64}
+          className="min-h-11 min-w-[12rem] flex-1 rounded-xl border border-[var(--line)] bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--signal)]/30"
+        />
+        <button
+          type="button"
+          disabled={saving || !saveName.trim()}
+          onClick={onSave}
+          className="min-h-11 rounded-xl bg-[var(--ink)] px-4 text-sm font-semibold text-white disabled:opacity-40"
+        >
+          {saving ? "…" : "Sauver"}
+        </button>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="min-h-11 rounded-xl border border-[var(--line)] bg-white px-3 text-sm"
+        >
+          Annuler
+        </button>
+      </div>
+      {previewSlot}
     </div>
   );
 }
@@ -258,8 +279,14 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
   const [saveName, setSaveName] = useState("");
   const [showSaveForm, setShowSaveForm] = useState(false);
   const [savingVoice, setSavingVoice] = useState(false);
+  const [voicePreviewing, setVoicePreviewing] = useState(false);
+  const [voicePreviewUrl, setVoicePreviewUrl] = useState<string | null>(null);
+  const [voicePreviewError, setVoicePreviewError] = useState<string | null>(
+    null,
+  );
 
   const spokenRef = useRef<HTMLTextAreaElement>(null);
+  const previewAudioRef = useRef<HTMLAudioElement>(null);
 
   const createJob = useMutation(api.jobs.create);
   const generateUploadUrl = useMutation(api.jobs.generateUploadUrl);
@@ -269,8 +296,26 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     api.voices.listBySession,
     sessionId ? { sessionId } : "skip",
   );
+  const presetRefUrl = useQuery(
+    api.jobs.getFileUrl,
+    presetRefStorageId ? { storageId: presetRefStorageId } : "skip",
+  );
   const cloneVoice = voiceMode === "keep";
   const showAccents = targetLang === "en" || targetLang.startsWith("en");
+
+  useEffect(() => {
+    return () => {
+      if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
+    };
+  }, [voicePreviewUrl]);
+
+  function clearVoicePreview() {
+    setVoicePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setVoicePreviewError(null);
+  }
 
   const instruct = useMemo(() => {
     if (voiceMode !== "create") return "";
@@ -282,6 +327,11 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     if (showAccents && accent) parts.push(accent);
     return parts.join(", ");
   }, [voiceMode, gender, age, pitch, whisper, accent, showAccents]);
+
+  // Invalide l’aperçu si la recette / le rythme / la ref change
+  useEffect(() => {
+    clearVoicePreview();
+  }, [instruct, speed, voiceMode, voiceRefFile, presetRefStorageId, targetLang]);
 
   const step1Ok =
     !!sessionId &&
@@ -420,6 +470,102 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
       alert(err instanceof Error ? err.message : "Échec suppression");
     }
   }
+
+  async function onPreviewVoice() {
+    if (voiceMode === "create" && !instruct) return;
+    if (
+      voiceMode === "keep" &&
+      !voiceRefFile &&
+      !presetRefStorageId
+    ) {
+      return;
+    }
+    setVoicePreviewing(true);
+    setVoicePreviewError(null);
+    try {
+      let refAudioBase64: string | undefined;
+      let refMime: string | undefined;
+      if (voiceMode === "keep") {
+        if (voiceRefFile) {
+          if (voiceRefFile.size > 8_000_000) {
+            throw new Error("Échantillon trop lourd pour l’aperçu (max 8 Mo)");
+          }
+          refAudioBase64 = await fileToBase64(voiceRefFile);
+          refMime = voiceRefFile.type || "audio/wav";
+        } else if (presetRefUrl) {
+          const res = await fetch(presetRefUrl);
+          if (!res.ok) throw new Error("Impossible de charger l’échantillon");
+          const blob = await res.blob();
+          if (blob.size > 8_000_000) {
+            throw new Error("Échantillon trop lourd pour l’aperçu (max 8 Mo)");
+          }
+          refAudioBase64 = await fileToBase64(blob);
+          refMime = blob.type || "audio/wav";
+        } else {
+          throw new Error("Échantillon encore en chargement — réessaie");
+        }
+      }
+
+      const res = await fetch("/api/preview-voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetLang,
+          sourceLang,
+          speed,
+          ...(voiceMode === "create" ? { instruct } : {}),
+          ...(refAudioBase64 ? { refAudioBase64, refMime } : {}),
+        }),
+      });
+      const body = (await res.json()) as {
+        audioBase64?: string;
+        mimeType?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(body.error || `Aperçu échoué (${res.status})`);
+      }
+      if (!body.audioBase64) {
+        throw new Error("Aperçu vide");
+      }
+      const bin = atob(body.audioBase64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const blob = new Blob([bytes], {
+        type: body.mimeType || "audio/wav",
+      });
+      const url = URL.createObjectURL(blob);
+      setVoicePreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return url;
+      });
+      requestAnimationFrame(() => {
+        void previewAudioRef.current?.play().catch(() => undefined);
+      });
+    } catch (err) {
+      setVoicePreviewError(
+        err instanceof Error ? err.message : "Échec aperçu voix",
+      );
+    } finally {
+      setVoicePreviewing(false);
+    }
+  }
+
+  const previewButton = (
+    <button
+      type="button"
+      disabled={
+        voicePreviewing ||
+        (voiceMode === "create" && !instruct) ||
+        (voiceMode === "keep" && !voiceRefFile && !presetRefStorageId)
+      }
+      onClick={() => void onPreviewVoice()}
+      className="flex min-h-11 items-center gap-2 rounded-xl bg-[var(--signal)] px-4 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+    >
+      <Play className="size-4" aria-hidden />
+      {voicePreviewing ? "Génération…" : "Écouter"}
+    </button>
+  );
 
   async function onPrepare() {
     if (!canPrepare) return;
@@ -817,15 +963,31 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                   )}
                 </label>
                 {(voiceRefFile || presetRefStorageId) && (
-                  <SaveVoiceBar
-                    showForm={showSaveForm}
-                    saveName={saveName}
-                    saving={savingVoice}
-                    onToggle={() => setShowSaveForm((v) => !v)}
-                    onName={setSaveName}
-                    onSave={() => void onSaveVoice()}
-                    hint="Enregistrer ce clone"
-                  />
+                  <>
+                    <SaveVoiceBar
+                      showForm={showSaveForm}
+                      saveName={saveName}
+                      saving={savingVoice}
+                      onToggle={() => setShowSaveForm((v) => !v)}
+                      onName={setSaveName}
+                      onSave={() => void onSaveVoice()}
+                      hint="Enregistrer ce clone"
+                      previewSlot={previewButton}
+                    />
+                    {voicePreviewError && (
+                      <p className="text-xs text-[var(--danger)]">
+                        {voicePreviewError}
+                      </p>
+                    )}
+                    {voicePreviewUrl && (
+                      <audio
+                        ref={previewAudioRef}
+                        controls
+                        src={voicePreviewUrl}
+                        className="w-full max-w-md"
+                      />
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -958,15 +1120,31 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                 </div>
 
                 {!!instruct && (
-                  <SaveVoiceBar
-                    showForm={showSaveForm}
-                    saveName={saveName}
-                    saving={savingVoice}
-                    onToggle={() => setShowSaveForm((v) => !v)}
-                    onName={setSaveName}
-                    onSave={() => void onSaveVoice()}
-                    hint="Enregistrer cette voix"
-                  />
+                  <>
+                    <SaveVoiceBar
+                      showForm={showSaveForm}
+                      saveName={saveName}
+                      saving={savingVoice}
+                      onToggle={() => setShowSaveForm((v) => !v)}
+                      onName={setSaveName}
+                      onSave={() => void onSaveVoice()}
+                      hint="Enregistrer cette voix"
+                      previewSlot={previewButton}
+                    />
+                    {voicePreviewError && (
+                      <p className="text-xs text-[var(--danger)]">
+                        {voicePreviewError}
+                      </p>
+                    )}
+                    {voicePreviewUrl && (
+                      <audio
+                        ref={previewAudioRef}
+                        controls
+                        src={voicePreviewUrl}
+                        className="w-full max-w-md"
+                      />
+                    )}
+                  </>
                 )}
               </div>
             )}

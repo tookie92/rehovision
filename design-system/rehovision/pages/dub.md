@@ -25,6 +25,7 @@ Trois cartes égales — une question claire : *Comment obtenir la voix ?*
 - Cartes type ElevenLabs : nom + kind (`design` | `clone`) + speed.
 - Sauver depuis Voice Lab (instruct) ou depuis clone (refStorageId).
 - Clic charge le preset ; supprimer possible.
+- **Écouter** avant sauver : `POST /api/preview-voice` → worker `:8788/preview-voice` (phrase courte + instruct/speed ou clone).
 
 ### Rythme
 - Presets Lente 0.8× / Naturelle 1.0× / Vive 1.2× + slider 0.7–1.3.
