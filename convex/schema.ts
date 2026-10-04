@@ -52,4 +52,22 @@ export default defineSchema({
     createdAt: v.number(),
     prompt: v.string(),
   }),
+
+  /** Presets voix (style ElevenLabs My Voices) — filtrés par sessionId. */
+  voices: defineTable({
+    sessionId: v.string(),
+    name: v.string(),
+    kind: v.union(v.literal("design"), v.literal("clone")),
+    /** Recette OmniVoice, ex. "female, young adult, moderate pitch" */
+    instruct: v.optional(v.string()),
+    gender: v.optional(v.string()),
+    age: v.optional(v.string()),
+    pitch: v.optional(v.string()),
+    accent: v.optional(v.string()),
+    whisper: v.optional(v.boolean()),
+    speed: v.optional(v.number()),
+    /** Échantillon pour clone */
+    refStorageId: v.optional(v.id("_storage")),
+    createdAt: v.number(),
+  }).index("by_sessionId", ["sessionId"]),
 });

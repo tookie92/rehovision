@@ -11,6 +11,7 @@
 import type * as jobs from "../jobs.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as library from "../library.js";
+import type * as voices from "../voices.js";
 import type * as worker from "../worker.js";
 
 import type {
@@ -23,6 +24,7 @@ declare const fullApi: ApiFromModules<{
   jobs: typeof jobs;
   "lib/auth": typeof lib_auth;
   library: typeof library;
+  voices: typeof voices;
   worker: typeof worker;
 }>;
 

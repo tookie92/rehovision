@@ -20,6 +20,12 @@ Trois cartes égales — une question claire : *Comment obtenir la voix ?*
 - Voice Lab + tags disponibles pour toutes les langues cibles (dont Wolof).
 - Fond gradient atelier clair + signal soft — pas de purple.
 
+### Mes voix (presets)
+- Table Convex `voices` filtrée par `sessionId`.
+- Cartes type ElevenLabs : nom + kind (`design` | `clone`) + speed.
+- Sauver depuis Voice Lab (instruct) ou depuis clone (refStorageId).
+- Clic charge le preset ; supprimer possible.
+
 ### Rythme
 - Presets Lente 0.8× / Naturelle 1.0× / Vive 1.2× + slider 0.7–1.3.
 - Job param `speed` → OmniVoice `generate(speed=…)`.
