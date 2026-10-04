@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation } from "convex/react";
-import { Sparkles, Smartphone } from "lucide-react";
+import { Mic2, Smartphone, Sparkles } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { Button } from "./ui/button";
@@ -21,13 +21,17 @@ export function ClipExportButton({
   onCreated?: (message: string) => void;
 }) {
   const createJob = useMutation(api.jobs.create);
-  const [busy, setBusy] = useState<"fast" | "hf" | null>(null);
+  const [busy, setBusy] = useState<"fast" | "hf" | "karaoke" | null>(null);
 
-  async function onExport(engine: "export-916" | "hyperframes") {
+  async function onExport(
+    engine: "export-916" | "hyperframes",
+    captionStyle?: "static" | "karaoke",
+  ) {
     if (!sessionId || busy) return;
-    setBusy(engine === "hyperframes" ? "hf" : "fast");
+    const isKaraoke = captionStyle === "karaoke";
+    const isHf = engine === "hyperframes";
+    setBusy(isKaraoke ? "karaoke" : isHf ? "hf" : "fast");
     try {
-      const isHf = engine === "hyperframes";
       await createJob({
         type: "clip_export",
         sessionId,
@@ -36,20 +40,27 @@ export function ClipExportButton({
           sourceStorageId,
           captions: true,
           aspect: "9:16",
+          captionStyle: isHf ? captionStyle || "karaoke" : undefined,
           title: title
-            ? isHf
-              ? `${title} · HyperFrames`
-              : `${title} · Reel 9:16`
-            : isHf
-              ? "Polish HyperFrames"
-              : "Export Reel 9:16",
-          engine,
+            ? isKaraoke
+              ? `${title} · Karaoke`
+              : isHf
+                ? `${title} · HyperFrames`
+                : `${title} · Reel 9:16`
+            : isKaraoke
+              ? "Captions karaoke"
+              : isHf
+                ? "Polish HyperFrames"
+                : "Export Reel 9:16",
+          engine: isKaraoke ? "karaoke" : engine,
         },
       });
       onCreated?.(
-        isHf
-          ? "Polish HyperFrames lancé"
-          : "Export Reel 9:16 + captions lancé",
+        isKaraoke
+          ? "Captions karaoke lancées"
+          : isHf
+            ? "Polish HyperFrames lancé"
+            : "Export Reel 9:16 + captions lancé",
       );
     } catch (err) {
       console.error(err);
@@ -69,17 +80,27 @@ export function ClipExportButton({
         onClick={() => void onExport("export-916")}
       >
         <Smartphone className="size-3.5" aria-hidden />
-        {busy === "fast" ? "Lancement…" : "Exporter 9:16 + captions"}
+        {busy === "fast" ? "Lancement…" : "Exporter 9:16"}
       </Button>
       <Button
         type="button"
         variant="outline"
         size="sm"
         disabled={busy !== null}
-        onClick={() => void onExport("hyperframes")}
+        onClick={() => void onExport("hyperframes", "karaoke")}
+      >
+        <Mic2 className="size-3.5" aria-hidden />
+        {busy === "karaoke" ? "Lancement…" : "Captions karaoke"}
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={busy !== null}
+        onClick={() => void onExport("hyperframes", "static")}
       >
         <Sparkles className="size-3.5" aria-hidden />
-        {busy === "hf" ? "Lancement…" : "Polish HyperFrames"}
+        {busy === "hf" ? "Lancement…" : "Polish simple"}
       </Button>
     </div>
   );

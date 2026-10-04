@@ -60,6 +60,7 @@ C’est un **coupeur** : source longue → extrait de tête + versions (inclure/
 - [x] Durées 60 s / 90 s (UI + worker, max 90)
 - [x] Captions / export 9:16 (`clip_export` : Whisper → SRT brûlé + crop 1080×1920)
 - [x] Option **HyperFrames** en polish (titres + captions HTML → MP4) — **en plus** de ffmpeg ; captions ffmpeg compactes en export rapide
+- [x] Captions **karaoke / kinetic** (Whisper word timestamps + pill highlight HyperFrames)
 
 ### Ensuite
 - [ ] Musique : presets / variantes / lien biblio plus fort

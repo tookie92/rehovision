@@ -608,11 +608,16 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 captions,
                 source_path.name,
             )
-            if engine in ("hyperframes", "hf", "polish-hf"):
+            if engine in ("hyperframes", "hf", "polish-hf", "karaoke"):
+                caption_style = str(
+                    params.get("captionStyle")
+                    or ("karaoke" if engine in ("karaoke", "hyperframes", "hf") else "static")
+                ).strip()
                 audio_path, export_meta = render_hyperframes_polish(
                     source_path=source_path,
                     title=title_s,
                     captions=captions,
+                    caption_style=caption_style,
                     language=lang_s,
                     on_progress=set_progress,
                 )

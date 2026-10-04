@@ -8,8 +8,9 @@ Override de `MASTER.md` pour l’onglet Clips.
 3. Preview = premier hook ; suggestions pour créer d’autres versions.
 4. Enfant `clip_suggest` / `clip_edit` utilise `params.sourceStorageId` **original**.
 5. Export :
-   - **Exporter 9:16 + captions** → `clip_export` / `export-916` (ffmpeg crop + captions compactes)
-   - **Polish HyperFrames** → `clip_export` / `hyperframes` (crop ffmpeg puis HTML captions/titre → MP4)
+   - **Exporter 9:16** → `export-916` (ffmpeg crop + captions compactes)
+   - **Captions karaoke** → `hyperframes` + `captionStyle=karaoke` (mots Whisper + highlight GSAP)
+   - **Polish simple** → `hyperframes` + `captionStyle=static`
 
 ## UX projet
 - **1 carte = 1 projet** : preview hook en haut, versions enfants en dessous

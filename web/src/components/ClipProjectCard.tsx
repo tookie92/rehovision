@@ -33,8 +33,11 @@ function versionTitle(job: Doc<"jobs">): string {
 
 function versionKind(job: Doc<"jobs">): string {
   if (job.type === "clip_export") {
-    const eng = (job.params as { engine?: string }).engine;
-    if (eng === "hyperframes" || eng === "hf") return "HyperFrames";
+    const p = job.params as { engine?: string; captionStyle?: string };
+    if (p.engine === "karaoke" || p.captionStyle === "karaoke") {
+      return "Karaoke";
+    }
+    if (p.engine === "hyperframes" || p.engine === "hf") return "HyperFrames";
     return "Reel 9:16";
   }
   if (job.type === "clip_edit") return "Découpe manuelle";
