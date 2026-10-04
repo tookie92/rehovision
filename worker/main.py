@@ -28,6 +28,7 @@ from engines.edit import render_edit  # noqa: E402
 from engines.gpu_util import free_vram  # noqa: E402
 from engines.music import generate_music, release_gpu  # noqa: E402
 from engines.export_reel import render_reel_916  # noqa: E402
+from engines.hyperframes_polish import render_hyperframes_polish  # noqa: E402
 from engines.suggest import apply_suggestion  # noqa: E402
 from engines.translate_server import start_translate_server  # noqa: E402
 
@@ -592,27 +593,42 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 captions = bool(captions)
             lang = params.get("language")
             lang_s = str(lang).strip() if lang else None
+            engine = str(params.get("engine") or "export-916").strip().lower()
+            title = params.get("title")
+            title_s = str(title).strip() if title else None
             source_path = download_storage_file(client, str(source_storage))
             if source_path.suffix.lower() in ("", ".bin"):
                 renamed = source_path.with_suffix(".mp4")
                 source_path.rename(renamed)
                 source_path = renamed
             log.info(
-                "Job %s clip_export — captions=%s source=%s",
+                "Job %s clip_export — engine=%s captions=%s source=%s",
                 job_id,
+                engine,
                 captions,
                 source_path.name,
             )
-            audio_path, export_meta = render_reel_916(
-                source_path=source_path,
-                captions=captions,
-                language=lang_s,
-                on_progress=set_progress,
-            )
+            if engine in ("hyperframes", "hf", "polish-hf"):
+                audio_path, export_meta = render_hyperframes_polish(
+                    source_path=source_path,
+                    title=title_s,
+                    captions=captions,
+                    language=lang_s,
+                    on_progress=set_progress,
+                )
+                engine_label = "hyperframes"
+            else:
+                audio_path, export_meta = render_reel_916(
+                    source_path=source_path,
+                    captions=captions,
+                    language=lang_s,
+                    on_progress=set_progress,
+                )
+                engine_label = "export-916"
             result_meta = {
                 "layer": 5,
                 "parentJobId": params.get("parentJobId"),
-                "engine": "export-916",
+                "engine": engine_label,
                 **export_meta,
             }
         else:

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation } from "convex/react";
-import { Smartphone } from "lucide-react";
+import { Sparkles, Smartphone } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { Button } from "./ui/button";
@@ -21,12 +21,13 @@ export function ClipExportButton({
   onCreated?: (message: string) => void;
 }) {
   const createJob = useMutation(api.jobs.create);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"fast" | "hf" | null>(null);
 
-  async function onExport() {
+  async function onExport(engine: "export-916" | "hyperframes") {
     if (!sessionId || busy) return;
-    setBusy(true);
+    setBusy(engine === "hyperframes" ? "hf" : "fast");
     try {
+      const isHf = engine === "hyperframes";
       await createJob({
         type: "clip_export",
         sessionId,
@@ -35,30 +36,51 @@ export function ClipExportButton({
           sourceStorageId,
           captions: true,
           aspect: "9:16",
-          title: title ? `${title} · Reel 9:16` : "Export Reel 9:16",
-          engine: "export-916",
+          title: title
+            ? isHf
+              ? `${title} · HyperFrames`
+              : `${title} · Reel 9:16`
+            : isHf
+              ? "Polish HyperFrames"
+              : "Export Reel 9:16",
+          engine,
         },
       });
-      onCreated?.("Export Reel 9:16 + captions lancé");
+      onCreated?.(
+        isHf
+          ? "Polish HyperFrames lancé"
+          : "Export Reel 9:16 + captions lancé",
+      );
     } catch (err) {
       console.error(err);
       alert(err instanceof Error ? err.message : "Échec export");
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      disabled={busy}
-      onClick={() => void onExport()}
-      className="mt-2"
-    >
-      <Smartphone className="size-3.5" aria-hidden />
-      {busy ? "Lancement…" : "Exporter Reel 9:16 + captions"}
-    </Button>
+    <div className="mt-2 flex flex-wrap gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={busy !== null}
+        onClick={() => void onExport("export-916")}
+      >
+        <Smartphone className="size-3.5" aria-hidden />
+        {busy === "fast" ? "Lancement…" : "Exporter 9:16 + captions"}
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={busy !== null}
+        onClick={() => void onExport("hyperframes")}
+      >
+        <Sparkles className="size-3.5" aria-hidden />
+        {busy === "hf" ? "Lancement…" : "Polish HyperFrames"}
+      </Button>
+    </div>
   );
 }

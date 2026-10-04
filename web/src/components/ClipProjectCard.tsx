@@ -32,7 +32,11 @@ function versionTitle(job: Doc<"jobs">): string {
 }
 
 function versionKind(job: Doc<"jobs">): string {
-  if (job.type === "clip_export") return "Reel 9:16";
+  if (job.type === "clip_export") {
+    const eng = (job.params as { engine?: string }).engine;
+    if (eng === "hyperframes" || eng === "hf") return "HyperFrames";
+    return "Reel 9:16";
+  }
   if (job.type === "clip_edit") return "Découpe manuelle";
   const sug = (job.params as { suggestion?: { kind?: string } }).suggestion;
   const map: Record<string, string> = {

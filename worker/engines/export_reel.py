@@ -1,10 +1,14 @@
 """
 Export Reel — crop/scale 9:16 + captions brûlées (Whisper → SRT → ffmpeg).
+
+Style v2 : phrases courtes (≤5 mots), police compacte, outline sans pavé opaque,
+safe-zone bas (Reels / Shorts).
 """
 from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -24,6 +28,12 @@ ProgressCb = Callable[[int, str], None]
 # TikTok / Reels / Shorts
 TARGET_W = 1080
 TARGET_H = 1920
+
+# Captions lite (lisibles sans manger l'image)
+MAX_WORDS_PER_CUE = 5
+MAX_CHARS_PER_CUE = 28
+MIN_CUE_S = 0.55
+MAX_CUE_S = 2.4
 
 
 def render_reel_916(
@@ -49,14 +59,14 @@ def render_reel_916(
     )
 
     cues: list[dict[str, Any]] = []
-    srt_path: Path | None = None
     tmp_dir: tempfile.TemporaryDirectory[str] | None = None
 
     try:
         if captions:
             prog(25, "Transcription Whisper…")
             try:
-                cues = transcribe_cues(source_path, language=language)
+                raw = transcribe_cues(source_path, language=language)
+                cues = _compact_cues(raw)
             except Exception as exc:  # noqa: BLE001
                 log.warning("Captions ignorées (Whisper): %s", exc)
                 cues = []
@@ -70,20 +80,19 @@ def render_reel_916(
             tmp_dir = tempfile.TemporaryDirectory(prefix="rehovision_srt_")
             srt_path = Path(tmp_dir.name) / "captions.srt"
             _write_srt(cues, srt_path)
-            # Escape for ffmpeg filter: \ : '
-            escaped = (
-                str(srt_path.resolve())
-                .replace("\\", "\\\\")
-                .replace(":", "\\:")
-                .replace("'", "\\'")
-            )
+            escaped = _ffmpeg_path(srt_path)
+            # BorderStyle=1 = outline only (pas de boîte opaque)
+            # FontSize ~42 playres 1080 → lisible sans envahir
+            # MarginV élevé = plus haut depuis le bas… non: MarginV = distance du bord
+            # Alignment=2 bottom-center ; MarginV=160 ≈ safe zone UI Reels
             style = (
-                "FontName=Arial,FontSize=22,PrimaryColour=&H00FFFFFF,"
-                "OutlineColour=&H00000000,BorderStyle=3,Outline=2,"
-                "Alignment=2,MarginV=120"
+                "FontName=Arial,FontSize=18,Bold=1,"
+                "PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,"
+                "BackColour=&H80000000,BorderStyle=1,Outline=2,Shadow=0,"
+                "Alignment=2,MarginL=80,MarginR=80,MarginV=220"
             )
             vf = f"{vf},subtitles={escaped}:force_style='{style}'"
-            prog(45, f"Burn-in {len(cues)} captions")
+            prog(45, f"Burn-in {len(cues)} captions compactes")
         else:
             prog(45, "Export 9:16 sans captions")
 
@@ -129,8 +138,72 @@ def render_reel_916(
         "height": TARGET_H,
         "captions": bool(cues),
         "cueCount": len(cues),
+        "captionStyle": "compact-v2",
     }
     return out, meta
+
+
+def _compact_cues(cues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Découpe les segments Whisper en courtes bulles type Shorts."""
+    out: list[dict[str, Any]] = []
+    for cue in cues:
+        text = re.sub(r"\s+", " ", str(cue.get("text") or "")).strip()
+        if not text:
+            continue
+        start = float(cue["start"])
+        end = float(cue["end"])
+        if end <= start:
+            end = start + MIN_CUE_S
+        words = text.split(" ")
+        chunks = _chunk_words(words)
+        if not chunks:
+            continue
+        total_w = sum(len(c) for c in chunks)
+        span = max(end - start, MIN_CUE_S * len(chunks))
+        t = start
+        for i, chunk in enumerate(chunks):
+            weight = len(chunk) / total_w
+            dur = min(MAX_CUE_S, max(MIN_CUE_S, span * weight))
+            # dernier chunk colle à end
+            if i == len(chunks) - 1:
+                chunk_end = max(t + MIN_CUE_S, end)
+            else:
+                chunk_end = t + dur
+            out.append(
+                {
+                    "start": round(t, 3),
+                    "end": round(chunk_end, 3),
+                    "text": " ".join(chunk),
+                }
+            )
+            t = chunk_end
+    return out
+
+
+def _chunk_words(words: list[str]) -> list[list[str]]:
+    chunks: list[list[str]] = []
+    cur: list[str] = []
+    for w in words:
+        tentative = (" ".join(cur + [w])).strip()
+        if cur and (
+            len(cur) >= MAX_WORDS_PER_CUE or len(tentative) > MAX_CHARS_PER_CUE
+        ):
+            chunks.append(cur)
+            cur = [w]
+        else:
+            cur.append(w)
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
+def _ffmpeg_path(path: Path) -> str:
+    return (
+        str(path.resolve())
+        .replace("\\", "\\\\")
+        .replace(":", "\\:")
+        .replace("'", "\\'")
+    )
 
 
 def _write_srt(cues: list[dict[str, Any]], path: Path) -> None:
