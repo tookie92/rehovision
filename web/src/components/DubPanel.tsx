@@ -547,8 +547,10 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          // Job target gardé pour logs ; l’aperçu parle toujours EN (timbre)
           targetLang,
           sourceLang,
+          previewLang: "en",
           speed,
           ...(voiceMode === "create" && instruct ? { instruct } : {}),
           ...(refAudioBase64 ? { refAudioBase64, refMime } : {}),
@@ -1197,8 +1199,8 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                 <div>
                   <p className="text-sm font-semibold">Aperçu de la voix</p>
                   <p className="text-xs text-[var(--muted)]">
-                    Phrase courte dans la langue cible · {targetLang} ·{" "}
-                    {speed.toFixed(2)}×
+                    Sample anglais court pour entendre le timbre · job cible{" "}
+                    {targetLang} · {speed.toFixed(2)}×
                   </p>
                 </div>
                 {previewButton}
@@ -1218,11 +1220,8 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                 />
               ) : (
                 <p className="text-xs text-[var(--muted)]">
-                  {voiceMode === "keep"
-                    ? "Choisis un échantillon puis Écouter."
-                    : voiceMode === "create"
-                      ? "Compose Voice Lab (ou une voix publique) puis Écouter."
-                      : "Voix modèle : Écouter pour un sample Auto OmniVoice."}
+                  « Hello, this is a short preview of my voice. » — pas la
+                  langue du doublage, juste le son de la voix.
                 </p>
               )}
             </div>

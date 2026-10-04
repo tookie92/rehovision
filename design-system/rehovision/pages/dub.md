@@ -33,8 +33,8 @@ Trois cartes égales — une question claire : *Comment obtenir la voix ?*
 
 ### Aperçu audio
 - Panneau dédié étape 2 : **Écouter l’aperçu** (auto / design / clone).
+- Toujours un sample **anglais** (`previewLang=en`) — but = entendre le timbre, pas la langue job (wo+instruct → vent).
 - `POST /api/preview-voice` → worker `:8788/preview-voice`.
-- Lecteur sticky (ne pas clear l’URL sur re-render des chips).
 
 ### Rythme
 - Presets Lente 0.8× / Naturelle 1.0× / Vive 1.2× + slider 0.7–1.3.

@@ -100,13 +100,22 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(422, {"error": str(exc)[:500]})
 
     def _handle_preview_voice(self, body: dict[str, Any]) -> None:
-        target_lang = str(
-            body.get("targetLang") or body.get("target_lang") or "fr"
+        # Aperçu = entendre le timbre, pas tester la langue cible.
+        # EN est le plus fiable pour Voice Lab / tags (wo+instruct → souvent vent).
+        job_target = str(
+            body.get("targetLang") or body.get("target_lang") or "en"
         ).split("-")[0].lower()
+        preview_lang = str(
+            body.get("previewLang") or body.get("preview_lang") or "en"
+        ).split("-")[0].lower()
+        if preview_lang not in ("en", "fr"):
+            preview_lang = "en"
+
         instruct = (body.get("instruct") or "").strip() or None
+        # Accents EN inutiles hors anglais — on preview en EN donc OK de les garder.
         text = (body.get("text") or "").strip()
         if not text:
-            text = _PREVIEW_TEXTS.get(target_lang) or _PREVIEW_TEXTS["fr"]
+            text = _PREVIEW_TEXTS.get(preview_lang) or _PREVIEW_TEXTS["en"]
 
         speed_raw = body.get("speed")
         speed: float | None = None
@@ -118,7 +127,6 @@ class _Handler(BaseHTTPRequestHandler):
                 return
 
         ref_b64 = (body.get("refAudioBase64") or "").strip()
-        # instruct / clone / auto (aucun des deux) tous autorisés
 
         # Évite deux OmniVoice en parallèle sur le même GPU
         if not _voice_lock.acquire(blocking=False):
@@ -160,17 +168,15 @@ class _Handler(BaseHTTPRequestHandler):
                     tmp,
                     source_lang=body.get("sourceLang")
                     or body.get("source_lang")
-                    or target_lang,
+                    or "en",
                 )
                 if ref_path:
                     tmp_paths.append(Path(ref_path))
 
             out = generate_voice(
                 text=text,
-                source_lang=str(
-                    body.get("sourceLang") or body.get("source_lang") or "fr"
-                ),
-                target_lang=target_lang,
+                source_lang="en",
+                target_lang=preview_lang,
                 instruct=None if ref_path else instruct,
                 ref_audio=ref_path,
                 ref_text=ref_text,
@@ -184,7 +190,8 @@ class _Handler(BaseHTTPRequestHandler):
                     "audioBase64": base64.b64encode(wav_bytes).decode("ascii"),
                     "mimeType": "audio/wav",
                     "text": text,
-                    "targetLang": target_lang,
+                    "previewLang": preview_lang,
+                    "jobTargetLang": job_target,
                     "instruct": instruct,
                     "clone": bool(ref_path),
                     "bytes": len(wav_bytes),

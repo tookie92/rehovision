@@ -11,22 +11,18 @@ export async function POST(req: NextRequest) {
       text?: string;
       targetLang?: string;
       sourceLang?: string;
+      previewLang?: string;
       instruct?: string;
       speed?: number;
       refAudioBase64?: string;
       refMime?: string;
     };
-    const targetLang = normalizeLang(body.targetLang ?? "fr");
-    const sourceLang = normalizeLang(body.sourceLang ?? "fr");
+    const targetLang = normalizeLang(body.targetLang ?? "en");
+    const sourceLang = normalizeLang(body.sourceLang ?? "en");
+    // Toujours EN pour l’aperçu timbre (fiable) — la langue job reste séparée
+    const previewLang = normalizeLang(body.previewLang ?? "en") || "en";
     const instruct = (body.instruct ?? "").trim();
     const refAudioBase64 = (body.refAudioBase64 ?? "").trim();
-    if (!targetLang) {
-      return NextResponse.json(
-        { error: "Langue cible requise." },
-        { status: 400 },
-      );
-    }
-    // Auto (sans instruct ni ref), Voice Lab, ou clone — tous OK
 
     const base = (
       process.env.WORKER_TRANSLATE_URL ?? "http://127.0.0.1:8788"
@@ -38,6 +34,7 @@ export async function POST(req: NextRequest) {
         text: (body.text ?? "").trim() || undefined,
         targetLang,
         sourceLang,
+        previewLang: previewLang === "fr" ? "fr" : "en",
         instruct: instruct || undefined,
         speed: body.speed,
         refAudioBase64: refAudioBase64 || undefined,
