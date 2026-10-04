@@ -522,6 +522,7 @@ def main() -> None:
             "music",
             "dub",
             "narration",
+            "audiobook",
             "clips",
             "clip_edit",
             "clip_suggest",
