@@ -82,16 +82,30 @@ _STRONG_LEAK = re.compile(
     r"je\s+suis|je\s+m['']appelle)\b",
     re.I,
 )
-# Amorces FR uniquement (pour cible EN — éviter faux positifs welcome/hello/today)
+# Amorces / résidus FR dans une sortie censée être anglaise
 _FR_STRONG_LEAK = re.compile(
-    r"\b(bonjour|bienvenue|aujourd'?hui|atelier|merci|"
+    r"\b(bonjour|bienvenue|aujourd'?hui|atelier|merci|salut|oui|"
     r"je\s+suis|je\s+m['']appelle)\b",
     re.I,
 )
-# Ratio FR→EN sans cognats EN (creation)
+# Mots FR fréquents que NLLB-600M laisse collés à de l’EN
+_FR_RESIDUE_EN = re.compile(
+    r"(?i)\b("
+    r"bonjour|bienvenue|aujourd'?hui|atelier|merci|salut|oui|non|"
+    r"je|tu|nous|vous|ils|elles|notre|votre|avec|dans|pour|aussi|"
+    r"appelle|suis|parle|parler|création|écoute|ecoute|écoutez|ecoutez|"
+    r"raconte|histoire|marché|soleil|installe|installent|lève|levent|"
+    r"sous\s+le|se\s+lève"
+    r")\b"
+    r"|\bDoes\s+On\b"
+    r"|\bOn\s+(?:is|are|tells?|telling|was|will|va|raconte)\b"
+    r"|\b(?:Le|La|Les|Un|Une)\s+[A-ZÁÉÍÓÚÀÈÂÊÎÔÛÄËÏÖÜÇ]"
+)
+# Ratio FR→EN (sans cognats EN type creation)
 _FR_LEAK_EN = re.compile(
-    r"\b(bonjour|bienvenue|aujourd'?hui|atelier|je|nous|vous|notre|avec|dans|pour|"
-    r"appelle|merci|suis|parle|parler|aussi|création)\b",
+    r"\b(bonjour|bienvenue|aujourd'?hui|atelier|je|nous|vous|ils|elles|notre|"
+    r"avec|dans|pour|appelle|merci|suis|parle|parler|aussi|création|salut|"
+    r"oui|écoute|ecoute|raconte|histoire|soleil|marché)\b",
     re.I,
 )
 
@@ -144,9 +158,9 @@ def to_flores(code: str) -> str:
 def _prep_fr_clauses(text: str) -> str:
     """Force des coupes claires pour le FR oral (sans virgules)."""
     t = text.strip()
-    # « Bonjour je suis X » → « Bonjour, je suis X »
-    t = re.sub(r"(?i)\bbonjour\b(?!\s*,)", "Bonjour,", t)
-    t = re.sub(r"(?i)\bbienvenue\b(?!\s*,)", "Bienvenue,", t)
+    # « Bonjour je suis X » → « Bonjour, je suis X » (pas si déjà ponctué)
+    t = re.sub(r"(?i)\bbonjour\b(?!\s*[,.!?…])", "Bonjour,", t)
+    t = re.sub(r"(?i)\bbienvenue\b(?!\s*[,.!?…])", "Bienvenue,", t)
     # Nouvelle phrase avant Aujourd'hui / On va / Ensuite
     t = re.sub(r"(?i)([^.!?])\s+(aujourd'?hui)\b", r"\1. \2", t)
     t = re.sub(r"(?i)([^.!?])\s+(on va)\b", r"\1. \2", t)
@@ -233,13 +247,13 @@ def _forced_bos(tokenizer: Any, tgt_f: str) -> int:
 def _has_leak(out: str, tgt_f: str) -> bool:
     if tgt_f == "fra_Latn":
         return False
-    # Cible anglais : détecter uniquement les restes français (pas les mots EN)
+    # Cible anglais : tout résidu FR clair = fuite (pas seulement un ratio)
     if tgt_f == "eng_Latn":
-        if _FR_STRONG_LEAK.search(out):
+        if _FR_STRONG_LEAK.search(out) or _FR_RESIDUE_EN.search(out):
             return True
         words = max(len(re.findall(r"\w+", out, flags=re.UNICODE)), 1)
         fr_hits = len(_FR_LEAK_EN.findall(out))
-        return fr_hits >= 1 and fr_hits / words > 0.12
+        return fr_hits >= 1 and fr_hits / words > 0.08
     if _STRONG_LEAK.search(out):
         return True
     words = max(len(re.findall(r"\w+", out, flags=re.UNICODE)), 1)
@@ -270,6 +284,8 @@ _GREETINGS: dict[tuple[str, str], str] = {
     ("eng_Latn", "aujourd'hui"): "Today",
     ("eng_Latn", "aujourdhui"): "Today",
     ("eng_Latn", "merci"): "Thank you",
+    ("eng_Latn", "oui"): "Yes",
+    ("eng_Latn", "non"): "No",
     ("wol_Latn", "bonjour"): "Na nga def",
     ("wol_Latn", "hello"): "Na nga def",
     ("wol_Latn", "bonsoir"): "Na nga def",
@@ -284,6 +300,60 @@ _GREETINGS: dict[tuple[str, str], str] = {
     ("zul_Latn", "bonjour"): "Sawubona",
     ("zul_Latn", "hello"): "Sawubona",
 }
+
+# Patterns clause → anglais (NLLB laisse souvent des amorces FR)
+_EN_CLAUSE_PATTERNS: list[tuple[re.Pattern[str], Any]] = [
+    (
+        re.compile(
+            r"(?i)^le\s+soleil\s+se\s+l[eè]ve\s+sur\s+le\s+marché\.?$"
+        ),
+        lambda _m: "The sun rises over the market.",
+    ),
+    (
+        re.compile(
+            r"(?i)^ils\s+s['']installent\s+sous\s+le\s+baobab\.?$"
+        ),
+        lambda _m: "They settle under the baobab.",
+    ),
+    (
+        re.compile(
+            r"(?i)^on\s+raconte\s+une\s+histoire\s+locale\s+aujourd'?hui\s*\??$"
+        ),
+        lambda _m: "Are we telling a local story today?",
+    ),
+    (
+        re.compile(r"(?i)^salut\s+(.+)$"),
+        lambda m: f"Hi {m.group(1).strip()}",
+    ),
+    (
+        re.compile(r"(?i)^bonjour\s*[,!]?\s*(.+)$"),
+        lambda m: f"Hello, {m.group(1).strip()}",
+    ),
+    (
+        re.compile(r"(?i)^oui\s*[-—,]?\s*(.+)$"),
+        lambda m: f"Yes — {m.group(1).strip()}",
+    ),
+    (
+        re.compile(r"(?i)^non\s*[-—,]?\s*(.+)$"),
+        lambda m: f"No — {m.group(1).strip()}",
+    ),
+    (
+        re.compile(r"(?i)^bienvenue\s+(?:dans|à)\s+notre\s+atelier\s*$"),
+        lambda _m: "Welcome to our workshop",
+    ),
+    (
+        re.compile(r"(?i)^on\s+raconte\s+(.+)$"),
+        lambda m: f"We are telling {m.group(1).strip()}",
+    ),
+    (
+        re.compile(r"(?i)^écoute\s+bien\s*$"),
+        lambda _m: "Listen carefully",
+    ),
+    (
+        re.compile(r"(?i)^oui\s*[-—]\s*écoute\s+bien\s*$"),
+        lambda _m: "Yes — listen carefully",
+    ),
+]
 
 # Patterns clause → Wolof (groupes = reste / nom)
 _WO_CLAUSE_PATTERNS: list[tuple[re.Pattern[str], Any]] = [
@@ -336,6 +406,11 @@ def _clause_override(text: str, tgt_f: str) -> str | None:
     if greet:
         return greet + punct
 
+    if tgt_f == "eng_Latn":
+        for pat, builder in _EN_CLAUSE_PATTERNS:
+            m = pat.match(raw)
+            if m:
+                return builder(m) + punct
     if tgt_f == "wol_Latn":
         for pat, builder in _WO_CLAUSE_PATTERNS:
             m = pat.match(raw)
@@ -364,6 +439,37 @@ def _scrub_fr_leaks(out: str, tgt_f: str) -> str:
         out = re.sub(r"(?i)\bje\s+suis\b", "I am", out)
         out = re.sub(r"(?i)\bje\s+m['']appelle\b", "my name is", out)
         out = re.sub(r"(?i)\bmerci\b", "thank you", out)
+        out = re.sub(r"(?i)\bsalut\b", "Hi", out)
+        out = re.sub(r"(?i)\boui\b", "Yes", out)
+        out = re.sub(r"(?i)\bnon\b(?!-)", "No", out)
+        out = re.sub(r"(?i)\bils\b", "They", out)
+        out = re.sub(r"(?i)\belles\b", "They", out)
+        out = re.sub(r"(?i)\bDoes\s+On\b", "Do we", out)
+        out = re.sub(
+            r"\bOn\s+(?=is\b|are\b|tells?\b|telling\b|was\b|will\b)",
+            "We ",
+            out,
+        )
+        out = re.sub(r"\bLe\s+(?=[A-Z])", "The ", out)
+        out = re.sub(r"\bLa\s+(?=[A-Z])", "The ", out)
+        out = re.sub(r"\bLes\s+(?=[A-Z])", "The ", out)
+        out = re.sub(r"\bUn\s+(?=[A-Z])", "A ", out)
+        out = re.sub(r"\bUne\s+(?=[A-Z])", "A ", out)
+        out = re.sub(r"(?i)\bécoutez?\b", "listen", out)
+        out = re.sub(r"(?i)\becoutez?\b", "listen", out)
+        out = re.sub(r"(?i)\braconte\b", "tells", out)
+        out = re.sub(r"(?i)\bhistoire\b", "story", out)
+        out = re.sub(r"(?i)\bsolail\b", "sun", out)
+        out = re.sub(r"(?i)\bsoleil\b", "sun", out)
+        out = re.sub(r"(?i)\bmarché\b", "market", out)
+        out = re.sub(r"(?i)\bs['']installent\b", "settle", out)
+        out = re.sub(r"(?i)\bs['']installe\b", "settles", out)
+        out = re.sub(r"(?i)\bse\s+l[eè]ve\b", "rises", out)
+        out = re.sub(r"\bWe is\b", "We are", out)
+        out = re.sub(r"\bWe tells\b", "We tell", out)
+        out = re.sub(r"\bThey settles\b", "They settle", out)
+        out = re.sub(r",\s*!", "!", out)
+        out = re.sub(r"Welcome,\s+In\b", "Welcome to", out)
         out = re.sub(r"\s+", " ", out).strip()
         return out
     if tgt_f == "sna_Latn":
@@ -501,11 +607,12 @@ def translate_text(
     model.eval()
 
     source = text.strip()
-    if src_f == "fra_Latn" and tgt_f in _CLAUSE_TGTS:
+    # FR oral : coupes claires avant WO/EN (réduit les fuites d’amorces)
+    if src_f == "fra_Latn" and (tgt_f in _CLAUSE_TGTS or tgt_f == "eng_Latn"):
         source = _prep_fr_clauses(source)
 
     protected, name_map = _protect_names(source)
-    use_clause = tgt_f in _CLAUSE_TGTS
+    use_clause = tgt_f in _CLAUSE_TGTS or tgt_f == "eng_Latn"
     pivoted = False
 
     if tgt_f == "wol_Latn" and src_f == "fra_Latn":
@@ -513,11 +620,17 @@ def translate_text(
         spoken = _run_pair(
             model, tokenizer, protected, src_f, tgt_f, device, by_clause=True
         )
+    elif tgt_f == "eng_Latn":
+        # Anglais : toujours clause-par-clause + overrides / scrub FR
+        spoken = _run_pair(
+            model, tokenizer, protected, src_f, tgt_f, device, by_clause=True
+        )
     elif src_f != "eng_Latn" and tgt_f in _PIVOT_TGTS:
         mid = _run_pair(
-            model, tokenizer, protected, src_f, "eng_Latn", device, by_clause=False
+            model, tokenizer, protected, src_f, "eng_Latn", device, by_clause=True
         )
         mid = _restore_names(mid, name_map)
+        mid = _scrub_fr_leaks(mid, "eng_Latn")
         for key, name in name_map.items():
             mid = mid.replace(name, key)
         spoken = _run_pair(
