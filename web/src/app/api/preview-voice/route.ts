@@ -26,15 +26,7 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    if (!instruct && !refAudioBase64) {
-      return NextResponse.json(
-        {
-          error:
-            "Compose une voix (Voice Lab) ou fournis un échantillon pour l’aperçu.",
-        },
-        { status: 400 },
-      );
-    }
+    // Auto (sans instruct ni ref), Voice Lab, ou clone — tous OK
 
     const base = (
       process.env.WORKER_TRANSLATE_URL ?? "http://127.0.0.1:8788"

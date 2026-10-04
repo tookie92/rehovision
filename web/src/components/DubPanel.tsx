@@ -26,6 +26,7 @@ import {
 import { api } from "@convex/_generated/api";
 import { LangPicker } from "./LangPicker";
 import { JobList } from "./JobList";
+import { PUBLIC_VOICES, type PublicVoice } from "../lib/publicVoices";
 import type { Doc, Id } from "@convex/_generated/dataModel";
 
 type DubMode = "narration" | "doublage";
@@ -284,6 +285,7 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
   const [voicePreviewError, setVoicePreviewError] = useState<string | null>(
     null,
   );
+  const [selectedPublicId, setSelectedPublicId] = useState<string | null>(null);
 
   const spokenRef = useRef<HTMLTextAreaElement>(null);
   const previewAudioRef = useRef<HTMLAudioElement>(null);
@@ -303,20 +305,6 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
   const cloneVoice = voiceMode === "keep";
   const showAccents = targetLang === "en" || targetLang.startsWith("en");
 
-  useEffect(() => {
-    return () => {
-      if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
-    };
-  }, [voicePreviewUrl]);
-
-  function clearVoicePreview() {
-    setVoicePreviewUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
-    setVoicePreviewError(null);
-  }
-
   const instruct = useMemo(() => {
     if (voiceMode !== "create") return "";
     const parts: string[] = [];
@@ -328,10 +316,28 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     return parts.join(", ");
   }, [voiceMode, gender, age, pitch, whisper, accent, showAccents]);
 
-  // Invalide l’aperçu si la recette / le rythme / la ref change
   useEffect(() => {
-    clearVoicePreview();
-  }, [instruct, speed, voiceMode, voiceRefFile, presetRefStorageId, targetLang]);
+    return () => {
+      if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
+    };
+  }, [voicePreviewUrl]);
+
+  // Lecture auto une fois le <audio> monté
+  useEffect(() => {
+    if (!voicePreviewUrl) return;
+    const el = previewAudioRef.current;
+    if (!el) return;
+    el.load();
+    void el.play().catch(() => undefined);
+  }, [voicePreviewUrl]);
+
+  function clearVoicePreview() {
+    setVoicePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setVoicePreviewError(null);
+  }
 
   const step1Ok =
     !!sessionId &&
@@ -379,6 +385,8 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
 
   function applySavedVoice(voice: Doc<"voices">) {
     setSelectedVoiceId(voice._id);
+    setSelectedPublicId(null);
+    clearVoicePreview();
     if (typeof voice.speed === "number" && Number.isFinite(voice.speed)) {
       setSpeed(Math.min(1.3, Math.max(0.7, voice.speed)));
     }
@@ -407,6 +415,24 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     setVoiceMode("keep");
     setPresetRefStorageId(voice.refStorageId ?? null);
     setVoiceRefFile(null);
+  }
+
+  function applyPublicVoice(voice: PublicVoice) {
+    setSelectedPublicId(voice.id);
+    setSelectedVoiceId(null);
+    setPresetRefStorageId(null);
+    setVoiceRefFile(null);
+    clearVoicePreview();
+    if (!voice.instruct) {
+      setVoiceMode("model");
+      return;
+    }
+    setVoiceMode("create");
+    setGender(voice.gender || "female");
+    setAge(voice.age || "");
+    setPitch(voice.pitch || "");
+    setAccent(voice.accent || "");
+    setWhisper(!!voice.whisper);
   }
 
   async function onSaveVoice() {
@@ -472,16 +498,27 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
   }
 
   async function onPreviewVoice() {
-    if (voiceMode === "create" && !instruct) return;
     if (
       voiceMode === "keep" &&
       !voiceRefFile &&
       !presetRefStorageId
     ) {
+      setVoicePreviewError(
+        "Ajoute un échantillon ou choisis un preset clone pour écouter.",
+      );
+      return;
+    }
+    if (voiceMode === "create" && !instruct) {
+      setVoicePreviewError("Choisis des attributs Voice Lab avant d’écouter.");
       return;
     }
     setVoicePreviewing(true);
     setVoicePreviewError(null);
+    // Révoque l’ancien blob sans toucher à l’erreur affichée
+    setVoicePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     try {
       let refAudioBase64: string | undefined;
       let refMime: string | undefined;
@@ -513,7 +550,7 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
           targetLang,
           sourceLang,
           speed,
-          ...(voiceMode === "create" ? { instruct } : {}),
+          ...(voiceMode === "create" && instruct ? { instruct } : {}),
           ...(refAudioBase64 ? { refAudioBase64, refMime } : {}),
         }),
       });
@@ -535,13 +572,7 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
         type: body.mimeType || "audio/wav",
       });
       const url = URL.createObjectURL(blob);
-      setVoicePreviewUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return url;
-      });
-      requestAnimationFrame(() => {
-        void previewAudioRef.current?.play().catch(() => undefined);
-      });
+      setVoicePreviewUrl(url);
     } catch (err) {
       setVoicePreviewError(
         err instanceof Error ? err.message : "Échec aperçu voix",
@@ -551,19 +582,20 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     }
   }
 
+  const canPreview =
+    voiceMode === "model" ||
+    (voiceMode === "create" && !!instruct) ||
+    (voiceMode === "keep" && (!!voiceRefFile || !!presetRefStorageId));
+
   const previewButton = (
     <button
       type="button"
-      disabled={
-        voicePreviewing ||
-        (voiceMode === "create" && !instruct) ||
-        (voiceMode === "keep" && !voiceRefFile && !presetRefStorageId)
-      }
+      disabled={voicePreviewing || !canPreview}
       onClick={() => void onPreviewVoice()}
       className="flex min-h-11 items-center gap-2 rounded-xl bg-[var(--signal)] px-4 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
     >
       <Play className="size-4" aria-hidden />
-      {voicePreviewing ? "Génération…" : "Écouter"}
+      {voicePreviewing ? "Génération…" : "Écouter l’aperçu"}
     </button>
   );
 
@@ -794,6 +826,46 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
               />
             </div>
 
+            {/* Voix publiques OmniVoice (recettes instruct curatées) */}
+            <fieldset className="space-y-3">
+              <legend className="text-sm font-medium">Voix publiques</legend>
+              <p className="text-xs text-[var(--muted)]">
+                OmniVoice n’a pas de catalogue d’IDs comme ElevenLabs — ce sont
+                des recettes Voice Lab prêtes à l’emploi.
+              </p>
+              <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {PUBLIC_VOICES.map((voice) => {
+                  const on = selectedPublicId === voice.id;
+                  return (
+                    <li key={voice.id}>
+                      <button
+                        type="button"
+                        onClick={() => applyPublicVoice(voice)}
+                        className={
+                          on
+                            ? "flex min-h-[4.5rem] w-full flex-col items-start rounded-2xl bg-[var(--ink)] px-3.5 py-3 text-left text-white"
+                            : "flex min-h-[4.5rem] w-full flex-col items-start rounded-2xl border border-[var(--line)] bg-white px-3.5 py-3 text-left transition-colors hover:bg-[var(--bg-subtle)]"
+                        }
+                      >
+                        <span className="text-sm font-semibold">
+                          {voice.name}
+                        </span>
+                        <span
+                          className={
+                            on
+                              ? "mt-0.5 text-xs text-white/65"
+                              : "mt-0.5 text-xs text-[var(--muted)]"
+                          }
+                        >
+                          {voice.blurb}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </fieldset>
+
             {/* Mes voix — presets type ElevenLabs */}
             <fieldset className="space-y-3">
               <legend className="text-sm font-medium">Mes voix</legend>
@@ -893,8 +965,10 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                       onClick={() => {
                         setVoiceMode(id);
                         setSelectedVoiceId(null);
+                        setSelectedPublicId(null);
                         if (id !== "keep") setPresetRefStorageId(null);
                         setShowSaveForm(false);
+                        clearVoicePreview();
                       }}
                       className={
                         on
@@ -963,31 +1037,15 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                   )}
                 </label>
                 {(voiceRefFile || presetRefStorageId) && (
-                  <>
-                    <SaveVoiceBar
-                      showForm={showSaveForm}
-                      saveName={saveName}
-                      saving={savingVoice}
-                      onToggle={() => setShowSaveForm((v) => !v)}
-                      onName={setSaveName}
-                      onSave={() => void onSaveVoice()}
-                      hint="Enregistrer ce clone"
-                      previewSlot={previewButton}
-                    />
-                    {voicePreviewError && (
-                      <p className="text-xs text-[var(--danger)]">
-                        {voicePreviewError}
-                      </p>
-                    )}
-                    {voicePreviewUrl && (
-                      <audio
-                        ref={previewAudioRef}
-                        controls
-                        src={voicePreviewUrl}
-                        className="w-full max-w-md"
-                      />
-                    )}
-                  </>
+                  <SaveVoiceBar
+                    showForm={showSaveForm}
+                    saveName={saveName}
+                    saving={savingVoice}
+                    onToggle={() => setShowSaveForm((v) => !v)}
+                    onName={setSaveName}
+                    onSave={() => void onSaveVoice()}
+                    hint="Enregistrer ce clone"
+                  />
                 )}
               </div>
             )}
@@ -1120,34 +1178,54 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                 </div>
 
                 {!!instruct && (
-                  <>
-                    <SaveVoiceBar
-                      showForm={showSaveForm}
-                      saveName={saveName}
-                      saving={savingVoice}
-                      onToggle={() => setShowSaveForm((v) => !v)}
-                      onName={setSaveName}
-                      onSave={() => void onSaveVoice()}
-                      hint="Enregistrer cette voix"
-                      previewSlot={previewButton}
-                    />
-                    {voicePreviewError && (
-                      <p className="text-xs text-[var(--danger)]">
-                        {voicePreviewError}
-                      </p>
-                    )}
-                    {voicePreviewUrl && (
-                      <audio
-                        ref={previewAudioRef}
-                        controls
-                        src={voicePreviewUrl}
-                        className="w-full max-w-md"
-                      />
-                    )}
-                  </>
+                  <SaveVoiceBar
+                    showForm={showSaveForm}
+                    saveName={saveName}
+                    saving={savingVoice}
+                    onToggle={() => setShowSaveForm((v) => !v)}
+                    onName={setSaveName}
+                    onSave={() => void onSaveVoice()}
+                    hint="Enregistrer cette voix"
+                  />
                 )}
               </div>
             )}
+
+            {/* Aperçu audio — toujours visible étape 2 */}
+            <div className="space-y-3 rounded-2xl border border-[var(--signal)]/30 bg-[var(--signal-soft)]/40 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Aperçu de la voix</p>
+                  <p className="text-xs text-[var(--muted)]">
+                    Phrase courte dans la langue cible · {targetLang} ·{" "}
+                    {speed.toFixed(2)}×
+                  </p>
+                </div>
+                {previewButton}
+              </div>
+              {voicePreviewError && (
+                <p className="rounded-lg border border-[var(--warn-line)] bg-[var(--warn-bg)] px-3 py-2 text-sm text-[var(--warn-ink)]">
+                  {voicePreviewError}
+                </p>
+              )}
+              {voicePreviewUrl ? (
+                <audio
+                  ref={previewAudioRef}
+                  key={voicePreviewUrl}
+                  controls
+                  src={voicePreviewUrl}
+                  className="w-full"
+                />
+              ) : (
+                <p className="text-xs text-[var(--muted)]">
+                  {voiceMode === "keep"
+                    ? "Choisis un échantillon puis Écouter."
+                    : voiceMode === "create"
+                      ? "Compose Voice Lab (ou une voix publique) puis Écouter."
+                      : "Voix modèle : Écouter pour un sample Auto OmniVoice."}
+                </p>
+              )}
+            </div>
 
             {/* Speed — all voice modes */}
             <div className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--bg)] p-4">

@@ -118,15 +118,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return
 
         ref_b64 = (body.get("refAudioBase64") or "").strip()
-        if not instruct and not ref_b64:
-            self._json(
-                400,
-                {
-                    "error": "Fournis une recette Voice Lab (instruct) "
-                    "ou un échantillon (refAudioBase64)."
-                },
-            )
-            return
+        # instruct / clone / auto (aucun des deux) tous autorisés
 
         # Évite deux OmniVoice en parallèle sur le même GPU
         if not _voice_lock.acquire(blocking=False):
