@@ -95,7 +95,7 @@ _FR_RESIDUE_EN = re.compile(
     r"je|tu|nous|vous|ils|elles|notre|votre|avec|dans|pour|aussi|"
     r"appelle|suis|parle|parler|création|écoute|ecoute|écoutez|ecoutez|"
     r"raconte|histoire|marché|soleil|installe|installent|lève|levent|"
-    r"sous\s+le|se\s+lève"
+    r"sous\s+le|se\s+lève|bien"
     r")\b"
     r"|\bDoes\s+On\b"
     r"|\bOn\s+(?:is|are|tells?|telling|was|will|va|raconte)\b"
@@ -116,6 +116,9 @@ _NAME_STOP = frozenset(
         "bienvenue",
         "aujourd",
         "merci",
+        "salut",
+        "oui",
+        "non",
         "hello",
         "welcome",
         "today",
@@ -130,8 +133,43 @@ _NAME_STOP = frozenset(
         "locale",
         "local",
         "je",
+        "tu",
+        "on",
         "nous",
         "vous",
+        "ils",
+        "elles",
+        "le",
+        "la",
+        "les",
+        "un",
+        "une",
+        "des",
+        "du",
+        "de",
+        "et",
+        "est",
+        "sont",
+        "dans",
+        "pour",
+        "avec",
+        "sous",
+        "sur",
+        "qui",
+        "que",
+        "écoute",
+        "ecoute",
+        "raconte",
+        "histoire",
+        "soleil",
+        "marché",
+        "marche",
+        "ils",
+        "does",
+        "we",
+        "they",
+        "yes",
+        "hi",
     }
 )
 
@@ -162,7 +200,12 @@ def _prep_fr_clauses(text: str) -> str:
     t = re.sub(r"(?i)\bbonjour\b(?!\s*[,.!?…])", "Bonjour,", t)
     t = re.sub(r"(?i)\bbienvenue\b(?!\s*[,.!?…])", "Bienvenue,", t)
     # Nouvelle phrase avant Aujourd'hui / On va / Ensuite
-    t = re.sub(r"(?i)([^.!?])\s+(aujourd'?hui)\b", r"\1. \2", t)
+    # seulement si du texte suit (évite « locale. aujourd'hui ? »)
+    t = re.sub(
+        r"(?i)([^.!?])\s+(aujourd'?hui)\b(?=\s*[,:]?\s*[a-zàâäéèêëïîôùûüç])",
+        r"\1. \2",
+        t,
+    )
     t = re.sub(r"(?i)([^.!?])\s+(on va)\b", r"\1. \2", t)
     t = re.sub(r"(?i)([^.!?])\s+(ensuite)\b", r"\1. \2", t)
     t = re.sub(r"\s+", " ", t)
@@ -322,6 +365,18 @@ _EN_CLAUSE_PATTERNS: list[tuple[re.Pattern[str], Any]] = [
         lambda _m: "Are we telling a local story today?",
     ),
     (
+        re.compile(r"(?i)^oui\s*[-—,:]\s*écoute\s+bien\s*\.?$"),
+        lambda _m: "Yes — listen carefully",
+    ),
+    (
+        re.compile(r"(?i)^écoute\s+bien\s*\.?$"),
+        lambda _m: "Listen carefully",
+    ),
+    (
+        re.compile(r"(?i)^bienvenue\s+(?:dans|à)\s+notre\s+atelier\s*$"),
+        lambda _m: "Welcome to our workshop",
+    ),
+    (
         re.compile(r"(?i)^salut\s+(.+)$"),
         lambda m: f"Hi {m.group(1).strip()}",
     ),
@@ -338,20 +393,8 @@ _EN_CLAUSE_PATTERNS: list[tuple[re.Pattern[str], Any]] = [
         lambda m: f"No — {m.group(1).strip()}",
     ),
     (
-        re.compile(r"(?i)^bienvenue\s+(?:dans|à)\s+notre\s+atelier\s*$"),
-        lambda _m: "Welcome to our workshop",
-    ),
-    (
         re.compile(r"(?i)^on\s+raconte\s+(.+)$"),
         lambda m: f"We are telling {m.group(1).strip()}",
-    ),
-    (
-        re.compile(r"(?i)^écoute\s+bien\s*$"),
-        lambda _m: "Listen carefully",
-    ),
-    (
-        re.compile(r"(?i)^oui\s*[-—]\s*écoute\s+bien\s*$"),
-        lambda _m: "Yes — listen carefully",
     ),
 ]
 
@@ -470,6 +513,10 @@ def _scrub_fr_leaks(out: str, tgt_f: str) -> str:
         out = re.sub(r"\bThey settles\b", "They settle", out)
         out = re.sub(r",\s*!", "!", out)
         out = re.sub(r"Welcome,\s+In\b", "Welcome to", out)
+        out = re.sub(r"(?i)\blisten\s+bien\b", "listen carefully", out)
+        out = re.sub(r"(?i)(?<=\w)\s+bien\b", "", out)
+        out = re.sub(r"\?{2,}", "?", out)
+        out = re.sub(r"\.{2,}", ".", out)
         out = re.sub(r"\s+", " ", out).strip()
         return out
     if tgt_f == "sna_Latn":
