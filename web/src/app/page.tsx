@@ -41,7 +41,8 @@ export default function HomePage() {
         return (
           j.type === "clips" ||
           j.type === "clip_edit" ||
-          j.type === "clip_suggest"
+          j.type === "clip_suggest" ||
+          j.type === "clip_export"
         );
       return true;
     }) ?? undefined;

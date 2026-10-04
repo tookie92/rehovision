@@ -18,6 +18,8 @@ export const jobType = v.union(
   v.literal("clip_edit"),
   /** Couche 4 — appliquer une suggestion (hook / cut / zoom) */
   v.literal("clip_suggest"),
+  /** Export Reel 9:16 + captions brûlées */
+  v.literal("clip_export"),
 );
 
 export const jobStatus = v.union(

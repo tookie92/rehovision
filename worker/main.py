@@ -27,6 +27,7 @@ from engines.dub import run_dub  # noqa: E402
 from engines.edit import render_edit  # noqa: E402
 from engines.gpu_util import free_vram  # noqa: E402
 from engines.music import generate_music, release_gpu  # noqa: E402
+from engines.export_reel import render_reel_916  # noqa: E402
 from engines.suggest import apply_suggestion  # noqa: E402
 from engines.translate_server import start_translate_server  # noqa: E402
 
@@ -580,6 +581,40 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 "appliedSuggestion": suggestion,
                 "parentJobId": params.get("parentJobId"),
             }
+        elif job_type == "clip_export":
+            source_storage = params.get("sourceStorageId")
+            if not source_storage:
+                raise RuntimeError("sourceStorageId requis pour clip_export")
+            captions = params.get("captions", True)
+            if isinstance(captions, str):
+                captions = captions.strip().lower() not in ("0", "false", "no")
+            else:
+                captions = bool(captions)
+            lang = params.get("language")
+            lang_s = str(lang).strip() if lang else None
+            source_path = download_storage_file(client, str(source_storage))
+            if source_path.suffix.lower() in ("", ".bin"):
+                renamed = source_path.with_suffix(".mp4")
+                source_path.rename(renamed)
+                source_path = renamed
+            log.info(
+                "Job %s clip_export — captions=%s source=%s",
+                job_id,
+                captions,
+                source_path.name,
+            )
+            audio_path, export_meta = render_reel_916(
+                source_path=source_path,
+                captions=captions,
+                language=lang_s,
+                on_progress=set_progress,
+            )
+            result_meta = {
+                "layer": 5,
+                "parentJobId": params.get("parentJobId"),
+                "engine": "export-916",
+                **export_meta,
+            }
         else:
             raise RuntimeError(f"Type non supporté: {job_type}")
 
@@ -652,6 +687,7 @@ def main() -> None:
             "clips",
             "clip_edit",
             "clip_suggest",
+            "clip_export",
         ):
             client.mutation(
                 "worker:failJob",

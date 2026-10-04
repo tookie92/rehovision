@@ -33,7 +33,12 @@ export function ClipProjectsList({
     const orphans: Doc<"jobs">[] = [];
 
     for (const j of list) {
-      if (j.type !== "clip_edit" && j.type !== "clip_suggest") continue;
+      if (
+        j.type !== "clip_edit" &&
+        j.type !== "clip_suggest" &&
+        j.type !== "clip_export"
+      )
+        continue;
       const pid = parentIdOf(j);
       if (pid && parentIds.has(pid)) {
         const arr = versionsByParent.get(pid) ?? [];

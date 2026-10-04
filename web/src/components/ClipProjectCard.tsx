@@ -3,6 +3,7 @@
 import type { Doc, Id } from "@convex/_generated/dataModel";
 import { ArrowDown } from "lucide-react";
 import { ClipEditor } from "./ClipEditor";
+import { ClipExportButton } from "./ClipExportButton";
 import { MediaByStorage } from "./MediaByStorage";
 import { Badge } from "./ui/badge";
 import { Progress } from "./ui/progress";
@@ -21,6 +22,9 @@ function parentTitle(job: Doc<"jobs">): string {
 
 function versionTitle(job: Doc<"jobs">): string {
   const p = job.params as { title?: string; suggestion?: { title?: string } };
+  if (job.type === "clip_export") {
+    return String(p.title ?? "Export Reel 9:16");
+  }
   if (job.type === "clip_suggest" && p.suggestion?.title) {
     return String(p.suggestion.title);
   }
@@ -28,6 +32,7 @@ function versionTitle(job: Doc<"jobs">): string {
 }
 
 function versionKind(job: Doc<"jobs">): string {
+  if (job.type === "clip_export") return "Reel 9:16";
   if (job.type === "clip_edit") return "Découpe manuelle";
   const sug = (job.params as { suggestion?: { kind?: string } }).suggestion;
   const map: Record<string, string> = {
@@ -89,9 +94,16 @@ export function ClipProjectCard({
       {parent.status === "done" && parent.resultStorageId && (
         <div className="mt-4">
           <p className="mb-2 text-xs font-medium text-[var(--muted)]">
-            1 · Source (inchangée)
+            1 · Preview hook
           </p>
           <MediaByStorage storageId={parent.resultStorageId} kind="video" />
+          <ClipExportButton
+            sessionId={sessionId}
+            parentJobId={parent._id}
+            sourceStorageId={parent.resultStorageId}
+            title={parentTitle(parent)}
+            onCreated={onVersionCreated}
+          />
         </div>
       )}
 
@@ -156,6 +168,29 @@ export function ClipProjectCard({
                       storageId={v.resultStorageId as Id<"_storage">}
                       kind="video"
                     />
+                    {v.type !== "clip_export" && (
+                      <ClipExportButton
+                        sessionId={sessionId}
+                        parentJobId={parent._id}
+                        sourceStorageId={v.resultStorageId as Id<"_storage">}
+                        title={versionTitle(v)}
+                        onCreated={onVersionCreated}
+                      />
+                    )}
+                    {v.type === "clip_export" &&
+                      (() => {
+                        const meta = v.resultMeta as
+                          | { captions?: boolean; cueCount?: number }
+                          | undefined;
+                        return (
+                          <p className="mt-1 text-xs text-[var(--muted)]">
+                            Format 1080×1920
+                            {meta?.captions
+                              ? ` · ${meta.cueCount ?? 0} captions`
+                              : " · sans captions"}
+                          </p>
+                        );
+                      })()}
                   </div>
                 )}
               </li>
