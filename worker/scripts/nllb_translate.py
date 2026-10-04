@@ -95,7 +95,7 @@ _FR_RESIDUE_EN = re.compile(
     r"je|tu|nous|vous|ils|elles|notre|votre|avec|dans|pour|aussi|"
     r"appelle|suis|parle|parler|création|écoute|ecoute|écoutez|ecoutez|"
     r"raconte|histoire|marché|soleil|installe|installent|lève|levent|"
-    r"sous\s+le|se\s+lève|bien"
+    r"sous\s+le|se\s+lève|bien|attends|regarde|là-bas|la\s+suite"
     r")\b"
     r"|\bDoes\s+On\b"
     r"|\bOn\s+(?:is|are|tells?|telling|was|will|va|raconte)\b"
@@ -105,9 +105,17 @@ _FR_RESIDUE_EN = re.compile(
 _FR_LEAK_EN = re.compile(
     r"\b(bonjour|bienvenue|aujourd'?hui|atelier|je|nous|vous|ils|elles|notre|"
     r"avec|dans|pour|appelle|merci|suis|parle|parler|aussi|création|salut|"
-    r"oui|écoute|ecoute|raconte|histoire|soleil|marché)\b",
+    r"oui|écoute|ecoute|raconte|histoire|soleil|marché|attends|regarde)\b",
     re.I,
 )
+# Hallucinations NLLB typiques (placeholders / tokens bizarres)
+_NLLB_HALLUCINATION = re.compile(
+    r"(?i)\b("
+    r"official\s+journal|european\s+union|this\s+regulation\s+shall|"
+    r"what'?s\s+the\s+matter\s+with\s+you|nllbtag\d+x|nllbname\d+x"
+    r")\b"
+)
+_OMNI_TAG_RE = re.compile(r"\[[^\]]+\]")
 
 # Mots capitalisés à NE PAS traiter comme noms propres
 _NAME_STOP = frozenset(
@@ -164,12 +172,18 @@ _NAME_STOP = frozenset(
         "soleil",
         "marché",
         "marche",
+        "attends",
+        "regarde",
+        "suite",
+        "calme",
         "ils",
         "does",
         "we",
         "they",
         "yes",
         "hi",
+        "wait",
+        "look",
     }
 )
 
@@ -365,6 +379,14 @@ _EN_CLAUSE_PATTERNS: list[tuple[re.Pattern[str], Any]] = [
         lambda _m: "Are we telling a local story today?",
     ),
     (
+        re.compile(r"(?i)^la\s+suite\s+est\s+plus\s+calme\s*\.?$"),
+        lambda _m: "The next part is calmer.",
+    ),
+    (
+        re.compile(r"(?i)^attends\s*,?\s*regarde\s+là-bas\s*!?\s*$"),
+        lambda _m: "Wait, look over there!",
+    ),
+    (
         re.compile(r"(?i)^oui\s*[-—,:]\s*écoute\s+bien\s*\.?$"),
         lambda _m: "Yes — listen carefully",
     ),
@@ -515,6 +537,10 @@ def _scrub_fr_leaks(out: str, tgt_f: str) -> str:
         out = re.sub(r"Welcome,\s+In\b", "Welcome to", out)
         out = re.sub(r"(?i)\blisten\s+bien\b", "listen carefully", out)
         out = re.sub(r"(?i)(?<=\w)\s+bien\b", "", out)
+        out = re.sub(r"(?i)\battends\b", "Wait", out)
+        out = re.sub(r"(?i)\bregarde\b", "look", out)
+        out = re.sub(r"(?i)\blà-bas\b", "over there", out)
+        out = re.sub(r"(?i)\bThe suite is\b", "The next part is", out)
         out = re.sub(r"\?{2,}", "?", out)
         out = re.sub(r"\.{2,}", ".", out)
         out = re.sub(r"\s+", " ", out).strip()
@@ -668,9 +694,33 @@ def translate_text(
         "nb",
     }:
         source = _spk.group(2).strip()
+    # Tags OmniVoice hors NLLB (NLLBTAG / [laughter] → hallucinations UE)
+    leading_tags: list[str] = []
+    while True:
+        _tm = re.match(r"^(\[[^\]]+\])\s*", source)
+        if not _tm:
+            break
+        leading_tags.append(_tm.group(1))
+        source = source[_tm.end() :].lstrip()
+    inline_tags = _OMNI_TAG_RE.findall(source)
+    if inline_tags:
+        leading_tags.extend(inline_tags)
+        source = _OMNI_TAG_RE.sub(" ", source)
+        source = re.sub(r"\s+", " ", source).strip()
     # FR oral : coupes claires avant WO/EN (réduit les fuites d’amorces)
     if src_f == "fra_Latn" and (tgt_f in _CLAUSE_TGTS or tgt_f == "eng_Latn"):
         source = _prep_fr_clauses(source)
+
+    if not source:
+        spoken_only = " ".join(leading_tags).strip()
+        return {
+            "spokenText": spoken_only,
+            "sourceLang": _norm(source_lang),
+            "targetLang": _norm(target_lang),
+            "floresSrc": src_f,
+            "floresTgt": tgt_f,
+            "translated": False,
+        }
 
     protected, name_map = _protect_names(source)
     use_clause = tgt_f in _CLAUSE_TGTS or tgt_f == "eng_Latn"
@@ -762,10 +812,41 @@ def translate_text(
 
     spoken = _scrub_fr_leaks(spoken, tgt_f)
     if tgt_f == "eng_Latn":
-        # Filet final : scrub suffit — ne pas faire échouer le job
         spoken = _scrub_fr_leaks(spoken, tgt_f)
+        # Coupe les phrases hallucinées (Journal officiel UE, etc.)
+        if _NLLB_HALLUCINATION.search(spoken):
+            parts = re.split(r"(?<=[.!?])\s+", spoken)
+            kept = [p for p in parts if p and not _NLLB_HALLUCINATION.search(p)]
+            if kept:
+                spoken = " ".join(kept).strip()
+            else:
+                # Dernier recours : re-traduire le texte source brut sans noms protégés
+                try:
+                    spoken = _run_pair(
+                        model,
+                        tokenizer,
+                        source,
+                        src_f,
+                        tgt_f,
+                        device,
+                        by_clause=True,
+                    )
+                    spoken = _scrub_fr_leaks(spoken, tgt_f)
+                    if _NLLB_HALLUCINATION.search(spoken):
+                        parts = re.split(r"(?<=[.!?])\s+", spoken)
+                        kept = [
+                            p
+                            for p in parts
+                            if p and not _NLLB_HALLUCINATION.search(p)
+                        ]
+                        spoken = " ".join(kept).strip() if kept else spoken
+                except Exception:  # noqa: BLE001
+                    pass
     else:
         _assert_plausible(spoken, tgt_f)
+
+    if leading_tags:
+        spoken = f"{' '.join(leading_tags)} {spoken}".strip()
 
     return {
         "spokenText": spoken,

@@ -224,28 +224,35 @@ def _split_long(text: str, max_chars: int) -> list[str]:
     return [x for x in out if x]
 
 
-def _protect_tags(text: str) -> tuple[str, list[str]]:
-    tags: list[str] = []
-
-    def repl(m: re.Match[str]) -> str:
-        tags.append(m.group(0))
-        return f"NLLBTAG{len(tags) - 1}X"
-
-    return _TAG_RE.sub(repl, text), tags
-
-
-def _restore_tags(text: str, tags: list[str]) -> str:
-    out = text
-    for i, tag in enumerate(tags):
-        out = out.replace(f"NLLBTAG{i}X", tag)
-        out = out.replace(f"nllbtag{i}x", tag)
-    return out
+def _split_omnivoice_tags(text: str) -> tuple[list[str], str]:
+    """
+    Sépare les tags OmniVoice du texte à traduire.
+    Les placeholders type NLLBTAG0X font halluciner NLLB (texte UE, etc.) —
+    on retire les tags, on traduit le reste, puis on les remet en tête.
+    """
+    leading: list[str] = []
+    rest = (text or "").strip()
+    while True:
+        m = re.match(r"^(\[[^\]]+\])\s*", rest)
+        if not m:
+            break
+        leading.append(m.group(1))
+        rest = rest[m.end() :].lstrip()
+    # Tags restants au milieu : on les enlève aussi (réinjectés en tête)
+    mid = _TAG_RE.findall(rest)
+    bare = _TAG_RE.sub(" ", rest)
+    bare = re.sub(r"\s+", " ", bare).strip()
+    return leading + mid, bare
 
 
 def _translate_spoken(text: str, source_lang: str, target_lang: str) -> str:
-    protected, tags = _protect_tags(text)
-    spoken = translate(protected, source_lang, target_lang).strip()
-    return _restore_tags(spoken, tags)
+    tags, bare = _split_omnivoice_tags(text)
+    if not bare:
+        return " ".join(tags).strip()
+    spoken = translate(bare, source_lang, target_lang).strip()
+    if tags:
+        spoken = f"{' '.join(tags)} {spoken}".strip()
+    return spoken
 
 
 def _resolve_instruct(

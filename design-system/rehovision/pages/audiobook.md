@@ -3,19 +3,15 @@
 Override de `MASTER.md` pour l’onglet Livre audio.
 
 ## Flux
-1. Titre + manuscrit long (markdown `# Chapitre` ou paragraphes).
-2. Dialogues : lignes `Nom: réplique` (ou `Nom — …`) → une voix par personnage.
-3. Tags OmniVoice (`[laughter]`, `[sigh]`, …) insertables dans le manuscrit.
-4. Aperçu découpe (segments ≤600 chars) + mapping voix publiques par personnage.
-5. Langues + voix narrateur (publiques / create / modèle / clone).
-6. Consentement → job `audiobook`.
+1. Titre + manuscrit (`# Chapitre`, `Nom: réplique`, tags OmniVoice).
+2. Cast type ElevenLabs : une ligne par rôle (Narrateur + personnages), chips voix.
+3. Langues + rythme + consentement → job `audiobook`.
+4. Option « Cloner ma voix » = une seule voix (désactive le cast multi).
 
 ## Worker
-- `engines/audiobook.py` : split chapitres + tours de parole → trad NLLB (tags protégés) → OmniVoice par segment (instruct par speaker) → concat ffmpeg (+ pause 350ms).
-- Params `speakers`: `{ "Alice": { "instruct": "female, …" }, "Narrateur": { … } }`.
-- Mode clone : une seule voix pour tout le livre (multi-voix désactivé).
-- Progress par segment ; max 80 segments.
-- Résultat : WAV unique + `resultMeta.chapters` (+ `speaker`).
+- Split chapitres / tours de parole → **tags retirés avant NLLB** (évite hallucinations UE) → trad → tags remis → OmniVoice par speaker → concat.
+- Params `speakers`: `{ "Alice": { "instruct": "…" }, "Narrateur": { … } }`.
+- Max 80 segments ; `resultMeta.chapters` (+ `speaker`).
 
 ## Hors MVP B1 (reste Vague B / B2)
 - Reprise mid-job après crash.

@@ -3,58 +3,29 @@
 import {
   FormEvent,
   RefObject,
+  useEffect,
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import { useMutation, useQuery } from "convex/react";
-import {
-  AudioLines,
-  BookOpen,
-  Mic2,
-  Sparkles,
-  Wand2,
-} from "lucide-react";
+import { BookOpen, Mic2, Sparkles, Users } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
 import { LangPicker } from "./LangPicker";
 import { JobList } from "./JobList";
-import { PUBLIC_VOICES } from "../lib/publicVoices";
+import { PUBLIC_VOICES, type PublicVoice } from "../lib/publicVoices";
 import {
   detectSpeakers,
   NARRATOR_KEY,
   splitAudiobookText,
 } from "../lib/audiobookSplit";
 
-type VoiceMode = "keep" | "model" | "create";
-
 type Props = {
   sessionId: string;
   jobs: Doc<"jobs">[] | undefined;
   jobsLoading: boolean;
 };
-
-const GENDER = [
-  { id: "male", label: "Homme" },
-  { id: "female", label: "Femme" },
-] as const;
-
-const AGE = [
-  { id: "child", label: "Enfant" },
-  { id: "teenager", label: "Ado" },
-  { id: "young adult", label: "Jeune" },
-  { id: "middle-aged", label: "Adulte" },
-  { id: "elderly", label: "Aîné" },
-] as const;
-
-const PITCH = [
-  { id: "very low pitch", label: "Très grave" },
-  { id: "low pitch", label: "Grave" },
-  { id: "moderate pitch", label: "Médium" },
-  { id: "high pitch", label: "Aigu" },
-  { id: "very high pitch", label: "Très aigu" },
-] as const;
 
 const EXPRESS_TAGS = [
   { tag: "[laughter]", label: "Rire" },
@@ -81,29 +52,7 @@ Ils s'installent sous le baobab.
 Omar: [sigh] La suite est plus calme.
 Amina: [surprise-oh] Attends, regarde là-bas !`;
 
-function Chip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={
-        active
-          ? "min-h-9 rounded-full bg-[var(--ink)] px-3 text-xs font-semibold text-white"
-          : "min-h-9 rounded-full border border-[var(--line)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg-subtle)]"
-      }
-    >
-      {children}
-    </button>
-  );
-}
+const CAST_VOICES = PUBLIC_VOICES.filter((v) => !!v.instruct);
 
 function insertAtCursor(
   value: string,
@@ -128,28 +77,39 @@ function insertAtCursor(
   });
 }
 
+function guessVoiceId(name: string): string {
+  const low = name.toLowerCase();
+  const exact = CAST_VOICES.find((v) => v.name.toLowerCase() === low);
+  if (exact) return exact.id;
+  if (low.includes("amin")) return "amina";
+  if (low.includes("omar") || low.includes("ibrah")) return "omar";
+  if (low.includes("fatou") || low.includes("mari")) return "fatou";
+  // Heuristique genre par terminaison
+  if (/a$|ine$|elle$|ette$/i.test(name)) return "amina";
+  return "omar";
+}
+
+function voiceLabel(id: string | undefined): string {
+  if (!id) return "—";
+  return CAST_VOICES.find((v) => v.id === id)?.name ?? id;
+}
+
 export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
   const textRef = useRef<HTMLTextAreaElement | null>(null);
   const [title, setTitle] = useState("Mon livre audio");
   const [text, setText] = useState(DEFAULT_TEXT);
   const [sourceLang, setSourceLang] = useState("fr");
   const [targetLang, setTargetLang] = useState("en");
-  const [voiceMode, setVoiceMode] = useState<VoiceMode>("create");
-  const [gender, setGender] = useState("female");
-  const [age, setAge] = useState("young adult");
-  const [pitch, setPitch] = useState("moderate pitch");
+  const [cloneMode, setCloneMode] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [voiceRefFile, setVoiceRefFile] = useState<File | null>(null);
   const [presetRefStorageId, setPresetRefStorageId] = useState<
     Id<"_storage"> | null
   >(null);
-  const [selectedPublicId, setSelectedPublicId] = useState<string | null>(
-    "amina",
-  );
-  /** speaker → public voice id (empty = voix par défaut / narrateur) */
-  const [speakerVoiceIds, setSpeakerVoiceIds] = useState<
-    Record<string, string>
-  >({});
+  /** speaker → public voice id */
+  const [cast, setCast] = useState<Record<string, string>>({
+    [NARRATOR_KEY]: "amina",
+  });
   const [voiceConsent, setVoiceConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -160,15 +120,30 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
     sessionId ? { sessionId } : "skip",
   );
 
-  const instruct = useMemo(() => {
-    if (voiceMode !== "create") return "";
-    return [gender, age, pitch].filter(Boolean).join(", ");
-  }, [voiceMode, gender, age, pitch]);
-
   const chapters = useMemo(() => splitAudiobookText(text, 600), [text]);
   const speakers = useMemo(() => detectSpeakers(text), [text]);
+  const castRoles = useMemo(
+    () => [NARRATOR_KEY, ...speakers],
+    [speakers],
+  );
   const charCount = text.trim().length;
-  const multiVoice = speakers.length > 0 && voiceMode !== "keep";
+
+  // Auto-assigne une voix aux nouveaux personnages (style ElevenLabs)
+  useEffect(() => {
+    setCast((prev) => {
+      const next = { ...prev };
+      if (!next[NARRATOR_KEY]) next[NARRATOR_KEY] = "amina";
+      for (const name of speakers) {
+        if (!next[name]) next[name] = guessVoiceId(name);
+      }
+      return next;
+    });
+  }, [speakers]);
+
+  const narratorVoice: PublicVoice | undefined = CAST_VOICES.find(
+    (v) => v.id === cast[NARRATOR_KEY],
+  );
+  const instruct = cloneMode ? "" : narratorVoice?.instruct || "";
 
   const canSubmit =
     !!sessionId &&
@@ -178,8 +153,8 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
     !!sourceLang &&
     !!targetLang &&
     voiceConsent &&
-    !(voiceMode === "create" && !instruct) &&
-    !(voiceMode === "keep" && !voiceRefFile && !presetRefStorageId);
+    !(cloneMode && !voiceRefFile && !presetRefStorageId) &&
+    !(!cloneMode && !instruct);
 
   async function uploadAudio(file: File): Promise<string> {
     const uploadUrl = await generateUploadUrl({ sessionId });
@@ -194,34 +169,15 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
     return body.storageId;
   }
 
-  function applyPublic(id: string) {
-    const v = PUBLIC_VOICES.find((x) => x.id === id);
-    if (!v) return;
-    setSelectedPublicId(id);
-    if (!v.instruct) {
-      setVoiceMode("model");
-      return;
-    }
-    setVoiceMode("create");
-    setGender(v.gender || "female");
-    setAge(v.age || "young adult");
-    setPitch(v.pitch || "moderate pitch");
-  }
-
-  function buildSpeakersParam(): Record<string, { instruct: string }> | undefined {
-    if (!multiVoice) return undefined;
+  function buildSpeakersParam():
+    | Record<string, { instruct: string }>
+    | undefined {
+    if (cloneMode) return undefined;
     const map: Record<string, { instruct: string }> = {};
-    if (instruct) {
-      map[NARRATOR_KEY] = { instruct };
-    }
-    for (const name of speakers) {
-      const vid = speakerVoiceIds[name];
-      const pub = vid ? PUBLIC_VOICES.find((v) => v.id === vid) : null;
-      if (pub?.instruct) {
-        map[name] = { instruct: pub.instruct };
-      } else if (instruct) {
-        map[name] = { instruct };
-      }
+    for (const role of castRoles) {
+      const vid = cast[role];
+      const pub = CAST_VOICES.find((v) => v.id === vid);
+      if (pub?.instruct) map[role] = { instruct: pub.instruct };
     }
     return Object.keys(map).length ? map : undefined;
   }
@@ -232,9 +188,9 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
     setSubmitting(true);
     try {
       let refStorageId: string | undefined;
-      if (voiceMode === "keep" && voiceRefFile) {
+      if (cloneMode && voiceRefFile) {
         refStorageId = await uploadAudio(voiceRefFile);
-      } else if (voiceMode === "keep" && presetRefStorageId) {
+      } else if (cloneMode && presetRefStorageId) {
         refStorageId = presetRefStorageId;
       }
       const speakersParam = buildSpeakersParam();
@@ -246,9 +202,9 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
           text: text.trim(),
           sourceLang,
           targetLang,
-          voiceMode,
-          cloneVoice: voiceMode === "keep",
-          ...(voiceMode === "create" && instruct ? { instruct } : {}),
+          voiceMode: cloneMode ? "keep" : "create",
+          cloneVoice: cloneMode,
+          ...(instruct ? { instruct } : {}),
           ...(refStorageId ? { refStorageId } : {}),
           ...(speakersParam ? { speakers: speakersParam } : {}),
           speed,
@@ -272,8 +228,7 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
           Livre audio
         </h1>
         <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">
-          Chapitres, dialogues multi-voix et tags OmniVoice — une lecture
-          segment par segment.
+          Écris ton texte, assigne une voix à chaque personnage, génère.
         </p>
       </div>
 
@@ -306,10 +261,8 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
               <button
                 key={t.tag}
                 type="button"
-                onClick={() =>
-                  insertAtCursor(text, setText, textRef, t.tag)
-                }
-                className="min-h-8 rounded-full border border-[var(--line)] bg-white px-2.5 text-[11px] font-medium text-[var(--ink)] hover:bg-[var(--bg-subtle)]"
+                onClick={() => insertAtCursor(text, setText, textRef, t.tag)}
+                className="min-h-8 rounded-full border border-[var(--line)] bg-white px-2.5 text-[11px] font-medium hover:bg-[var(--bg-subtle)]"
                 title={t.tag}
               >
                 {t.label}
@@ -317,61 +270,33 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
             ))}
           </div>
           <p className="text-xs text-[var(--muted)]">
-            Dialogues :{" "}
+            Dialogue :{" "}
             <code className="rounded bg-[var(--bg)] px-1">Nom: réplique</code>
             {" · "}
-            tags natifs OmniVoice · {charCount} car. · {chapters.length}{" "}
-            segment(s)
+            {charCount} car. · {chapters.length} segment(s)
             {speakers.length > 0 ? ` · ${speakers.length} personnage(s)` : ""}
           </p>
         </div>
 
         {chapters.length > 0 && (
-          <div className="space-y-2 rounded-2xl border border-[var(--line)] bg-[var(--bg)] p-4">
+          <div className="space-y-2">
             <p className="flex items-center gap-2 text-sm font-semibold">
               <BookOpen className="size-4 text-[var(--signal)]" aria-hidden />
-              Découpe prévue
+              Découpe
             </p>
-            <ol className="max-h-52 space-y-1.5 overflow-y-auto text-xs">
-              {chapters.slice(0, 28).map((ch, i) => (
-                <li
-                  key={`${ch.title}-${i}`}
-                  className="flex gap-2 border-b border-[var(--line)]/60 pb-1.5 last:border-0"
-                >
+            <ol className="max-h-40 space-y-1 overflow-y-auto text-xs">
+              {chapters.slice(0, 20).map((ch, i) => (
+                <li key={`${ch.title}-${i}`} className="flex gap-2 py-0.5">
                   <span className="w-5 shrink-0 text-[var(--muted)]">
                     {i + 1}.
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="font-medium">
-                      {ch.speaker !== NARRATOR_KEY ? (
-                        <span className="text-[var(--signal)]">
-                          {ch.speaker}
-                        </span>
-                      ) : (
-                        ch.title
-                      )}
-                      {ch.speaker !== NARRATOR_KEY && (
-                        <span className="font-normal text-[var(--muted)]">
-                          {" "}
-                          · {ch.title}
-                        </span>
-                      )}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[var(--muted)]">
-                      {ch.text}
-                    </span>
+                  <span className="min-w-[4.5rem] shrink-0 font-semibold text-[var(--signal)]">
+                    {ch.speaker}
                   </span>
-                  <span className="shrink-0 text-[var(--muted)]">
-                    {ch.text.length}
-                  </span>
+                  <span className="truncate text-[var(--muted)]">{ch.text}</span>
                 </li>
               ))}
             </ol>
-            {chapters.length > 28 && (
-              <p className="text-xs text-[var(--muted)]">
-                +{chapters.length - 28} autres segments…
-              </p>
-            )}
             {chapters.length > 80 && (
               <p className="text-sm text-[var(--danger)]">
                 Max 80 segments — regroupe ton texte.
@@ -393,181 +318,98 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
           />
         </div>
 
-        <fieldset className="space-y-3">
-          <legend className="text-sm font-medium">
-            Voix par défaut (narrateur)
+        {/* Cast — une ligne par rôle, chips voix (ElevenLabs-like) */}
+        <fieldset className="space-y-4">
+          <legend className="flex items-center gap-2 text-sm font-semibold">
+            <Users className="size-4 text-[var(--signal)]" aria-hidden />
+            Voix des personnages
           </legend>
-          <div className="flex flex-wrap gap-2">
-            {PUBLIC_VOICES.slice(0, 8).map((v) => (
-              <button
-                key={v.id}
-                type="button"
-                onClick={() => applyPublic(v.id)}
-                className={
-                  selectedPublicId === v.id
-                    ? "min-h-9 rounded-full bg-[var(--ink)] px-3 text-xs font-semibold text-white"
-                    : "min-h-9 rounded-full border border-[var(--line)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg-subtle)]"
-                }
-              >
-                {v.name}
-              </button>
-            ))}
-          </div>
-        </fieldset>
+          <p className="text-xs text-[var(--muted)]">
+            Clique une voix pour chaque rôle. Les lignes{" "}
+            <code className="rounded bg-[var(--bg)] px-1">Nom:</code> du
+            manuscrit apparaissent ici automatiquement.
+          </p>
 
-        {savedVoices && savedVoices.length > 0 && (
-          <fieldset className="space-y-2">
-            <legend className="text-sm font-medium">Mes voix</legend>
-            <div className="flex flex-wrap gap-2">
-              {savedVoices.slice(0, 8).map((v) => (
-                <button
-                  key={v._id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedPublicId(null);
-                    if (v.kind === "design" && v.instruct) {
-                      setVoiceMode("create");
-                      setPresetRefStorageId(null);
-                      if (v.gender) setGender(v.gender);
-                      if (v.age) setAge(v.age);
-                      if (v.pitch) setPitch(v.pitch);
-                      if (typeof v.speed === "number") setSpeed(v.speed);
-                    } else if (v.kind === "clone" && v.refStorageId) {
-                      setVoiceMode("keep");
-                      setVoiceRefFile(null);
-                      setPresetRefStorageId(v.refStorageId);
-                      if (typeof v.speed === "number") setSpeed(v.speed);
-                    }
-                  }}
-                  className="min-h-9 rounded-full border border-[var(--line)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg-subtle)]"
-                >
-                  {v.name}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-        )}
-
-        <fieldset className="space-y-2">
-          <legend className="text-sm font-medium">Mode voix</legend>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {(
-              [
-                ["keep", "Ma voix", Mic2],
-                ["model", "Modèle", AudioLines],
-                ["create", "Créer", Wand2],
-              ] as const
-            ).map(([id, label, Icon]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => {
-                  setVoiceMode(id);
-                  setSelectedPublicId(null);
-                }}
-                className={
-                  voiceMode === id
-                    ? "flex min-h-12 items-center gap-2 rounded-xl bg-[var(--ink)] px-3 text-sm font-semibold text-white"
-                    : "flex min-h-12 items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 text-sm font-medium hover:bg-[var(--bg-subtle)]"
-                }
-              >
-                <Icon className="size-4" aria-hidden />
-                {label}
-              </button>
-            ))}
-          </div>
-          {voiceMode === "keep" && speakers.length > 0 && (
-            <p className="text-xs text-[var(--muted)]">
-              Clone = une seule voix pour tout le livre (y compris les
-              dialogues). Passe en « Créer » pour assigner une voix par
-              personnage.
+          {cloneMode ? (
+            <p className="rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--muted)]">
+              Mode clone : une seule voix pour tout le livre (narrateur +
+              dialogues).
             </p>
+          ) : (
+            <ul className="space-y-4">
+              {castRoles.map((role) => {
+                const selected = cast[role] || "";
+                const initial = role.slice(0, 1).toUpperCase();
+                return (
+                  <li key={role} className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--ink)] text-xs font-bold text-white"
+                        aria-hidden
+                      >
+                        {initial}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold">{role}</p>
+                        <p className="text-[11px] text-[var(--muted)]">
+                          → {voiceLabel(selected)}
+                          {CAST_VOICES.find((v) => v.id === selected)?.blurb
+                            ? ` · ${CAST_VOICES.find((v) => v.id === selected)?.blurb}`
+                            : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 pl-10">
+                      {CAST_VOICES.map((v) => {
+                        const active = selected === v.id;
+                        return (
+                          <button
+                            key={`${role}-${v.id}`}
+                            type="button"
+                            onClick={() =>
+                              setCast((prev) => ({ ...prev, [role]: v.id }))
+                            }
+                            className={
+                              active
+                                ? "min-h-8 rounded-full bg-[var(--ink)] px-3 text-[11px] font-semibold text-white"
+                                : "min-h-8 rounded-full border border-[var(--line)] bg-white px-3 text-[11px] font-medium hover:bg-[var(--bg-subtle)]"
+                            }
+                            title={v.instruct}
+                          >
+                            {v.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </fieldset>
 
-        {voiceMode === "create" && (
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              {GENDER.map((g) => (
-                <Chip
-                  key={g.id}
-                  active={gender === g.id}
-                  onClick={() => setGender(g.id)}
-                >
-                  {g.label}
-                </Chip>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {AGE.map((a) => (
-                <Chip
-                  key={a.id}
-                  active={age === a.id}
-                  onClick={() => setAge(a.id)}
-                >
-                  {a.label}
-                </Chip>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {PITCH.map((p) => (
-                <Chip
-                  key={p.id}
-                  active={pitch === p.id}
-                  onClick={() => setPitch(p.id)}
-                >
-                  {p.label}
-                </Chip>
-              ))}
-            </div>
-            <p className="rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-2 font-mono text-xs text-[var(--signal)]">
-              {instruct || "—"}
-            </p>
-          </div>
-        )}
+        <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-3">
+          <input
+            type="checkbox"
+            checked={cloneMode}
+            onChange={(e) => {
+              setCloneMode(e.target.checked);
+              if (!e.target.checked) setVoiceRefFile(null);
+            }}
+            className="mt-1 size-4 accent-[var(--ink)]"
+          />
+          <span className="text-sm leading-snug">
+            <span className="inline-flex items-center gap-1.5 font-medium">
+              <Mic2 className="size-3.5" aria-hidden />
+              Cloner ma voix
+            </span>
+            <span className="mt-0.5 block text-xs text-[var(--muted)]">
+              Une seule voix pour tout le livre — désactive le cast multi-voix.
+            </span>
+          </span>
+        </label>
 
-        {multiVoice && (
-          <fieldset className="space-y-3">
-            <legend className="text-sm font-medium">
-              Voix des personnages
-            </legend>
-            <p className="text-xs text-[var(--muted)]">
-              Narrateur = voix par défaut ci-dessus. Choisis une voix publique
-              pour chaque nom détecté.
-            </p>
-            <ul className="space-y-2">
-              {speakers.map((name) => (
-                <li
-                  key={name}
-                  className="flex flex-wrap items-center gap-2 sm:gap-3"
-                >
-                  <span className="min-w-[5.5rem] text-sm font-semibold text-[var(--signal)]">
-                    {name}
-                  </span>
-                  <select
-                    value={speakerVoiceIds[name] || ""}
-                    onChange={(e) =>
-                      setSpeakerVoiceIds((prev) => ({
-                        ...prev,
-                        [name]: e.target.value,
-                      }))
-                    }
-                    className="min-h-10 min-w-[12rem] flex-1 rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--signal)]/30"
-                  >
-                    <option value="">Comme le narrateur</option>
-                    {PUBLIC_VOICES.filter((v) => v.instruct).map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name} — {v.blurb}
-                      </option>
-                    ))}
-                  </select>
-                </li>
-              ))}
-            </ul>
-          </fieldset>
-        )}
-
-        {voiceMode === "keep" && (
+        {cloneMode && (
           <label className="block space-y-2">
             <span className="text-sm font-medium">Échantillon de voix</span>
             <input
@@ -579,10 +421,29 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
               }}
               className="block w-full text-sm file:mr-3 file:min-h-11 file:rounded-xl file:border-0 file:bg-[var(--ink)] file:px-4 file:text-sm file:font-semibold file:text-white"
             />
-            {!voiceRefFile && presetRefStorageId && (
-              <span className="text-xs text-[var(--signal)]">
-                Échantillon du preset sélectionné
-              </span>
+            {savedVoices && savedVoices.some((v) => v.kind === "clone") && (
+              <div className="flex flex-wrap gap-2">
+                {savedVoices
+                  .filter((v) => v.kind === "clone" && v.refStorageId)
+                  .slice(0, 6)
+                  .map((v) => (
+                    <button
+                      key={v._id}
+                      type="button"
+                      onClick={() => {
+                        setVoiceRefFile(null);
+                        setPresetRefStorageId(v.refStorageId!);
+                      }}
+                      className={
+                        presetRefStorageId === v.refStorageId
+                          ? "min-h-8 rounded-full bg-[var(--ink)] px-3 text-xs font-semibold text-white"
+                          : "min-h-8 rounded-full border border-[var(--line)] bg-white px-3 text-xs font-medium"
+                      }
+                    >
+                      {v.name}
+                    </button>
+                  ))}
+              </div>
             )}
           </label>
         )}
@@ -610,8 +471,7 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
             className="mt-1 size-4 accent-[var(--ink)]"
           />
           <span className="text-sm leading-snug">
-            Consentement explicite pour la voix / clonage utilisés dans ce livre
-            audio.
+            Consentement explicite pour les voix utilisées dans ce livre audio.
           </span>
         </label>
 
