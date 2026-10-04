@@ -654,6 +654,20 @@ def translate_text(
     model.eval()
 
     source = text.strip()
+    # Ne pas traduire le label « Amina: … » (sinon NLLB hallucine)
+    _spk = re.match(
+        r"^([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9'’\- ]{0,39}?)\s*[:：—–]\s+(.+)$",
+        source,
+        flags=re.DOTALL,
+    )
+    if _spk and _spk.group(1).strip().casefold() not in {
+        "http",
+        "https",
+        "note",
+        "ps",
+        "nb",
+    }:
+        source = _spk.group(2).strip()
     # FR oral : coupes claires avant WO/EN (réduit les fuites d’amorces)
     if src_f == "fra_Latn" and (tgt_f in _CLAUSE_TGTS or tgt_f == "eng_Latn"):
         source = _prep_fr_clauses(source)
