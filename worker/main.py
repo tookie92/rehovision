@@ -226,12 +226,34 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
             voice_mode = str(params.get("voiceMode") or "").strip().lower()
             if voice_mode in ("keep", "clone", "garder"):
                 clone_voice = True
-            elif voice_mode in ("model", "auto", "modele", "modèle"):
+            elif voice_mode in (
+                "model",
+                "auto",
+                "modele",
+                "modèle",
+                "create",
+                "design",
+                "creator",
+            ):
                 clone_voice = False
             else:
                 clone_voice = bool(params.get("cloneVoice", True))
+            instruct = params.get("instruct")
+            instruct_s = str(instruct).strip() if instruct else ""
+            if voice_mode in ("create", "design", "creator") and not instruct_s:
+                raise RuntimeError(
+                    "Mode « Créer une voix » : choisis au moins un attribut "
+                    "(genre, âge, pitch…)."
+                )
+            speed_raw = params.get("speed")
+            speed_f: float | None = None
+            if speed_raw is not None and str(speed_raw).strip() != "":
+                try:
+                    speed_f = float(speed_raw)
+                except (TypeError, ValueError) as exc:
+                    raise RuntimeError(f"speed invalide: {speed_raw}") from exc
             log.info(
-                "Job %s %s — %s→%s text=%s audio=%s clone=%s",
+                "Job %s %s — %s→%s text=%s audio=%s clone=%s mode=%s speed=%s",
                 job_id,
                 job_type,
                 source_lang,
@@ -239,8 +261,9 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 bool(text),
                 bool(source_path),
                 clone_voice,
+                voice_mode or ("keep" if clone_voice else "model"),
+                speed_f,
             )
-            instruct = params.get("instruct")
             target_text = str(params.get("targetText") or "").strip() or None
             auto_tr = params.get("autoTranslate")
             if auto_tr is not None:
@@ -256,12 +279,18 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 target_lang=target_lang,
                 target_text=target_text,
                 auto_translate=auto_tr,
-                instruct=str(instruct) if instruct else None,
+                instruct=instruct_s or None,
                 clone_voice=clone_voice,
                 ref_audio_path=ref_path,
+                speed=speed_f,
                 on_progress=set_progress,
             )
             audio_path = dub.path
+            resolved_mode = (
+                "keep"
+                if dub.clone
+                else ("create" if instruct_s else "model")
+            )
             result_meta = {
                 "sourceText": dub.source_text[:2000],
                 "spokenText": dub.spoken_text[:2000],
@@ -269,7 +298,9 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 "clone": dub.clone,
                 "sourceLang": dub.source_lang,
                 "targetLang": dub.target_lang,
-                "voiceMode": "keep" if dub.clone else "model",
+                "voiceMode": resolved_mode,
+                "instruct": instruct_s[:500] if instruct_s else None,
+                "speed": speed_f,
             }
         elif job_type == "clips":
             source_storage = params.get("sourceStorageId")

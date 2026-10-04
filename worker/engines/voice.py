@@ -42,6 +42,7 @@ def generate_voice(
     instruct: str | None = None,
     ref_audio: Path | str | None = None,
     ref_text: str | None = None,
+    speed: float | None = None,
 ) -> Path:
     engine = os.environ.get("VOICE_ENGINE", "auto").strip().lower()
     text = text.strip()
@@ -51,6 +52,8 @@ def generate_voice(
     ref_path = Path(ref_audio) if ref_audio else None
     if ref_path is not None and not ref_path.is_file():
         raise RuntimeError(f"Audio de référence introuvable: {ref_path}")
+
+    speed_f = _clamp_speed(speed)
 
     if engine == "stub":
         return _generate_stub(text, source_lang, target_lang, duration_s)
@@ -63,7 +66,7 @@ def generate_voice(
         return _generate_piper(text, target_lang)
     if engine == "omnivoice":
         return _generate_omnivoice(
-            text, target_lang, instruct, ref_path, ref_text
+            text, target_lang, instruct, ref_path, ref_text, speed=speed_f
         )
 
     # auto
@@ -77,7 +80,7 @@ def generate_voice(
 
     try:
         return _generate_omnivoice(
-            text, target_lang, instruct, ref_path, ref_text
+            text, target_lang, instruct, ref_path, ref_text, speed=speed_f
         )
     except Exception as exc:  # noqa: BLE001
         msg = _friendly_voice_error(exc, clone=bool(ref_path), lang=target_lang)
@@ -290,12 +293,25 @@ def prepare_clone_ref(
     return ref_path, ref_text
 
 
+def _clamp_speed(speed: float | None) -> float | None:
+    if speed is None:
+        return None
+    try:
+        s = float(speed)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(s):
+        return None
+    return max(0.5, min(2.0, s))
+
+
 def _generate_omnivoice(
     text: str,
     target_lang: str,
     instruct: str | None,
     ref_audio: Path | None = None,
     ref_text: str | None = None,
+    speed: float | None = None,
 ) -> Path:
     from engines.gpu_util import free_vram
 
@@ -312,7 +328,7 @@ def _generate_omnivoice(
 
     if not in_process and py:
         return _generate_omnivoice_subprocess(
-            py, text, target_lang, instruct, ref_path, ref_text
+            py, text, target_lang, instruct, ref_path, ref_text, speed=speed
         )
 
     import soundfile as sf
@@ -320,6 +336,8 @@ def _generate_omnivoice(
     model = _ensure_omnivoice()
     language = _omnivoice_language_arg(target_lang)
     kwargs: dict = {"text": text, "language": language}
+    if speed is not None and speed != 1.0:
+        kwargs["speed"] = speed
     if ref_path is not None:
         kwargs["ref_audio"] = str(ref_path)
         if not (ref_text and ref_text.strip()):
@@ -329,17 +347,18 @@ def _generate_omnivoice(
             )
         kwargs["ref_text"] = ref_text.strip()
         log.info(
-            "OmniVoice CLONE ref=%s ref_text=%d chars language=%s spoken=%d",
+            "OmniVoice CLONE ref=%s ref_text=%d chars language=%s spoken=%d speed=%s",
             ref_path.name,
             len(ref_text or ""),
             language,
             len(text),
+            speed,
         )
     elif instruct:
         kwargs["instruct"] = instruct
-        log.info("OmniVoice DESIGN instruct language=%s", language)
+        log.info("OmniVoice DESIGN instruct=%s language=%s speed=%s", instruct, language, speed)
     else:
-        log.info("OmniVoice AUTO language=%s", language)
+        log.info("OmniVoice AUTO language=%s speed=%s", language, speed)
 
     audio = model.generate(**kwargs)
     wav = audio[0] if isinstance(audio, (list, tuple)) else audio
@@ -356,6 +375,7 @@ def _generate_omnivoice_subprocess(
     instruct: str | None,
     ref_audio: Path | None = None,
     ref_text: str | None = None,
+    speed: float | None = None,
 ) -> Path:
     import json
     import subprocess
@@ -371,6 +391,7 @@ def _generate_omnivoice_subprocess(
         "language": language,
         "ref_audio": str(ref_audio) if ref_audio else None,
         "ref_text": (ref_text or "").strip() or None,
+        "speed": speed,
         "tokenizer_cpu": os.environ.get("OMNIVOICE_TOKENIZER_CPU", "1") != "0",
     }
     script = r"""
@@ -398,6 +419,8 @@ lang = cfg.get("language")
 if lang and lang not in LANG_IDS:
     lang = None
 kwargs = {"text": cfg["text"], "language": lang}
+if cfg.get("speed") is not None and float(cfg["speed"]) != 1.0:
+    kwargs["speed"] = float(cfg["speed"])
 if cfg.get("ref_audio"):
     if not cfg.get("ref_text"):
         raise SystemExit("ref_text required for clone")
@@ -415,7 +438,7 @@ if torch.cuda.is_available():
 print(cfg["out"])
 """
     mode = "CLONE" if ref_audio else ("DESIGN" if instruct else "AUTO")
-    log.info("OmniVoice %s via subprocess %s", mode, python_bin)
+    log.info("OmniVoice %s via subprocess %s speed=%s", mode, python_bin, speed)
     env = os.environ.copy()
     env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     proc = subprocess.run(

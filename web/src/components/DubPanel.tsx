@@ -1,14 +1,31 @@
 "use client";
 
 import { useMutation } from "convex/react";
-import { FormEvent, useState } from "react";
-import { ArrowLeft, ArrowRight, Mic2, Sparkles } from "lucide-react";
+import {
+  FormEvent,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  AudioLines,
+  Gauge,
+  Mic2,
+  Sparkles,
+  UserRound,
+  Wand2,
+} from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { LangPicker } from "./LangPicker";
 import { JobList } from "./JobList";
 import type { Doc } from "@convex/_generated/dataModel";
 
 type DubMode = "narration" | "doublage";
+type VoiceMode = "keep" | "model" | "create";
 type Step = 1 | 2 | 3;
 
 type Props = {
@@ -16,6 +33,107 @@ type Props = {
   jobs: Doc<"jobs">[] | undefined;
   jobsLoading: boolean;
 };
+
+const GENDER = [
+  { id: "male", label: "Homme" },
+  { id: "female", label: "Femme" },
+] as const;
+
+const AGE = [
+  { id: "child", label: "Enfant" },
+  { id: "teenager", label: "Ado" },
+  { id: "young adult", label: "Jeune" },
+  { id: "middle-aged", label: "Adulte" },
+  { id: "elderly", label: "Aîné" },
+] as const;
+
+const PITCH = [
+  { id: "very low pitch", label: "Très grave" },
+  { id: "low pitch", label: "Grave" },
+  { id: "moderate pitch", label: "Médium" },
+  { id: "high pitch", label: "Aigu" },
+  { id: "very high pitch", label: "Très aigu" },
+] as const;
+
+const ACCENTS = [
+  { id: "american accent", label: "Américain" },
+  { id: "british accent", label: "Britannique" },
+  { id: "australian accent", label: "Australien" },
+  { id: "canadian accent", label: "Canadien" },
+  { id: "indian accent", label: "Indien" },
+  { id: "chinese accent", label: "Chinois" },
+  { id: "japanese accent", label: "Japonais" },
+  { id: "korean accent", label: "Coréen" },
+  { id: "portuguese accent", label: "Portugais" },
+  { id: "russian accent", label: "Russe" },
+] as const;
+
+const SPEED_PRESETS = [
+  { id: 0.8, label: "Lente" },
+  { id: 1, label: "Naturelle" },
+  { id: 1.2, label: "Vive" },
+] as const;
+
+/** Tags OmniVoice non-verbaux (pas ElevenLabs emotion tags). */
+const EXPRESS_TAGS = [
+  { tag: "[laughter]", label: "Rire" },
+  { tag: "[sigh]", label: "Soupir" },
+  { tag: "[surprise-oh]", label: "Surprise" },
+  { tag: "[surprise-ah]", label: "Étonnement" },
+  { tag: "[question-en]", label: "Question" },
+  { tag: "[confirmation-en]", label: "Hmm" },
+  { tag: "[dissatisfaction-hnn]", label: "Mécontent" },
+] as const;
+
+function Chip({
+  active,
+  onClick,
+  children,
+  size = "md",
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+  size?: "sm" | "md";
+}) {
+  const pad = size === "sm" ? "min-h-9 px-3 text-xs" : "min-h-10 px-3.5 text-sm";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        active
+          ? `${pad} rounded-full bg-[var(--ink)] font-semibold text-white transition-colors duration-200`
+          : `${pad} rounded-full border border-[var(--line)] bg-white font-medium text-[var(--ink)] transition-colors duration-200 hover:border-[var(--line-strong)] hover:bg-[var(--bg-subtle)]`
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
+function insertAtCursor(
+  value: string,
+  setValue: (v: string) => void,
+  ref: RefObject<HTMLTextAreaElement | null>,
+  insert: string,
+) {
+  const el = ref.current;
+  const chunk = insert.endsWith(" ") ? insert : `${insert} `;
+  if (!el) {
+    setValue(`${value}${chunk}`);
+    return;
+  }
+  const start = el.selectionStart ?? value.length;
+  const end = el.selectionEnd ?? value.length;
+  const next = value.slice(0, start) + chunk + value.slice(end);
+  setValue(next);
+  requestAnimationFrame(() => {
+    el.focus();
+    const pos = start + chunk.length;
+    el.setSelectionRange(pos, pos);
+  });
+}
 
 export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
   const [step, setStep] = useState<Step>(1);
@@ -25,7 +143,7 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
   );
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [voiceRefFile, setVoiceRefFile] = useState<File | null>(null);
-  const [voiceMode, setVoiceMode] = useState<"keep" | "model">("keep");
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>("keep");
   const [sourceLang, setSourceLang] = useState("fr");
   const [targetLang, setTargetLang] = useState("wo");
   const [voiceConsent, setVoiceConsent] = useState(false);
@@ -35,9 +153,31 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // Voice Lab
+  const [gender, setGender] = useState<string>("female");
+  const [age, setAge] = useState<string>("young adult");
+  const [pitch, setPitch] = useState<string>("moderate pitch");
+  const [accent, setAccent] = useState<string>("");
+  const [whisper, setWhisper] = useState(false);
+  const [speed, setSpeed] = useState(1);
+
+  const spokenRef = useRef<HTMLTextAreaElement>(null);
+
   const createJob = useMutation(api.jobs.create);
   const generateUploadUrl = useMutation(api.jobs.generateUploadUrl);
   const cloneVoice = voiceMode === "keep";
+  const showAccents = targetLang === "en" || targetLang.startsWith("en");
+
+  const instruct = useMemo(() => {
+    if (voiceMode !== "create") return "";
+    const parts: string[] = [];
+    if (gender) parts.push(gender);
+    if (age) parts.push(age);
+    if (pitch) parts.push(pitch);
+    if (whisper) parts.push("whisper");
+    if (showAccents && accent) parts.push(accent);
+    return parts.join(", ");
+  }, [voiceMode, gender, age, pitch, whisper, accent, showAccents]);
 
   const step1Ok =
     !!sessionId &&
@@ -49,7 +189,8 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     step1Ok &&
     !!sourceLang &&
     !!targetLang &&
-    !(cloneVoice && dubMode === "narration" && !voiceRefFile && !audioFile);
+    !(cloneVoice && dubMode === "narration" && !voiceRefFile && !audioFile) &&
+    !(voiceMode === "create" && !instruct);
 
   const canPrepare = step2Ok && text.trim().length > 0;
 
@@ -140,6 +281,8 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
           autoTranslate: false,
           cloneVoice,
           voiceMode,
+          ...(voiceMode === "create" && instruct ? { instruct } : {}),
+          speed,
           voiceConsent: true,
           consentAt: Date.now(),
           mode: dubMode,
@@ -159,6 +302,9 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
       setSubmitting(false);
     }
   }
+
+  const speedLabel =
+    speed < 0.9 ? "Plus lente" : speed > 1.1 ? "Plus vive" : "Naturelle";
 
   return (
     <section className="space-y-6">
@@ -276,7 +422,7 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
         )}
 
         {step === 2 && (
-          <div className="space-y-5">
+          <div className="space-y-6">
             <div className="grid gap-4 sm:grid-cols-2">
               <LangPicker
                 label="Langue source"
@@ -286,53 +432,82 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
               <LangPicker
                 label="Langue cible"
                 value={targetLang}
-                onChange={setTargetLang}
+                onChange={(lang) => {
+                  setTargetLang(lang);
+                  if (lang !== "en" && !lang.startsWith("en")) {
+                    setAccent("");
+                  }
+                }}
               />
             </div>
 
-            <fieldset className="space-y-2">
-              <legend className="text-sm font-medium">Voix</legend>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setVoiceMode("keep")}
-                  className={
-                    voiceMode === "keep"
-                      ? "min-h-14 rounded-xl bg-[var(--ink)] px-4 py-3 text-left text-sm font-semibold text-white"
-                      : "min-h-14 rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-[var(--bg-subtle)]"
-                  }
-                >
-                  Garder ma voix
-                  <span
-                    className={
-                      voiceMode === "keep"
-                        ? "mt-0.5 block text-xs font-normal text-white/70"
-                        : "mt-0.5 block text-xs font-normal text-[var(--muted)]"
-                    }
-                  >
-                    Clone depuis l’échantillon
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setVoiceMode("model")}
-                  className={
-                    voiceMode === "model"
-                      ? "min-h-14 rounded-xl bg-[var(--ink)] px-4 py-3 text-left text-sm font-semibold text-white"
-                      : "min-h-14 rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-[var(--bg-subtle)]"
-                  }
-                >
-                  Voix modèle
-                  <span
-                    className={
-                      voiceMode === "model"
-                        ? "mt-0.5 block text-xs font-normal text-white/70"
-                        : "mt-0.5 block text-xs font-normal text-[var(--muted)]"
-                    }
-                  >
-                    OmniVoice sans clone
-                  </span>
-                </button>
+            {/* Voice mode — 3 clear paths */}
+            <fieldset className="space-y-3">
+              <legend className="text-sm font-medium">Comment obtenir la voix ?</legend>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {(
+                  [
+                    {
+                      id: "keep" as const,
+                      title: "Ma voix",
+                      desc: "Clone depuis un échantillon",
+                      Icon: Mic2,
+                    },
+                    {
+                      id: "model" as const,
+                      title: "Voix modèle",
+                      desc: "Choix automatique OmniVoice",
+                      Icon: AudioLines,
+                    },
+                    {
+                      id: "create" as const,
+                      title: "Créer une voix",
+                      desc: "Compose genre, âge, timbre",
+                      Icon: Wand2,
+                    },
+                  ] as const
+                ).map(({ id, title, desc, Icon }) => {
+                  const on = voiceMode === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setVoiceMode(id)}
+                      className={
+                        on
+                          ? "group relative min-h-[5.5rem] overflow-hidden rounded-2xl bg-[var(--ink)] px-4 py-3.5 text-left text-white transition-transform duration-200"
+                          : "min-h-[5.5rem] rounded-2xl border border-[var(--line)] bg-white px-4 py-3.5 text-left transition-colors duration-200 hover:border-[var(--line-strong)] hover:bg-[var(--bg-subtle)]"
+                      }
+                    >
+                      {on && (
+                        <span
+                          aria-hidden
+                          className="pointer-events-none absolute -right-4 -top-4 size-20 rounded-full bg-[var(--signal)]/25 blur-2xl"
+                        />
+                      )}
+                      <Icon
+                        className={
+                          on
+                            ? "relative mb-2 size-4 text-[var(--signal-soft)]"
+                            : "mb-2 size-4 text-[var(--muted)]"
+                        }
+                        aria-hidden
+                      />
+                      <span className="relative block text-sm font-semibold">
+                        {title}
+                      </span>
+                      <span
+                        className={
+                          on
+                            ? "relative mt-0.5 block text-xs font-normal text-white/65"
+                            : "mt-0.5 block text-xs font-normal text-[var(--muted)]"
+                        }
+                      >
+                        {desc}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </fieldset>
 
@@ -357,6 +532,176 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                 )}
               </label>
             )}
+
+            {voiceMode === "keep" && dubMode === "doublage" && (
+              <p className="rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-2.5 text-xs text-[var(--muted)]">
+                En doublage, la voix est clonée depuis l’audio source (pas besoin
+                d’échantillon séparé).
+              </p>
+            )}
+
+            {/* Voice Lab */}
+            {voiceMode === "create" && (
+              <div className="space-y-5 rounded-2xl border border-[var(--line)] bg-[linear-gradient(165deg,var(--bg)_0%,var(--bg-elevated)_45%,var(--signal-soft)_160%)] p-4 sm:p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+                      <UserRound className="size-4 text-[var(--signal)]" aria-hidden />
+                      Voice Lab
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Compose une voix en quelques chips — plus clair qu’une
+                      liste de sliders.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
+                    Genre
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {GENDER.map((g) => (
+                      <Chip
+                        key={g.id}
+                        active={gender === g.id}
+                        onClick={() => setGender(g.id)}
+                      >
+                        {g.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
+                    Âge
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {AGE.map((a) => (
+                      <Chip
+                        key={a.id}
+                        active={age === a.id}
+                        onClick={() => setAge(age === a.id ? "" : a.id)}
+                      >
+                        {a.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
+                    Timbre
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {PITCH.map((p) => (
+                      <Chip
+                        key={p.id}
+                        active={pitch === p.id}
+                        onClick={() => setPitch(pitch === p.id ? "" : p.id)}
+                        size="sm"
+                      >
+                        {p.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <Chip
+                    active={whisper}
+                    onClick={() => setWhisper((w) => !w)}
+                  >
+                    Chuchotement
+                  </Chip>
+                  {!showAccents && (
+                    <p className="text-xs text-[var(--muted)]">
+                      Accents EN : passe la langue cible en anglais.
+                    </p>
+                  )}
+                </div>
+
+                {showAccents && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
+                      Accent (anglais)
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Chip
+                        active={!accent}
+                        onClick={() => setAccent("")}
+                        size="sm"
+                      >
+                        Neutre
+                      </Chip>
+                      {ACCENTS.map((a) => (
+                        <Chip
+                          key={a.id}
+                          active={accent === a.id}
+                          onClick={() =>
+                            setAccent(accent === a.id ? "" : a.id)
+                          }
+                          size="sm"
+                        >
+                          {a.label}
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-[var(--line)] bg-white/80 px-3 py-2.5 backdrop-blur-sm">
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">
+                    Recette OmniVoice
+                  </p>
+                  <p className="mt-1 font-mono text-xs text-[var(--signal)] sm:text-sm">
+                    {instruct || "— choisis au moins un attribut"}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Speed — all voice modes */}
+            <div className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--bg)] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="flex items-center gap-2 text-sm font-semibold">
+                  <Gauge className="size-4 text-[var(--muted)]" aria-hidden />
+                  Rythme
+                </p>
+                <span className="rounded-full bg-[var(--signal-soft)] px-2.5 py-0.5 text-xs font-semibold text-[var(--signal)]">
+                  {speed.toFixed(2)}× · {speedLabel}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {SPEED_PRESETS.map((p) => (
+                  <Chip
+                    key={p.id}
+                    active={Math.abs(speed - p.id) < 0.01}
+                    onClick={() => setSpeed(p.id)}
+                    size="sm"
+                  >
+                    {p.label}
+                  </Chip>
+                ))}
+              </div>
+              <label className="block space-y-1">
+                <input
+                  type="range"
+                  min={0.7}
+                  max={1.3}
+                  step={0.05}
+                  value={speed}
+                  onChange={(e) => setSpeed(Number(e.target.value))}
+                  className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[var(--line)] accent-[var(--ink)]"
+                />
+                <div className="flex justify-between text-[10px] uppercase tracking-wider text-[var(--muted)]">
+                  <span>0.7×</span>
+                  <span>1.0×</span>
+                  <span>1.3×</span>
+                </div>
+              </label>
+            </div>
 
             {previewError && (
               <p className="rounded-xl border border-[var(--warn-line)] bg-[var(--warn-bg)] px-3 py-2 text-sm text-[var(--warn-ink)]">
@@ -393,26 +738,77 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
 
         {step === 3 && (
           <div className="space-y-5">
-            {sourceTextSnap && (
-              <p className="text-xs text-[var(--muted)]">
-                Source · {sourceLang} → {targetLang}
-              </p>
-            )}
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+                <span>
+                  Source · {sourceLang} → {targetLang}
+                </span>
+                <span aria-hidden>·</span>
+                <span>
+                  {voiceMode === "keep"
+                    ? "Clone"
+                    : voiceMode === "create"
+                      ? "Voix créée"
+                      : "Voix modèle"}
+                </span>
+                <span aria-hidden>·</span>
+                <span>{speed.toFixed(2)}×</span>
+                {voiceMode === "create" && instruct && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span className="font-mono text-[var(--signal)]">
+                      {instruct}
+                    </span>
+                  </>
+                )}
+              </div>
+              {sourceTextSnap ? (
+                <p className="line-clamp-2 text-xs text-[var(--muted)]">
+                  Origine : {sourceTextSnap}
+                </p>
+              ) : null}
+            </div>
 
-            <label className="block space-y-2">
-              <span className="text-sm font-medium">Texte lu (aperçu)</span>
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-medium">Texte lu (aperçu)</span>
+                <span className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
+                  Clique un tag pour l’insérer
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {EXPRESS_TAGS.map((t) => (
+                  <button
+                    key={t.tag}
+                    type="button"
+                    onClick={() =>
+                      insertAtCursor(
+                        spokenText,
+                        setSpokenText,
+                        spokenRef,
+                        t.tag,
+                      )
+                    }
+                    className="min-h-8 rounded-lg border border-[var(--line)] bg-white px-2.5 text-xs font-medium transition-colors duration-150 hover:border-[var(--signal)] hover:bg-[var(--signal-soft)] hover:text-[var(--signal)]"
+                    title={t.tag}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
               <textarea
+                ref={spokenRef}
                 value={spokenText}
                 onChange={(e) => setSpokenText(e.target.value)}
                 rows={6}
                 className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg)] px-4 py-3 text-[15px] leading-relaxed outline-none transition-shadow duration-200 focus:border-[var(--line-strong)] focus:ring-2 focus:ring-[var(--signal)]/30"
-                placeholder="Corrige légèrement si besoin…"
+                placeholder="Corrige légèrement si besoin… ou ajoute [laughter]"
               />
               <p className="text-xs text-[var(--muted)]">
-                Tu peux ajuster avant génération. Ce texte est envoyé tel quel
-                au TTS (pas de re-traduction).
+                Tags natifs OmniVoice ([laughter], [sigh]…). Le texte part tel
+                quel au TTS.
               </p>
-            </label>
+            </div>
 
             <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-3">
               <input

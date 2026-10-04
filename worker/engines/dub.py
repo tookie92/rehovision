@@ -41,6 +41,7 @@ def run_dub(
     instruct: str | None = None,
     clone_voice: bool = True,
     ref_audio_path: Path | None = None,
+    speed: float | None = None,
     on_progress: ProgressCb | None = None,
 ) -> DubResult:
     def prog(p: int, msg: str) -> None:
@@ -121,7 +122,8 @@ def run_dub(
                 "(échantillon ou audio source)."
             )
 
-    prog(70, f"TTS → {target_lang} ({'clone' if ref_path else 'modèle'})")
+    voice_label = "clone" if ref_path else ("design" if instruct else "modèle")
+    prog(70, f"TTS → {target_lang} ({voice_label})")
     log.info("TTS lit: %s", spoken[:200].replace("\n", " "))
     out = generate_voice(
         text=spoken,
@@ -130,6 +132,7 @@ def run_dub(
         instruct=instruct if not ref_path else None,
         ref_audio=ref_path,
         ref_text=ref_text,
+        speed=speed,
     )
     prog(78, f"Audio prêt: {out.name}")
     return DubResult(

@@ -1,22 +1,41 @@
-# Doublage — flux 3 étapes
+# Doublage — flux 3 étapes + Voice Lab
 
 Override de `MASTER.md` pour l’onglet Doublage / narration.
 
 ## Flux
 1. **Contenu** — Narration | Doublage ; script et/ou audio source.
-2. **Langues & voix** — 2 LangPicker (≤4 chips + search) ; Garder ma voix | Voix modèle ; échantillon ref seulement si narration + clone.
-3. **Aperçu** — « Préparer la traduction » → texte lu éditable ; consentement ; CTA « Générer ».
+2. **Langues & voix** — LangPicker ; 3 chemins voix ; rythme ; Voice Lab si création.
+3. **Aperçu** — texte lu éditable + tags expressifs ; consentement ; Générer.
+
+## Voix (étape 2)
+Trois cartes égales — une question claire : *Comment obtenir la voix ?*
+- **Ma voix** — clone OmniVoice (échantillon narration / audio source doublage).
+- **Voix modèle** — auto OmniVoice, sans instruct.
+- **Créer une voix** — Voice Lab : genre, âge, timbre, chuchotement, accents EN → `instruct` comma-separated (`female, young adult, moderate pitch`).
+
+### Voice Lab (UI)
+- Composition chips (pas un panneau de sliders ElevenLabs).
+- Recette live en mono teal (`instruct`).
+- Accents visibles seulement si langue cible = `en` (limitation OmniVoice).
+- Voice Lab + tags disponibles pour toutes les langues cibles (dont Wolof).
+- Fond gradient atelier clair + signal soft — pas de purple.
+
+### Rythme
+- Presets Lente 0.8× / Naturelle 1.0× / Vive 1.2× + slider 0.7–1.3.
+- Job param `speed` → OmniVoice `generate(speed=…)`.
+
+## Aperçu (étape 3)
+- Tags natifs OmniVoice insérés au curseur : `[laughter]`, `[sigh]`, `[surprise-oh]`, etc.
+- Pas de tags émotion ElevenLabs (`[excited]`…).
+- Job : `targetText` = aperçu, `autoTranslate: false`, `voiceMode`, `instruct?`, `speed`.
 
 ## Règles produit
-- Pas de champ « texte cible obligatoire ». L’utilisateur valide / corrige l’aperçu auto.
-- Job final : `targetText` = texte aperçu, `autoTranslate: false`.
-- Historique : afficher `resultMeta.spokenText` (« Texte lu »).
-- Tokens : atelier clair (`MASTER.md`) — pas de purple.
+- Pas de champ « texte cible obligatoire » avant aperçu.
+- Historique : `resultMeta.spokenText`, `voiceMode`, `instruct`, `speed`.
+- Tokens : atelier clair (`MASTER.md`).
 
 ## Traduction (NLLB)
-- MT = **NLLB-200** (`facebook/nllb-200-distilled-600M`), pas Ollama/llama.
-- Codes FLORES forcés + trad **clause par clause** + garde anti-fuite FR/EN (`welcome`/`bonjour`…).
-- Shona : pivot EN. Wolof : FR→WO direct (pas de pivot EN). Noms propres protégés (Joseph).
-- Ndebele (`nd`/`nr`) : proxy Zulu NLLB (pas de `nde_Latn` dans le modèle).
-- TTS = OmniVoice (inchangé) après unload VRAM.
-- Aperçu : `POST /api/preview-dub` → worker `http://127.0.0.1:8788/translate`.
+- MT = **NLLB-200** (`facebook/nllb-200-distilled-600M`).
+- Codes FLORES + clause par clause + garde anti-fuite FR/EN.
+- Shona : pivot EN. Wolof : FR→WO direct. Ndebele → proxy Zulu.
+- Aperçu : `POST /api/preview-dub` → worker `:8788/translate`.
