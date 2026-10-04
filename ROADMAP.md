@@ -1,46 +1,78 @@
-# ROADMAP — Rehovision (post-MVP musique)
+# ROADMAP — Rehovision
 
-## Fait (preuve d’archi)
-- [x] Convex self-hosted (Docker) + dashboard
-- [x] Schema `jobs` / `library` + API web/worker
-- [x] Next.js simple (prompt, durée, jobs temps réel, bibliothèque)
-- [x] Worker 1 job GPU à la fois (fake → upload local → complete)
-- [x] Tunnel `app.rehovision.com` + `convex.rehovision.com`
-- [ ] ACE-Step réel (download en cours → `MUSIC_ENGINE=acestep`)
+Atelier local (Next.js + Convex + worker GPU), UX type ElevenLabs :  
+**Doublage · Livre audio · Clips · Musique · Bibliothèque**.
 
-## En cours
-- [x] UI atelier type ElevenLabs (Doublage / Musique / Bibliothèque) + consentement voix
-- [x] Couche 1 lite : narration (texte→TTS) + doublage (audio→Whisper→Ollama→TTS)
-- [x] Piper FR réel (`VOICE_ENGINE=auto`) ; Whisper CPU + Ollama llama3.2
-- [ ] OmniVoice venv dédié (setup en bg après ACE-Step) → multilingue / instruct
-- [ ] ACE-Step réel (download HF en background, ~7G+)
+---
 
-## Prochaine étape immédiate
-1. Fin download ACE-Step → bascule `MUSIC_ENGINE=acestep` + smoke test musique
-2. Fin `setup_omnivoice.sh` → `OMNIVOICE_PYTHON` + smoke dub non-FR
-3. Tests langues avec locuteurs natifs
-4. Auth minimale avant expo publique
+## Fait
 
-## Couche 2 (en cours — stub)
-- [x] Onglet Clips UI (ElevenLabs atelier + shadcn-lite)
-- [x] Job `clips` + upload vidéo → worker ffmpeg (coupe N s)
-- [ ] Hooks IA / polish / export (après ACE + GPU libre)
+### Infra
+- [x] Convex self-hosted + Next.js + tunnel `app` / `convex`
+- [x] Jobs + library + worker 1 job GPU à la fois
+- [x] UI atelier (sidebar, consentement voix, historique)
 
-## Couche 3 (édition hybride)
-- [x] Propositions de segments (silence ffmpeg / découpe égale)
-- [x] UI Garder / Jeter + Appliquer → job `clip_edit`
-- [ ] Trim fin par poignées + reorder drag (plus tard)
+### Vague A — Doublage / Voice Lab
+- [x] Narration + doublage (Whisper → NLLB → OmniVoice)
+- [x] Voice Lab : instruct, tags OmniVoice, rythme, accents EN
+- [x] Mes voix (presets design / clone) + voix publiques
+- [x] Aperçu voix en anglais (timbre)
 
-## Couche 4 (suggestions lite)
-- [x] Suggestions heuristiques : hook ouverture, hook énergie, coupe faible, zoom punch-in
-- [x] Job `clip_suggest` + UI 1 clic Appliquer
-- [ ] Suggestions vision / ML (après GPU libre + modèles)
+### Vague B — Livre audio (B1 + B2)
+- [x] Chapitres + dialogues `Nom:` + tags
+- [x] Cast multi-voix (publique ou clone **par personnage**)
+- [x] Trad NLLB FR→EN (anti-fuite / tags hors modèle)
+- [x] Édition manuelle des segments avant envoi
+- [x] Lit musical ACE-Step sous narration
+- [x] Reprise mid-job (checkpoint Convex)
 
-## Suite produit (ordre recommandé)
-1. Auth minimale avant expo publique
-2. Clips IA lourds (vision hooks / polish) — cash
-3. Export / titres-hashtags
-4. Hors-scope tant que clips pas fiables : faceless, scheduling
+### Musique / Clips (socle)
+- [x] ACE-Step Create (prompt, lyrics, durée…)
+- [x] Clips stub : upload → coupe début (8 / 15 / 30 s) + segments + suggestions lite
+- [x] Couche 3/4 : `clip_edit` / `clip_suggest` (heuristiques)
 
-## Hors périmètre volontaire (pour l’instant)
-Paiement, multi-GPU, déploiement public large, NLE multitrack, OmniVoice/Suno.
+---
+
+## État actuel des onglets
+
+| Onglet | Maturité | Rôle |
+|--------|----------|------|
+| Doublage | Prod atelier | Voix / narrer / doubler |
+| Livre audio | Prod atelier (B2) | Manuscrit → cast → WAV long |
+| Clips | Stub utile | Hooks depuis une longue vidéo (pas CapCut) |
+| Musique | Prod légère | ACE-Step instrumental / paroles |
+| Bibliothèque | Basique | Outputs musique (+ à enrichir) |
+
+**Clips en clair** : ce n’est pas encore un générateur de Reels magiques.  
+C’est un **coupeur** : source longue → extrait de tête + versions (inclure/exclure, suggestions hook/cut/zoom).
+
+---
+
+## Prochaines étapes (ordre recommandé)
+
+### 0. Qualité / infra (court)
+- [ ] Anti-hallucinations NLLB encore plus strict si besoin
+- [ ] Upload Clips gros fichiers (1 h / ~220 Mo) : limites proxy / nginx / Convex (souvent 413)
+- [ ] Auth minimale avant expo publique
+
+### Vague C — Clips « vrais Reels » (à cadrer)
+- [ ] Extraire **plusieurs** hooks (pas seulement le début)
+- [ ] Durées 60 s / 90 s (aligné plateformes)
+- [ ] Captions / export 9:16
+- [ ] Option **HyperFrames** en polish (titres, overlays, motion) — **en plus** de ffmpeg, pas à la place
+
+### Ensuite
+- [ ] Musique : presets / variantes / lien biblio plus fort
+- [ ] Bibliothèque unifiée (voix, livres audio, clips, tracks)
+- [ ] Suggestions Clips vision / ML (quand GPU libre)
+
+---
+
+## Hors périmètre (pour l’instant)
+Paiement, multi-GPU, NLE multitrack complet, scheduling réseaux, faceless auto, déploiement public large.
+
+---
+
+## Notes
+- Docs UI : `design-system/rehovision/` (`MASTER.md`, `pages/dub.md`, `audiobook.md`, `clips.md`, `music.md`)
+- HyperFrames : bon pour **finition** Reel (HTML → MP4) ; le cœur découpe reste ffmpeg + jobs `clips` / `clip_edit` / `clip_suggest`
