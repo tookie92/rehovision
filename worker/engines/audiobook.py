@@ -1,6 +1,6 @@
 """
 Livre audio Couche B :
-  texte long → chapitres/paragraphes → (trad) → TTS chunk → concat ffmpeg
+  texte long → chapitres / dialogues → (trad) → TTS multi-voix → concat ffmpeg
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from engines.translate import can_auto_translate, translate
 from engines.voice import generate_voice, prepare_clone_ref
@@ -25,13 +25,20 @@ _CHAPTER_RE = re.compile(
     r"^(?:#{1,3}\s+|(?:chapitre|chapter|partie|part)\s+\d+\s*[:.\-—]?\s*)(.+)$",
     re.IGNORECASE,
 )
+# « Alice: … » / « Bob — … » (pas d’URL, pas d’heure)
+_SPEAKER_RE = re.compile(
+    r"^([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9'’\- ]{0,39}?)\s*[:：—–]\s+(.+)$"
+)
 _SENTENCE_RE = re.compile(r"(?<=[.!?…])\s+")
+_TAG_RE = re.compile(r"\[[^\]]+\]")
+NARRATOR_KEY = "Narrateur"
 
 
 @dataclass
-class Chapter:
+class Passage:
     title: str
     text: str
+    speaker: str  # "Narrateur" ou nom du personnage
 
 
 @dataclass
@@ -43,65 +50,148 @@ class AudiobookResult:
     translated: bool
     clone: bool
     char_count: int
+    speakers_used: list[str]
 
 
-def split_audiobook_text(text: str, *, max_chars: int = 600) -> list[Chapter]:
-    """Découpe en chapitres (titres) puis paragraphes, puis phrases si trop long."""
+def _norm_speaker(name: str) -> str:
+    s = (name or "").strip()
+    if not s:
+        return NARRATOR_KEY
+    # Normalise casse pour matching (Alice / alice)
+    return s[:1].upper() + s[1:] if len(s) > 1 else s.upper()
+
+
+def detect_speakers(text: str) -> list[str]:
+    """Noms détectés via lignes « Nom: réplique » (hors Narrateur)."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for line in (text or "").replace("\r\n", "\n").split("\n"):
+        m = _SPEAKER_RE.match(line.strip())
+        if not m:
+            continue
+        key = _norm_speaker(m.group(1))
+        low = key.casefold()
+        if low in seen or low == NARRATOR_KEY.casefold():
+            continue
+        # Évite faux positifs genre « http: » / « Note: »
+        if key.casefold() in {"http", "https", "note", "ps", "nb", "ex", "exemples"}:
+            continue
+        seen.add(low)
+        found.append(key)
+    return found
+
+
+def split_audiobook_text(text: str, *, max_chars: int = 600) -> list[Passage]:
+    """Découpe en chapitres, puis tours de parole / narration."""
     raw = (text or "").replace("\r\n", "\n").strip()
     if not raw:
         return []
 
     lines = raw.split("\n")
-    sections: list[tuple[str, list[str]]] = []
+    sections: list[tuple[str, str]] = []
     current_title = "Chapitre 1"
     buf: list[str] = []
 
-    def flush() -> None:
+    def flush_sec() -> None:
         nonlocal buf
         body = "\n".join(buf).strip()
         if body:
-            sections.append((current_title, [body]))
+            sections.append((current_title, body))
         buf = []
 
     for line in lines:
         m = _CHAPTER_RE.match(line.strip())
         if m:
-            flush()
+            flush_sec()
             current_title = m.group(1).strip() or line.strip().lstrip("#").strip()
             continue
         buf.append(line)
-    flush()
+    flush_sec()
 
     if not sections:
-        sections = [("Chapitre 1", [raw])]
+        sections = [("Chapitre 1", raw)]
 
-    # Si un seul bloc sans vrais titres, re-découper en paragraphes
-    chapters: list[Chapter] = []
-    for title, bodies in sections:
-        body = "\n".join(bodies).strip()
-        paras = [p.strip() for p in re.split(r"\n\s*\n+", body) if p.strip()]
-        if len(paras) <= 1 and len(body) > max_chars:
-            paras = _split_long(body, max_chars)
-        elif len(paras) == 0:
+    passages: list[Passage] = []
+    for title, body in sections:
+        turns = _split_dialogue_turns(body)
+        if not turns:
             continue
-        elif len(sections) == 1 and len(paras) > 1:
-            for i, para in enumerate(paras, start=1):
-                for piece in _split_long(para, max_chars):
-                    chapters.append(Chapter(title=f"Paragraphe {i}", text=piece))
+        # Un seul bloc narratif sans dialogue → comportement historique (paragraphes)
+        if len(turns) == 1 and turns[0][0] == NARRATOR_KEY:
+            paras = [p.strip() for p in re.split(r"\n\s*\n+", body) if p.strip()]
+            if len(paras) <= 1 and len(body) > max_chars:
+                paras = _split_long(body, max_chars)
+            if len(sections) == 1 and len(paras) > 1:
+                for i, para in enumerate(paras, start=1):
+                    for piece in _split_long(para, max_chars):
+                        passages.append(
+                            Passage(
+                                title=f"Paragraphe {i}",
+                                text=piece,
+                                speaker=NARRATOR_KEY,
+                            )
+                        )
+                continue
+            for i, para in enumerate(paras):
+                pieces = _split_long(para, max_chars)
+                for j, piece in enumerate(pieces):
+                    label = title if i == 0 and j == 0 else f"{title} · {i + 1}"
+                    if len(pieces) > 1:
+                        label = f"{label}.{j + 1}"
+                    passages.append(
+                        Passage(title=label, text=piece, speaker=NARRATOR_KEY)
+                    )
             continue
 
-        for i, para in enumerate(paras):
-            pieces = _split_long(para, max_chars)
+        for speaker, turn_text in turns:
+            pieces = _split_long(turn_text, max_chars)
             for j, piece in enumerate(pieces):
-                label = title if i == 0 and j == 0 else f"{title} · {i + 1}"
-                if len(pieces) > 1:
-                    label = f"{label}.{j + 1}"
-                chapters.append(Chapter(title=label, text=piece))
+                if speaker == NARRATOR_KEY:
+                    label = title if j == 0 else f"{title} · {j + 1}"
+                else:
+                    label = f"{title} · {speaker}" if j == 0 else f"{title} · {speaker}.{j + 1}"
+                passages.append(Passage(title=label, text=piece, speaker=speaker))
 
-    # Numérotation propre si trop de « Paragraphe »
-    if len(chapters) == 1:
-        return chapters
-    return chapters
+    return passages
+
+
+def _split_dialogue_turns(body: str) -> list[tuple[str, str]]:
+    """Découpe un corps de chapitre en (speaker, texte)."""
+    turns: list[tuple[str, list[str]]] = []
+    cur_speaker = NARRATOR_KEY
+    cur: list[str] = []
+
+    def flush() -> None:
+        nonlocal cur, cur_speaker
+        text = "\n".join(cur).strip()
+        if text:
+            turns.append((cur_speaker, [text]))
+        cur = []
+
+    for line in body.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            flush()
+            cur_speaker = NARRATOR_KEY
+            continue
+        m = _SPEAKER_RE.match(stripped)
+        if m:
+            flush()
+            name = _norm_speaker(m.group(1))
+            if name.casefold() in {"http", "https", "note", "ps", "nb"}:
+                cur_speaker = NARRATOR_KEY
+                cur = [stripped]
+            else:
+                cur_speaker = name
+                cur = [m.group(2).strip()]
+            continue
+        cur.append(stripped)
+    flush()
+
+    out: list[tuple[str, str]] = []
+    for spk, parts in turns:
+        out.append((spk, parts[0]))
+    return out
 
 
 def _split_long(text: str, max_chars: int) -> list[str]:
@@ -124,7 +214,6 @@ def _split_long(text: str, max_chars: int) -> list[str]:
             cur = s
     if cur:
         chunks.append(cur)
-    # Hard cut fallback
     out: list[str] = []
     for c in chunks:
         if len(c) <= max_chars:
@@ -133,6 +222,60 @@ def _split_long(text: str, max_chars: int) -> list[str]:
         for i in range(0, len(c), max_chars):
             out.append(c[i : i + max_chars].strip())
     return [x for x in out if x]
+
+
+def _protect_tags(text: str) -> tuple[str, list[str]]:
+    tags: list[str] = []
+
+    def repl(m: re.Match[str]) -> str:
+        tags.append(m.group(0))
+        return f"NLLBTAG{len(tags) - 1}X"
+
+    return _TAG_RE.sub(repl, text), tags
+
+
+def _restore_tags(text: str, tags: list[str]) -> str:
+    out = text
+    for i, tag in enumerate(tags):
+        out = out.replace(f"NLLBTAG{i}X", tag)
+        out = out.replace(f"nllbtag{i}x", tag)
+    return out
+
+
+def _translate_spoken(text: str, source_lang: str, target_lang: str) -> str:
+    protected, tags = _protect_tags(text)
+    spoken = translate(protected, source_lang, target_lang).strip()
+    return _restore_tags(spoken, tags)
+
+
+def _resolve_instruct(
+    speaker: str,
+    *,
+    default_instruct: str | None,
+    speakers: dict[str, Any] | None,
+    clone: bool,
+) -> str | None:
+    if clone:
+        return None
+    if speakers:
+        # Match case-insensitive
+        entry = None
+        for k, v in speakers.items():
+            if str(k).casefold() == speaker.casefold():
+                entry = v
+                break
+        if entry is None and speaker == NARRATOR_KEY:
+            for k, v in speakers.items():
+                if str(k).casefold() in {"narrateur", "narrator", "_narrator"}:
+                    entry = v
+                    break
+        if isinstance(entry, dict):
+            inst = str(entry.get("instruct") or "").strip()
+            if inst:
+                return inst
+        elif isinstance(entry, str) and entry.strip():
+            return entry.strip()
+    return default_instruct
 
 
 def run_audiobook(
@@ -146,6 +289,7 @@ def run_audiobook(
     speed: float | None = None,
     max_chars: int = 600,
     pause_ms: int = 350,
+    speakers: dict[str, Any] | None = None,
     on_progress: ProgressCb | None = None,
 ) -> AudiobookResult:
     def prog(p: int, msg: str) -> None:
@@ -168,7 +312,15 @@ def run_audiobook(
             "augmente la taille des chunks."
         )
 
-    prog(8, f"{len(chapters)} segment(s) détecté(s)")
+    speakers_in_text = sorted(
+        {p.speaker for p in chapters},
+        key=lambda s: (s != NARRATOR_KEY, s.casefold()),
+    )
+    prog(
+        8,
+        f"{len(chapters)} segment(s) · {len(speakers_in_text)} voix "
+        f"({', '.join(speakers_in_text[:6])})",
+    )
 
     need_tr = source_lang != target_lang
     if need_tr and not can_auto_translate(source_lang, target_lang):
@@ -176,7 +328,6 @@ def run_audiobook(
             f"Traduction auto indisponible pour {source_lang}→{target_lang}"
         )
 
-    # Clone ref une seule fois
     ref_path = None
     ref_text = None
     if clone_voice:
@@ -189,6 +340,12 @@ def run_audiobook(
             ref_audio_path,
             source_lang=source_lang if source_lang != "auto" else None,
         )
+        if speakers and len(speakers_in_text) > 1:
+            prog(
+                13,
+                "Clone actif : une seule voix pour tous les personnages "
+                "(assigne des recettes « Créer » pour du multi-voix).",
+            )
 
     try:
         from engines.gpu_util import free_vram
@@ -202,26 +359,33 @@ def run_audiobook(
     chunk_wavs: list[Path] = []
     chapter_meta: list[dict] = []
     translated_any = False
+    default_instruct = (instruct or "").strip() or None
 
     try:
         n = len(chapters)
         for i, ch in enumerate(chapters):
-            # Progress 20→85 across chunks
             base_p = 20 + int(65 * i / max(n, 1))
-            prog(base_p, f"Segment {i + 1}/{n} — {ch.title[:40]}")
+            prog(base_p, f"Segment {i + 1}/{n} — {ch.speaker}: {ch.title[:32]}")
 
             spoken = ch.text
             if need_tr:
-                spoken = translate(ch.text, source_lang, target_lang).strip()
+                spoken = _translate_spoken(ch.text, source_lang, target_lang)
                 translated_any = True
             if not spoken:
                 raise RuntimeError(f"Segment {i + 1} vide après traduction")
+
+            seg_instruct = _resolve_instruct(
+                ch.speaker,
+                default_instruct=default_instruct,
+                speakers=speakers,
+                clone=bool(ref_path),
+            )
 
             out = generate_voice(
                 text=spoken,
                 source_lang=source_lang,
                 target_lang=target_lang,
-                instruct=instruct if not ref_path else None,
+                instruct=seg_instruct if not ref_path else None,
                 ref_audio=ref_path,
                 ref_text=ref_text,
                 speed=speed,
@@ -233,9 +397,11 @@ def run_audiobook(
                 {
                     "index": i,
                     "title": ch.title,
+                    "speaker": ch.speaker,
                     "sourceChars": len(ch.text),
                     "spokenChars": len(spoken),
                     "spokenPreview": spoken[:240],
+                    "instruct": (seg_instruct or "")[:200] or None,
                 }
             )
             try:
@@ -254,6 +420,7 @@ def run_audiobook(
             translated=translated_any,
             clone=bool(ref_path),
             char_count=len(text),
+            speakers_used=speakers_in_text,
         )
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -268,8 +435,10 @@ def _concat_wavs(paths: list[Path], *, pause_ms: int = 350) -> Path:
 
     from engines.voice import OUTPUT_DIR
 
-    out = OUTPUT_DIR / f"audiobook_{abs(hash(tuple(str(p) for p in paths))) % 10_000_000}.wav"
-    # Silence pad between chapters
+    out = (
+        OUTPUT_DIR
+        / f"audiobook_{abs(hash(tuple(str(p) for p in paths))) % 10_000_000}.wav"
+    )
     list_file = paths[0].parent / "concat.txt"
     silence = paths[0].parent / "silence.wav"
     if pause_ms > 0:
@@ -283,7 +452,7 @@ def _concat_wavs(paths: list[Path], *, pause_ms: int = 350) -> Path:
                 "-f",
                 "lavfi",
                 "-i",
-                f"anullsrc=r=24000:cl=mono",
+                "anullsrc=r=24000:cl=mono",
                 "-t",
                 f"{pause_ms / 1000.0}",
                 str(silence),
@@ -321,7 +490,6 @@ def _concat_wavs(paths: list[Path], *, pause_ms: int = 350) -> Path:
         check=False,
     )
     if proc.returncode != 0 or not out.is_file():
-        # Re-encode fallback (sample rates may differ)
         proc2 = subprocess.run(
             [
                 ffmpeg,

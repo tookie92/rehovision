@@ -345,14 +345,29 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
             ref_path: Path | None = None
             if ref_storage:
                 ref_path = download_storage_file(client, str(ref_storage))
+            speakers_raw = params.get("speakers")
+            speakers_map: dict | None = None
+            if isinstance(speakers_raw, dict) and speakers_raw:
+                speakers_map = {}
+                for k, v in speakers_raw.items():
+                    key = str(k).strip()
+                    if not key:
+                        continue
+                    if isinstance(v, dict):
+                        speakers_map[key] = {
+                            "instruct": str(v.get("instruct") or "").strip()[:500]
+                        }
+                    elif isinstance(v, str) and v.strip():
+                        speakers_map[key] = {"instruct": v.strip()[:500]}
             log.info(
-                "Job %s audiobook — %s→%s chars=%d mode=%s clone=%s",
+                "Job %s audiobook — %s→%s chars=%d mode=%s clone=%s speakers=%s",
                 job_id,
                 source_lang,
                 target_lang,
                 len(text),
                 voice_mode or "model",
                 clone_voice,
+                list(speakers_map.keys()) if speakers_map else [],
             )
             book = run_audiobook(
                 text=text,
@@ -363,6 +378,7 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 ref_audio_path=ref_path,
                 speed=speed_f,
                 max_chars=max_chars,
+                speakers=speakers_map,
                 on_progress=set_progress,
             )
             audio_path = book.path
@@ -375,6 +391,7 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 "sourceLang": book.source_lang,
                 "targetLang": book.target_lang,
                 "charCount": book.char_count,
+                "speakers": book.speakers_used,
                 "voiceMode": (
                     "keep"
                     if book.clone
