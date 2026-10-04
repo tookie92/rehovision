@@ -227,11 +227,13 @@ def _prep_fr_clauses(text: str) -> str:
     return t.strip()
 
 
-def _split_clauses(text: str) -> list[str]:
+def _split_clauses(text: str, *, commas: bool = True) -> list[str]:
     text = text.strip()
     if not text:
         return []
-    parts = re.split(r"(?<=[,;:.!?…])\s+", text)
+    # EN : ne pas couper sur les virgules (« Attends, regarde… » → NLLB hallucine sur « Attends, »)
+    pat = r"(?<=[,;:.!?…])\s+" if commas else r"(?<=[.!?…])\s+"
+    parts = re.split(pat, text)
     out = [p.strip() for p in parts if p.strip()]
     return out if out else [text]
 
@@ -343,6 +345,7 @@ _GREETINGS: dict[tuple[str, str], str] = {
     ("eng_Latn", "merci"): "Thank you",
     ("eng_Latn", "oui"): "Yes",
     ("eng_Latn", "non"): "No",
+    ("eng_Latn", "attends"): "Wait",
     ("wol_Latn", "bonjour"): "Na nga def",
     ("wol_Latn", "hello"): "Na nga def",
     ("wol_Latn", "bonsoir"): "Na nga def",
@@ -541,6 +544,8 @@ def _scrub_fr_leaks(out: str, tgt_f: str) -> str:
         out = re.sub(r"(?i)\bregarde\b", "look", out)
         out = re.sub(r"(?i)\blà-bas\b", "over there", out)
         out = re.sub(r"(?i)\bThe suite is\b", "The next part is", out)
+        out = re.sub(r"(?i)(?:Wait,\s*){2,}", "Wait, ", out)
+        out = re.sub(r"(?i)(?:\bWait\b[\s,]*){3,}", "Wait, ", out)
         out = re.sub(r"\?{2,}", "?", out)
         out = re.sub(r"\.{2,}", ".", out)
         out = re.sub(r"\s+", " ", out).strip()
@@ -621,7 +626,7 @@ def _run_pair(
     by_clause: bool = False,
 ) -> str:
     if by_clause and (tgt_f in _CLAUSE_TGTS or tgt_f == "eng_Latn"):
-        clauses = _split_clauses(text)
+        clauses = _split_clauses(text, commas=(tgt_f != "eng_Latn"))
         if len(clauses) > 1:
             parts: list[str] = []
             for clause in clauses:
