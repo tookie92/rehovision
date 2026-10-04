@@ -51,6 +51,8 @@ class AudiobookResult:
     clone: bool
     char_count: int
     speakers_used: list[str]
+    music: bool = False
+    resumed_from: int = 0
 
 
 def _norm_speaker(name: str) -> str:
@@ -255,34 +257,59 @@ def _translate_spoken(text: str, source_lang: str, target_lang: str) -> str:
     return spoken
 
 
-def _resolve_instruct(
+def _speaker_entry(
+    speaker: str, speakers: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    if not speakers:
+        return None
+    for k, v in speakers.items():
+        if str(k).casefold() == speaker.casefold():
+            return v if isinstance(v, dict) else {"instruct": str(v)}
+    if speaker == NARRATOR_KEY:
+        for k, v in speakers.items():
+            if str(k).casefold() in {"narrateur", "narrator", "_narrator"}:
+                return v if isinstance(v, dict) else {"instruct": str(v)}
+    return None
+
+
+def _resolve_voice(
     speaker: str,
     *,
     default_instruct: str | None,
+    default_ref: tuple[Path, str] | None,
     speakers: dict[str, Any] | None,
-    clone: bool,
-) -> str | None:
-    if clone:
-        return None
-    if speakers:
-        # Match case-insensitive
-        entry = None
-        for k, v in speakers.items():
-            if str(k).casefold() == speaker.casefold():
-                entry = v
-                break
-        if entry is None and speaker == NARRATOR_KEY:
-            for k, v in speakers.items():
-                if str(k).casefold() in {"narrateur", "narrator", "_narrator"}:
-                    entry = v
-                    break
-        if isinstance(entry, dict):
-            inst = str(entry.get("instruct") or "").strip()
-            if inst:
-                return inst
-        elif isinstance(entry, str) and entry.strip():
-            return entry.strip()
-    return default_instruct
+) -> tuple[str | None, Path | None, str | None]:
+    """Retourne (instruct, ref_path, ref_text) pour un segment."""
+    entry = _speaker_entry(speaker, speakers)
+    if entry:
+        ref_p = entry.get("ref_path") or entry.get("ref_audio_path")
+        ref_t = entry.get("ref_text")
+        if ref_p is not None and Path(ref_p).is_file():
+            return None, Path(ref_p), str(ref_t or "")
+        inst = str(entry.get("instruct") or "").strip()
+        if inst:
+            return inst, None, None
+    if default_ref is not None:
+        return None, default_ref[0], default_ref[1]
+    return default_instruct, None, None
+
+
+def passages_from_segments(segments: list[Any]) -> list[Passage]:
+    """Convertit params.segments (UI) en Passage."""
+    out: list[Passage] = []
+    for i, raw in enumerate(segments):
+        if not isinstance(raw, dict):
+            continue
+        text = str(raw.get("text") or "").strip()
+        if not text:
+            continue
+        speaker = _norm_speaker(str(raw.get("speaker") or NARRATOR_KEY))
+        title = str(raw.get("title") or f"Segment {i + 1}").strip() or f"Segment {i + 1}"
+        out.append(Passage(title=title[:120], text=text, speaker=speaker))
+    return out
+
+
+ChunkSavedCb = Callable[[int, Path, dict], None]
 
 
 def run_audiobook(
@@ -297,6 +324,13 @@ def run_audiobook(
     max_chars: int = 600,
     pause_ms: int = 350,
     speakers: dict[str, Any] | None = None,
+    segments: list[Any] | None = None,
+    music_prompt: str | None = None,
+    music_volume: float = 0.18,
+    music_storage_path: Path | None = None,
+    checkpoint: dict[str, Any] | None = None,
+    resume_chunk_paths: list[Path] | None = None,
+    on_chunk_saved: ChunkSavedCb | None = None,
     on_progress: ProgressCb | None = None,
 ) -> AudiobookResult:
     def prog(p: int, msg: str) -> None:
@@ -307,10 +341,13 @@ def run_audiobook(
     source_lang = (source_lang or "fr").split("-")[0].lower()
     target_lang = (target_lang or "fr").split("-")[0].lower()
     text = (text or "").strip()
-    if not text:
-        raise ValueError("Texte audiobook vide")
 
-    chapters = split_audiobook_text(text, max_chars=max_chars)
+    if segments:
+        chapters = passages_from_segments(segments)
+    else:
+        if not text:
+            raise ValueError("Texte audiobook vide")
+        chapters = split_audiobook_text(text, max_chars=max_chars)
     if not chapters:
         raise ValueError("Aucun chapitre / paragraphe détecté")
     if len(chapters) > 80:
@@ -323,10 +360,14 @@ def run_audiobook(
         {p.speaker for p in chapters},
         key=lambda s: (s != NARRATOR_KEY, s.casefold()),
     )
+    start_idx = 0
+    if checkpoint and isinstance(checkpoint.get("nextIndex"), int):
+        start_idx = max(0, min(int(checkpoint["nextIndex"]), len(chapters)))
+    resumed_from = start_idx
     prog(
         8,
-        f"{len(chapters)} segment(s) · {len(speakers_in_text)} voix "
-        f"({', '.join(speakers_in_text[:6])})",
+        f"{len(chapters)} segment(s) · {len(speakers_in_text)} voix"
+        + (f" · reprise @{start_idx}" if start_idx else ""),
     )
 
     need_tr = source_lang != target_lang
@@ -335,24 +376,36 @@ def run_audiobook(
             f"Traduction auto indisponible pour {source_lang}→{target_lang}"
         )
 
-    ref_path = None
-    ref_text = None
-    if clone_voice:
-        if ref_audio_path is None or not ref_audio_path.is_file():
-            raise RuntimeError(
-                "Mode clone : échantillon de voix requis pour l’audiobook."
-            )
-        prog(12, "Préparation clone + Whisper ref")
-        ref_path, ref_text = prepare_clone_ref(
+    default_ref: tuple[Path, str] | None = None
+    if clone_voice and ref_audio_path is not None and ref_audio_path.is_file():
+        prog(12, "Préparation clone narrateur + Whisper ref")
+        default_ref = prepare_clone_ref(
             ref_audio_path,
             source_lang=source_lang if source_lang != "auto" else None,
         )
-        if speakers and len(speakers_in_text) > 1:
-            prog(
-                13,
-                "Clone actif : une seule voix pour tous les personnages "
-                "(assigne des recettes « Créer » pour du multi-voix).",
-            )
+    elif clone_voice and not any(
+        isinstance(v, dict)
+        and (v.get("ref_path") or v.get("ref_audio_path") or v.get("refStorageId"))
+        for v in (speakers or {}).values()
+    ):
+        raise RuntimeError(
+            "Mode clone : échantillon de voix requis (global ou par personnage)."
+        )
+
+    # Prépare les clones par personnage déjà présents comme Path
+    if speakers:
+        for key, entry in list(speakers.items()):
+            if not isinstance(entry, dict):
+                continue
+            rp = entry.get("ref_path") or entry.get("ref_audio_path")
+            if rp and Path(rp).is_file() and not entry.get("ref_text"):
+                prog(13, f"Préparation clone « {key} »")
+                path, rtext = prepare_clone_ref(
+                    Path(rp),
+                    source_lang=source_lang if source_lang != "auto" else None,
+                )
+                entry["ref_path"] = path
+                entry["ref_text"] = rtext
 
     try:
         from engines.gpu_util import free_vram
@@ -367,11 +420,31 @@ def run_audiobook(
     chapter_meta: list[dict] = []
     translated_any = False
     default_instruct = (instruct or "").strip() or None
+    used_clone = bool(default_ref)
+
+    # Restaure chunks déjà faits
+    if resume_chunk_paths:
+        for i, p in enumerate(resume_chunk_paths):
+            if i >= start_idx:
+                break
+            if p is not None and Path(p).is_file():
+                dest = tmp_dir / f"chunk_{i:03d}.wav"
+                shutil.copy2(p, dest)
+                chunk_wavs.append(dest)
+            else:
+                # trou → recommencer depuis là
+                start_idx = i
+                chunk_wavs = chunk_wavs[:i]
+                break
+        if isinstance(checkpoint, dict) and isinstance(checkpoint.get("chapters"), list):
+            chapter_meta = list(checkpoint["chapters"])[:start_idx]
 
     try:
         n = len(chapters)
         for i, ch in enumerate(chapters):
-            base_p = 20 + int(65 * i / max(n, 1))
+            if i < start_idx:
+                continue
+            base_p = 20 + int(60 * i / max(n, 1))
             prog(base_p, f"Segment {i + 1}/{n} — {ch.speaker}: {ch.title[:32]}")
 
             spoken = ch.text
@@ -381,43 +454,74 @@ def run_audiobook(
             if not spoken:
                 raise RuntimeError(f"Segment {i + 1} vide après traduction")
 
-            seg_instruct = _resolve_instruct(
+            seg_instruct, seg_ref, seg_ref_text = _resolve_voice(
                 ch.speaker,
                 default_instruct=default_instruct,
+                default_ref=default_ref,
                 speakers=speakers,
-                clone=bool(ref_path),
             )
+            if seg_ref is not None:
+                used_clone = True
 
             out = generate_voice(
                 text=spoken,
                 source_lang=source_lang,
                 target_lang=target_lang,
-                instruct=seg_instruct if not ref_path else None,
-                ref_audio=ref_path,
-                ref_text=ref_text,
+                instruct=seg_instruct if seg_ref is None else None,
+                ref_audio=seg_ref,
+                ref_text=seg_ref_text,
                 speed=speed,
             )
             dest = tmp_dir / f"chunk_{i:03d}.wav"
             shutil.copy2(out, dest)
             chunk_wavs.append(dest)
-            chapter_meta.append(
-                {
-                    "index": i,
-                    "title": ch.title,
-                    "speaker": ch.speaker,
-                    "sourceChars": len(ch.text),
-                    "spokenChars": len(spoken),
-                    "spokenPreview": spoken[:240],
-                    "instruct": (seg_instruct or "")[:200] or None,
-                }
-            )
+            meta = {
+                "index": i,
+                "title": ch.title,
+                "speaker": ch.speaker,
+                "sourceChars": len(ch.text),
+                "spokenChars": len(spoken),
+                "spokenPreview": spoken[:240],
+                "instruct": (seg_instruct or "")[:200] or None,
+                "clone": bool(seg_ref),
+            }
+            chapter_meta.append(meta)
             try:
                 out.unlink(missing_ok=True)
             except OSError:
                 pass
+            if on_chunk_saved:
+                on_chunk_saved(i, dest, meta)
 
-        prog(88, "Concaténation audio")
+        prog(82, "Concaténation audio")
         final = _concat_wavs(chunk_wavs, pause_ms=pause_ms)
+
+        music_on = False
+        if music_storage_path and music_storage_path.is_file():
+            prog(88, "Mix lit musique (fichier)")
+            final = _mix_bed(final, music_storage_path, volume=music_volume)
+            music_on = True
+        elif music_prompt and music_prompt.strip():
+            prog(86, "Génération lit musique ACE-Step")
+            try:
+                from engines.gpu_util import free_vram
+
+                free_vram("avant lit musique", unload_llm=True)
+            except Exception:  # noqa: BLE001
+                pass
+            from engines.music import generate_music
+
+            dur = max(8, min(120, int(_wav_duration_s(final) + 1)))
+            bed = generate_music(
+                music_prompt.strip()[:500],
+                dur,
+                instrumental=True,
+                lyrics="[Instrumental]",
+            )
+            prog(90, "Mix narration + lit")
+            final = _mix_bed(final, bed, volume=music_volume)
+            music_on = True
+
         prog(95, f"Livre audio prêt ({final.name})")
         return AudiobookResult(
             path=final,
@@ -425,12 +529,76 @@ def run_audiobook(
             source_lang=source_lang,
             target_lang=target_lang,
             translated=translated_any,
-            clone=bool(ref_path),
-            char_count=len(text),
+            clone=used_clone,
+            char_count=len(text) if text else sum(len(c.text) for c in chapters),
             speakers_used=speakers_in_text,
+            music=music_on,
+            resumed_from=resumed_from,
         )
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _wav_duration_s(path: Path) -> float:
+    import wave
+
+    try:
+        with wave.open(str(path), "rb") as wf:
+            return wf.getnframes() / float(wf.getframerate() or 24000)
+    except Exception:  # noqa: BLE001
+        return 30.0
+
+
+def _mix_bed(narration: Path, bed: Path, *, volume: float = 0.18) -> Path:
+    """Mixe un lit musical sous la narration (durée = narration)."""
+    ffmpeg = os.environ.get("FFMPEG_BIN") or shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg introuvable")
+    from engines.voice import OUTPUT_DIR
+
+    vol = max(0.02, min(0.5, float(volume)))
+    out = OUTPUT_DIR / f"audiobook_mix_{abs(hash(str(narration))) % 10_000_000}.wav"
+    dur = _wav_duration_s(narration)
+    # bed loopé / tronqué, volume bas, amix durée = narration
+    filt = (
+        f"[1:a]volume={vol:.3f},afade=t=in:st=0:d=1,"
+        f"afade=t=out:st={max(0.5, dur - 2):.2f}:d=2[bg];"
+        f"[0:a][bg]amix=inputs=2:duration=first:dropout_transition=2[out]"
+    )
+    proc = subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(narration),
+            "-stream_loop",
+            "-1",
+            "-i",
+            str(bed),
+            "-filter_complex",
+            filt,
+            "-map",
+            "[out]",
+            "-t",
+            f"{dur:.3f}",
+            "-ar",
+            "24000",
+            "-ac",
+            "1",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0 or not out.is_file():
+        raise RuntimeError(
+            f"Mix lit musique échoué: {(proc.stderr or '')[:300]}"
+        )
+    return out
 
 
 def _concat_wavs(paths: list[Path], *, pause_ms: int = 350) -> Path:

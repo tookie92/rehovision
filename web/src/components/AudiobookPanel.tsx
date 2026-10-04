@@ -9,22 +9,38 @@ import {
   useState,
 } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { BookOpen, Mic2, Sparkles, Users } from "lucide-react";
+import {
+  BookOpen,
+  Mic2,
+  Music2,
+  Pencil,
+  Sparkles,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { api } from "@convex/_generated/api";
-import type { Doc, Id } from "@convex/_generated/dataModel";
+import type { Doc } from "@convex/_generated/dataModel";
 import { LangPicker } from "./LangPicker";
 import { JobList } from "./JobList";
-import { PUBLIC_VOICES, type PublicVoice } from "../lib/publicVoices";
+import { PUBLIC_VOICES } from "../lib/publicVoices";
 import {
   detectSpeakers,
   NARRATOR_KEY,
   splitAudiobookText,
+  type AudiobookChapter,
 } from "../lib/audiobookSplit";
 
 type Props = {
   sessionId: string;
   jobs: Doc<"jobs">[] | undefined;
   jobsLoading: boolean;
+};
+
+type CastSlot = {
+  /** public voice id OR "clone:<storageId>" OR "upload" */
+  voiceKey: string;
+  /** local file if user uploads a clone for this role */
+  file?: File | null;
 };
 
 const EXPRESS_TAGS = [
@@ -84,14 +100,8 @@ function guessVoiceId(name: string): string {
   if (low.includes("amin")) return "amina";
   if (low.includes("omar") || low.includes("ibrah")) return "omar";
   if (low.includes("fatou") || low.includes("mari")) return "fatou";
-  // Heuristique genre par terminaison
   if (/a$|ine$|elle$|ette$/i.test(name)) return "amina";
   return "omar";
-}
-
-function voiceLabel(id: string | undefined): string {
-  if (!id) return "—";
-  return CAST_VOICES.find((v) => v.id === id)?.name ?? id;
 }
 
 export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
@@ -100,16 +110,17 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
   const [text, setText] = useState(DEFAULT_TEXT);
   const [sourceLang, setSourceLang] = useState("fr");
   const [targetLang, setTargetLang] = useState("en");
-  const [cloneMode, setCloneMode] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const [voiceRefFile, setVoiceRefFile] = useState<File | null>(null);
-  const [presetRefStorageId, setPresetRefStorageId] = useState<
-    Id<"_storage"> | null
-  >(null);
-  /** speaker → public voice id */
-  const [cast, setCast] = useState<Record<string, string>>({
-    [NARRATOR_KEY]: "amina",
+  const [cast, setCast] = useState<Record<string, CastSlot>>({
+    [NARRATOR_KEY]: { voiceKey: "amina" },
   });
+  const [editSegments, setEditSegments] = useState(false);
+  const [segments, setSegments] = useState<AudiobookChapter[]>([]);
+  const [musicEnabled, setMusicEnabled] = useState(false);
+  const [musicPrompt, setMusicPrompt] = useState(
+    "warm african ambient pad, soft percussion, cinematic storytelling",
+  );
+  const [musicVolume, setMusicVolume] = useState(0.18);
   const [voiceConsent, setVoiceConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -119,42 +130,55 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
     api.voices.listBySession,
     sessionId ? { sessionId } : "skip",
   );
+  const savedClones = useMemo(
+    () =>
+      (savedVoices ?? []).filter(
+        (v) => v.kind === "clone" && !!v.refStorageId,
+      ),
+    [savedVoices],
+  );
 
-  const chapters = useMemo(() => splitAudiobookText(text, 600), [text]);
+  const autoChapters = useMemo(() => splitAudiobookText(text, 600), [text]);
   const speakers = useMemo(() => detectSpeakers(text), [text]);
   const castRoles = useMemo(
     () => [NARRATOR_KEY, ...speakers],
     [speakers],
   );
+  const activeSegments = editSegments ? segments : autoChapters;
   const charCount = text.trim().length;
 
-  // Auto-assigne une voix aux nouveaux personnages (style ElevenLabs)
+  // Sync auto segments when text changes (unless editing manually)
+  useEffect(() => {
+    if (!editSegments) setSegments(autoChapters);
+  }, [autoChapters, editSegments]);
+
   useEffect(() => {
     setCast((prev) => {
       const next = { ...prev };
-      if (!next[NARRATOR_KEY]) next[NARRATOR_KEY] = "amina";
+      if (!next[NARRATOR_KEY]) next[NARRATOR_KEY] = { voiceKey: "amina" };
       for (const name of speakers) {
-        if (!next[name]) next[name] = guessVoiceId(name);
+        if (!next[name]) next[name] = { voiceKey: guessVoiceId(name) };
       }
       return next;
     });
   }, [speakers]);
 
-  const narratorVoice: PublicVoice | undefined = CAST_VOICES.find(
-    (v) => v.id === cast[NARRATOR_KEY],
+  const narratorSlot = cast[NARRATOR_KEY];
+  const narratorPublic = CAST_VOICES.find(
+    (v) => v.id === narratorSlot?.voiceKey,
   );
-  const instruct = cloneMode ? "" : narratorVoice?.instruct || "";
+  const instruct = narratorPublic?.instruct || "";
 
   const canSubmit =
     !!sessionId &&
     charCount > 20 &&
-    chapters.length > 0 &&
-    chapters.length <= 80 &&
+    activeSegments.length > 0 &&
+    activeSegments.length <= 80 &&
+    activeSegments.every((s) => s.text.trim().length > 0) &&
     !!sourceLang &&
     !!targetLang &&
     voiceConsent &&
-    !(cloneMode && !voiceRefFile && !presetRefStorageId) &&
-    !(!cloneMode && !instruct);
+    (!musicEnabled || musicPrompt.trim().length > 4);
 
   async function uploadAudio(file: File): Promise<string> {
     const uploadUrl = await generateUploadUrl({ sessionId });
@@ -169,17 +193,26 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
     return body.storageId;
   }
 
-  function buildSpeakersParam():
-    | Record<string, { instruct: string }>
-    | undefined {
-    if (cloneMode) return undefined;
-    const map: Record<string, { instruct: string }> = {};
+  async function buildSpeakersParam(): Promise<
+    Record<string, { instruct?: string; refStorageId?: string }>
+  > {
+    const map: Record<string, { instruct?: string; refStorageId?: string }> =
+      {};
     for (const role of castRoles) {
-      const vid = cast[role];
-      const pub = CAST_VOICES.find((v) => v.id === vid);
-      if (pub?.instruct) map[role] = { instruct: pub.instruct };
+      const slot = cast[role];
+      if (!slot) continue;
+      const key = slot.voiceKey;
+      if (key.startsWith("clone:")) {
+        map[role] = { refStorageId: key.slice("clone:".length) };
+      } else if (key === "upload" && slot.file) {
+        const id = await uploadAudio(slot.file);
+        map[role] = { refStorageId: id };
+      } else {
+        const pub = CAST_VOICES.find((v) => v.id === key);
+        if (pub?.instruct) map[role] = { instruct: pub.instruct };
+      }
     }
-    return Object.keys(map).length ? map : undefined;
+    return map;
   }
 
   async function onGenerate(e: FormEvent) {
@@ -187,28 +220,40 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
     if (!canSubmit) return;
     setSubmitting(true);
     try {
-      let refStorageId: string | undefined;
-      if (cloneMode && voiceRefFile) {
-        refStorageId = await uploadAudio(voiceRefFile);
-      } else if (cloneMode && presetRefStorageId) {
-        refStorageId = presetRefStorageId;
-      }
-      const speakersParam = buildSpeakersParam();
+      const speakersParam = await buildSpeakersParam();
+      const hasAnyClone = Object.values(speakersParam).some(
+        (s) => !!s.refStorageId,
+      );
+      const narratorRef = speakersParam[NARRATOR_KEY]?.refStorageId;
+      const narratorInstruct =
+        speakersParam[NARRATOR_KEY]?.instruct || instruct;
+
       await createJob({
         type: "audiobook",
         sessionId,
         params: {
           title: title.trim() || "Livre audio",
           text: text.trim(),
+          segments: activeSegments.map((s) => ({
+            title: s.title,
+            text: s.text.trim(),
+            speaker: s.speaker,
+          })),
           sourceLang,
           targetLang,
-          voiceMode: cloneMode ? "keep" : "create",
-          cloneVoice: cloneMode,
-          ...(instruct ? { instruct } : {}),
-          ...(refStorageId ? { refStorageId } : {}),
-          ...(speakersParam ? { speakers: speakersParam } : {}),
+          voiceMode: hasAnyClone && !narratorInstruct ? "keep" : "create",
+          cloneVoice: hasAnyClone,
+          ...(narratorInstruct ? { instruct: narratorInstruct } : {}),
+          ...(narratorRef ? { refStorageId: narratorRef } : {}),
+          speakers: speakersParam,
           speed,
           maxChars: 600,
+          ...(musicEnabled
+            ? {
+                musicPrompt: musicPrompt.trim(),
+                musicVolume,
+              }
+            : {}),
           voiceConsent: true,
           consentAt: Date.now(),
         },
@@ -221,6 +266,16 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
     }
   }
 
+  function updateSegment(i: number, patch: Partial<AudiobookChapter>) {
+    setSegments((prev) =>
+      prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)),
+    );
+  }
+
+  function removeSegment(i: number) {
+    setSegments((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
   return (
     <section className="space-y-6">
       <div>
@@ -228,7 +283,7 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
           Livre audio
         </h1>
         <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">
-          Écris ton texte, assigne une voix à chaque personnage, génère.
+          Cast multi-voix, édition des segments, lit musical — Vague B2.
         </p>
       </div>
 
@@ -242,7 +297,6 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             className="min-h-11 w-full rounded-xl border border-[var(--line)] bg-[var(--bg)] px-4 text-sm outline-none focus:ring-2 focus:ring-[var(--signal)]/30"
-            placeholder="Titre du livre…"
           />
         </label>
 
@@ -252,9 +306,8 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
             ref={textRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            rows={14}
+            rows={12}
             className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg)] px-4 py-3 font-mono text-[14px] leading-relaxed outline-none focus:ring-2 focus:ring-[var(--signal)]/30"
-            placeholder={`# Chapitre 1\n\nNarration…\n\nAlice: Bonjour !\nBob: [laughter] Salut.`}
           />
           <div className="flex flex-wrap gap-2">
             {EXPRESS_TAGS.map((t) => (
@@ -263,47 +316,104 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
                 type="button"
                 onClick={() => insertAtCursor(text, setText, textRef, t.tag)}
                 className="min-h-8 rounded-full border border-[var(--line)] bg-white px-2.5 text-[11px] font-medium hover:bg-[var(--bg-subtle)]"
-                title={t.tag}
               >
                 {t.label}
               </button>
             ))}
           </div>
           <p className="text-xs text-[var(--muted)]">
-            Dialogue :{" "}
             <code className="rounded bg-[var(--bg)] px-1">Nom: réplique</code>
             {" · "}
-            {charCount} car. · {chapters.length} segment(s)
-            {speakers.length > 0 ? ` · ${speakers.length} personnage(s)` : ""}
+            {charCount} car. · {activeSegments.length} segment(s)
           </p>
         </div>
 
-        {chapters.length > 0 && (
-          <div className="space-y-2">
-            <p className="flex items-center gap-2 text-sm font-semibold">
+        {/* Segments éditables */}
+        <fieldset className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <legend className="flex items-center gap-2 text-sm font-semibold">
               <BookOpen className="size-4 text-[var(--signal)]" aria-hidden />
-              Découpe
-            </p>
+              Segments ({activeSegments.length})
+            </legend>
+            <button
+              type="button"
+              onClick={() => {
+                if (!editSegments) {
+                  setSegments(autoChapters);
+                  setEditSegments(true);
+                } else {
+                  setEditSegments(false);
+                }
+              }}
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-[var(--line)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg-subtle)]"
+            >
+              <Pencil className="size-3.5" aria-hidden />
+              {editSegments ? "Revenir à l’auto" : "Éditer avant envoi"}
+            </button>
+          </div>
+
+          {!editSegments ? (
             <ol className="max-h-40 space-y-1 overflow-y-auto text-xs">
-              {chapters.slice(0, 20).map((ch, i) => (
+              {activeSegments.slice(0, 16).map((ch, i) => (
                 <li key={`${ch.title}-${i}`} className="flex gap-2 py-0.5">
-                  <span className="w-5 shrink-0 text-[var(--muted)]">
-                    {i + 1}.
-                  </span>
-                  <span className="min-w-[4.5rem] shrink-0 font-semibold text-[var(--signal)]">
+                  <span className="w-5 text-[var(--muted)]">{i + 1}.</span>
+                  <span className="min-w-[4.5rem] font-semibold text-[var(--signal)]">
                     {ch.speaker}
                   </span>
                   <span className="truncate text-[var(--muted)]">{ch.text}</span>
                 </li>
               ))}
             </ol>
-            {chapters.length > 80 && (
-              <p className="text-sm text-[var(--danger)]">
-                Max 80 segments — regroupe ton texte.
-              </p>
-            )}
-          </div>
-        )}
+          ) : (
+            <ul className="max-h-80 space-y-3 overflow-y-auto">
+              {segments.map((ch, i) => (
+                <li
+                  key={`edit-${i}`}
+                  className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--bg)] p-3"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-[var(--muted)]">{i + 1}</span>
+                    <input
+                      value={ch.speaker}
+                      onChange={(e) =>
+                        updateSegment(i, { speaker: e.target.value })
+                      }
+                      className="min-h-9 w-28 rounded-lg border border-[var(--line)] bg-white px-2 text-xs font-semibold"
+                      title="Personnage"
+                    />
+                    <input
+                      value={ch.title}
+                      onChange={(e) =>
+                        updateSegment(i, { title: e.target.value })
+                      }
+                      className="min-h-9 min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-white px-2 text-xs"
+                      title="Titre"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeSegment(i)}
+                      className="inline-flex size-9 items-center justify-center rounded-lg border border-[var(--line)] text-[var(--muted)] hover:text-[var(--danger)]"
+                      aria-label="Supprimer"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                  <textarea
+                    value={ch.text}
+                    onChange={(e) =>
+                      updateSegment(i, { text: e.target.value })
+                    }
+                    rows={2}
+                    className="w-full resize-y rounded-lg border border-[var(--line)] bg-white px-2 py-1.5 font-mono text-xs"
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+          {activeSegments.length > 80 && (
+            <p className="text-sm text-[var(--danger)]">Max 80 segments.</p>
+          )}
+        </fieldset>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <LangPicker
@@ -318,135 +428,157 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
           />
         </div>
 
-        {/* Cast — une ligne par rôle, chips voix (ElevenLabs-like) */}
+        {/* Cast + clone par personnage */}
         <fieldset className="space-y-4">
           <legend className="flex items-center gap-2 text-sm font-semibold">
             <Users className="size-4 text-[var(--signal)]" aria-hidden />
             Voix des personnages
           </legend>
           <p className="text-xs text-[var(--muted)]">
-            Clique une voix pour chaque rôle. Les lignes{" "}
-            <code className="rounded bg-[var(--bg)] px-1">Nom:</code> du
-            manuscrit apparaissent ici automatiquement.
+            Voix publique ou clone (échantillon) par rôle — comme ElevenLabs.
           </p>
-
-          {cloneMode ? (
-            <p className="rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--muted)]">
-              Mode clone : une seule voix pour tout le livre (narrateur +
-              dialogues).
-            </p>
-          ) : (
-            <ul className="space-y-4">
-              {castRoles.map((role) => {
-                const selected = cast[role] || "";
-                const initial = role.slice(0, 1).toUpperCase();
-                return (
-                  <li key={role} className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--ink)] text-xs font-bold text-white"
-                        aria-hidden
-                      >
-                        {initial}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold">{role}</p>
-                        <p className="text-[11px] text-[var(--muted)]">
-                          → {voiceLabel(selected)}
-                          {CAST_VOICES.find((v) => v.id === selected)?.blurb
-                            ? ` · ${CAST_VOICES.find((v) => v.id === selected)?.blurb}`
-                            : ""}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 pl-10">
-                      {CAST_VOICES.map((v) => {
-                        const active = selected === v.id;
-                        return (
-                          <button
-                            key={`${role}-${v.id}`}
-                            type="button"
-                            onClick={() =>
-                              setCast((prev) => ({ ...prev, [role]: v.id }))
-                            }
-                            className={
-                              active
-                                ? "min-h-8 rounded-full bg-[var(--ink)] px-3 text-[11px] font-semibold text-white"
-                                : "min-h-8 rounded-full border border-[var(--line)] bg-white px-3 text-[11px] font-medium hover:bg-[var(--bg-subtle)]"
-                            }
-                            title={v.instruct}
-                          >
-                            {v.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </fieldset>
-
-        <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-3">
-          <input
-            type="checkbox"
-            checked={cloneMode}
-            onChange={(e) => {
-              setCloneMode(e.target.checked);
-              if (!e.target.checked) setVoiceRefFile(null);
-            }}
-            className="mt-1 size-4 accent-[var(--ink)]"
-          />
-          <span className="text-sm leading-snug">
-            <span className="inline-flex items-center gap-1.5 font-medium">
-              <Mic2 className="size-3.5" aria-hidden />
-              Cloner ma voix
-            </span>
-            <span className="mt-0.5 block text-xs text-[var(--muted)]">
-              Une seule voix pour tout le livre — désactive le cast multi-voix.
-            </span>
-          </span>
-        </label>
-
-        {cloneMode && (
-          <label className="block space-y-2">
-            <span className="text-sm font-medium">Échantillon de voix</span>
-            <input
-              type="file"
-              accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm"
-              onChange={(e) => {
-                setVoiceRefFile(e.target.files?.[0] ?? null);
-                setPresetRefStorageId(null);
-              }}
-              className="block w-full text-sm file:mr-3 file:min-h-11 file:rounded-xl file:border-0 file:bg-[var(--ink)] file:px-4 file:text-sm file:font-semibold file:text-white"
-            />
-            {savedVoices && savedVoices.some((v) => v.kind === "clone") && (
-              <div className="flex flex-wrap gap-2">
-                {savedVoices
-                  .filter((v) => v.kind === "clone" && v.refStorageId)
-                  .slice(0, 6)
-                  .map((v) => (
-                    <button
-                      key={v._id}
-                      type="button"
-                      onClick={() => {
-                        setVoiceRefFile(null);
-                        setPresetRefStorageId(v.refStorageId!);
-                      }}
+          <ul className="space-y-4">
+            {castRoles.map((role) => {
+              const slot = cast[role] ?? { voiceKey: guessVoiceId(role) };
+              const initial = role.slice(0, 1).toUpperCase();
+              return (
+                <li key={role} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="flex size-8 items-center justify-center rounded-full bg-[var(--ink)] text-xs font-bold text-white">
+                      {initial}
+                    </span>
+                    <p className="text-sm font-semibold">{role}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 pl-10">
+                    {CAST_VOICES.map((v) => {
+                      const active = slot.voiceKey === v.id;
+                      return (
+                        <button
+                          key={`${role}-${v.id}`}
+                          type="button"
+                          onClick={() =>
+                            setCast((prev) => ({
+                              ...prev,
+                              [role]: { voiceKey: v.id },
+                            }))
+                          }
+                          className={
+                            active
+                              ? "min-h-8 rounded-full bg-[var(--ink)] px-3 text-[11px] font-semibold text-white"
+                              : "min-h-8 rounded-full border border-[var(--line)] bg-white px-3 text-[11px] font-medium hover:bg-[var(--bg-subtle)]"
+                          }
+                        >
+                          {v.name}
+                        </button>
+                      );
+                    })}
+                    {savedClones.map((v) => {
+                      const key = `clone:${v.refStorageId}`;
+                      const active = slot.voiceKey === key;
+                      return (
+                        <button
+                          key={`${role}-${v._id}`}
+                          type="button"
+                          onClick={() =>
+                            setCast((prev) => ({
+                              ...prev,
+                              [role]: { voiceKey: key },
+                            }))
+                          }
+                          className={
+                            active
+                              ? "min-h-8 rounded-full bg-[var(--signal)] px-3 text-[11px] font-semibold text-white"
+                              : "min-h-8 rounded-full border border-dashed border-[var(--line)] bg-white px-3 text-[11px] font-medium"
+                          }
+                          title="Clone enregistré"
+                        >
+                          <Mic2 className="mr-1 inline size-3" />
+                          {v.name}
+                        </button>
+                      );
+                    })}
+                    <label
                       className={
-                        presetRefStorageId === v.refStorageId
-                          ? "min-h-8 rounded-full bg-[var(--ink)] px-3 text-xs font-semibold text-white"
-                          : "min-h-8 rounded-full border border-[var(--line)] bg-white px-3 text-xs font-medium"
+                        slot.voiceKey === "upload"
+                          ? "inline-flex min-h-8 cursor-pointer items-center rounded-full bg-[var(--signal)] px-3 text-[11px] font-semibold text-white"
+                          : "inline-flex min-h-8 cursor-pointer items-center rounded-full border border-dashed border-[var(--line)] bg-white px-3 text-[11px] font-medium"
                       }
                     >
-                      {v.name}
-                    </button>
-                  ))}
-              </div>
-            )}
+                      <Mic2 className="mr-1 size-3" />
+                      Upload
+                      <input
+                        type="file"
+                        accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0] ?? null;
+                          setCast((prev) => ({
+                            ...prev,
+                            [role]: { voiceKey: "upload", file: f },
+                          }));
+                        }}
+                      />
+                    </label>
+                  </div>
+                  {slot.voiceKey === "upload" && slot.file && (
+                    <p className="pl-10 text-[11px] text-[var(--signal)]">
+                      {slot.file.name}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </fieldset>
+
+        {/* Lit musique */}
+        <fieldset className="space-y-3">
+          <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-3">
+            <input
+              type="checkbox"
+              checked={musicEnabled}
+              onChange={(e) => setMusicEnabled(e.target.checked)}
+              className="mt-1 size-4 accent-[var(--ink)]"
+            />
+            <span className="text-sm leading-snug">
+              <span className="inline-flex items-center gap-1.5 font-medium">
+                <Music2 className="size-3.5" aria-hidden />
+                Lit musical sous la narration
+              </span>
+              <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                ACE-Step instrumental, mixé sous la voix (B2).
+              </span>
+            </span>
           </label>
-        )}
+          {musicEnabled && (
+            <div className="space-y-3 pl-1">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium text-[var(--muted)]">
+                  Ambiance
+                </span>
+                <input
+                  value={musicPrompt}
+                  onChange={(e) => setMusicPrompt(e.target.value)}
+                  className="min-h-11 w-full rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--signal)]/30"
+                />
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium text-[var(--muted)]">
+                  Volume lit · {musicVolume.toFixed(2)}
+                </span>
+                <input
+                  type="range"
+                  min={0.05}
+                  max={0.4}
+                  step={0.01}
+                  value={musicVolume}
+                  onChange={(e) => setMusicVolume(Number(e.target.value))}
+                  className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[var(--line)] accent-[var(--ink)]"
+                />
+              </label>
+            </div>
+          )}
+        </fieldset>
 
         <label className="block space-y-2">
           <span className="text-sm font-medium">
@@ -471,7 +603,7 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
             className="mt-1 size-4 accent-[var(--ink)]"
           />
           <span className="text-sm leading-snug">
-            Consentement explicite pour les voix utilisées dans ce livre audio.
+            Consentement explicite pour les voix / clones de ce livre audio.
           </span>
         </label>
 
@@ -484,13 +616,17 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
             <Sparkles className="size-4" aria-hidden />
             {submitting
               ? "Envoi…"
-              : `Générer · ${chapters.length} segment(s)`}
+              : `Générer · ${activeSegments.length} segment(s)`}
           </button>
         </div>
       </form>
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Historique livres audio</h2>
+        <p className="text-xs text-[var(--muted)]">
+          Si le worker redémarre, un job en cours reprend au dernier segment
+          (checkpoint B2).
+        </p>
         <JobList jobs={jobs} loading={jobsLoading} />
       </section>
     </section>

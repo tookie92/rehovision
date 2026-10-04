@@ -2,19 +2,22 @@
 
 Override de `MASTER.md` pour l’onglet Livre audio.
 
-## Flux
+## Flux (B1 + B2)
 1. Titre + manuscrit (`# Chapitre`, `Nom: réplique`, tags OmniVoice).
-2. Cast type ElevenLabs : une ligne par rôle (Narrateur + personnages), chips voix.
-3. Langues + rythme + consentement → job `audiobook`.
-4. Option « Cloner ma voix » = une seule voix (désactive le cast multi).
+2. **Segments** : aperçu auto ou édition manuelle (texte / speaker / titre) avant envoi.
+3. **Cast** : voix publique **ou clone** (preset / upload) par personnage.
+4. **Lit musical** optionnel (ACE-Step instrumental + mix sous narration).
+5. Langues + rythme + consentement → job `audiobook`.
+6. **Reprise mid-job** : checkpoint Convex (`chunkStorageIds` + `nextIndex`) si le worker crash.
 
 ## Worker
-- Split chapitres / tours de parole → **tags retirés avant NLLB** (évite hallucinations UE) → trad → tags remis → OmniVoice par speaker → concat.
-- Params `speakers`: `{ "Alice": { "instruct": "…" }, "Narrateur": { … } }`.
-- Max 80 segments ; `resultMeta.chapters` (+ `speaker`).
+- `engines/audiobook.py` : segments UI ou split → trad (tags hors NLLB) → TTS multi-voix / multi-clone → concat → mix lit → WAV.
+- Params : `segments[]`, `speakers{ instruct | refStorageId }`, `musicPrompt`, `musicVolume`, `musicStorageId`.
+- Checkpoint via `worker:saveCheckpoint` ; `reclaimStaleJobs` conserve le checkpoint.
+- Max 80 segments ; `resultMeta` (+ `music`, `resumedFrom`, `speaker`).
 
-## Hors MVP B1 (reste Vague B / B2)
+## B2 livré
+- Lit musique ACE-Step sous narration.
 - Reprise mid-job après crash.
-- Lit de musique ACE-Step sous narration.
 - Édition manuelle des segments avant envoi.
-- Clone distinct par personnage (plusieurs refs).
+- Clone distinct par personnage.

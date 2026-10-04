@@ -307,7 +307,11 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
             if not params.get("voiceConsent"):
                 raise RuntimeError("Consentement voix manquant (voiceConsent)")
             text = str(params.get("text") or "").strip()
-            if not text:
+            segments_raw = params.get("segments")
+            segments_list = (
+                segments_raw if isinstance(segments_raw, list) else None
+            )
+            if not text and not segments_list:
                 raise RuntimeError("Texte du livre audio requis")
             source_lang = str(params.get("sourceLang") or "fr")
             target_lang = str(params.get("targetLang") or "fr")
@@ -329,10 +333,6 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 clone_voice = bool(params.get("cloneVoice", False))
             instruct = params.get("instruct")
             instruct_s = str(instruct).strip() if instruct else ""
-            if voice_mode in ("create", "design", "creator") and not instruct_s:
-                raise RuntimeError(
-                    "Mode « Créer une voix » : choisis au moins un attribut."
-                )
             speed_raw = params.get("speed")
             speed_f: float | None = None
             if speed_raw is not None and str(speed_raw).strip() != "":
@@ -345,8 +345,10 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
             ref_path: Path | None = None
             if ref_storage:
                 ref_path = download_storage_file(client, str(ref_storage))
+
             speakers_raw = params.get("speakers")
             speakers_map: dict | None = None
+            any_speaker_clone = False
             if isinstance(speakers_raw, dict) and speakers_raw:
                 speakers_map = {}
                 for k, v in speakers_raw.items():
@@ -354,13 +356,105 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                     if not key:
                         continue
                     if isinstance(v, dict):
-                        speakers_map[key] = {
-                            "instruct": str(v.get("instruct") or "").strip()[:500]
-                        }
+                        entry: dict = {}
+                        inst = str(v.get("instruct") or "").strip()[:500]
+                        if inst:
+                            entry["instruct"] = inst
+                        ref_id = v.get("refStorageId") or v.get("voiceRefStorageId")
+                        if ref_id:
+                            sp_path = download_storage_file(client, str(ref_id))
+                            entry["ref_path"] = sp_path
+                            any_speaker_clone = True
+                        if entry:
+                            speakers_map[key] = entry
                     elif isinstance(v, str) and v.strip():
                         speakers_map[key] = {"instruct": v.strip()[:500]}
+
+            # Clone global OU clones par personnage
+            if any_speaker_clone:
+                clone_voice = bool(ref_path) or any_speaker_clone
+            if (
+                voice_mode in ("create", "design", "creator")
+                and not instruct_s
+                and not any_speaker_clone
+                and not (
+                    speakers_map
+                    and any(
+                        isinstance(e, dict) and e.get("instruct")
+                        for e in speakers_map.values()
+                    )
+                )
+            ):
+                raise RuntimeError(
+                    "Mode « Créer une voix » : choisis au moins un attribut."
+                )
+
+            music_prompt = str(params.get("musicPrompt") or "").strip() or None
+            music_vol = 0.18
+            try:
+                if params.get("musicVolume") is not None:
+                    music_vol = float(params.get("musicVolume"))
+            except (TypeError, ValueError):
+                music_vol = 0.18
+            music_storage = params.get("musicStorageId")
+            music_path: Path | None = None
+            if music_storage:
+                music_path = download_storage_file(client, str(music_storage))
+
+            # Checkpoint reprise B2
+            checkpoint = job.get("checkpoint") if isinstance(job.get("checkpoint"), dict) else None
+            resume_paths: list[Path] = []
+            if checkpoint and isinstance(checkpoint.get("chunkStorageIds"), list):
+                for sid in checkpoint["chunkStorageIds"]:
+                    try:
+                        resume_paths.append(
+                            download_storage_file(client, str(sid))
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("chunk checkpoint manquant %s: %s", sid, exc)
+                        break
+
+            chunk_ids: list[str] = list(
+                checkpoint.get("chunkStorageIds") or []
+            ) if checkpoint else []
+            meta_chapters: list = list(
+                checkpoint.get("chapters") or []
+            ) if checkpoint else []
+
+            def on_chunk_saved(index: int, path: Path, meta: dict) -> None:
+                nonlocal chunk_ids, meta_chapters
+                sid = upload_file(client, token, path)
+                # étend / remplace
+                while len(chunk_ids) <= index:
+                    chunk_ids.append("")
+                chunk_ids[index] = sid
+                while len(meta_chapters) <= index:
+                    meta_chapters.append({})
+                meta_chapters[index] = meta
+                total_hint = (
+                    len(segments_list)
+                    if segments_list
+                    else max(len(chunk_ids), index + 1)
+                )
+                client.mutation(
+                    "worker:saveCheckpoint",
+                    {
+                        "token": token,
+                        "jobId": job_id,
+                        "checkpoint": {
+                            "nextIndex": index + 1,
+                            "chunkStorageIds": chunk_ids[: index + 1],
+                            "chapters": meta_chapters[: index + 1],
+                        },
+                        "progress": min(
+                            80, 20 + int(60 * (index + 1) / max(total_hint, 1))
+                        ),
+                    },
+                )
+
             log.info(
-                "Job %s audiobook — %s→%s chars=%d mode=%s clone=%s speakers=%s",
+                "Job %s audiobook — %s→%s chars=%d mode=%s clone=%s speakers=%s "
+                "segments=%s music=%s resume=%s",
                 job_id,
                 source_lang,
                 target_lang,
@@ -368,6 +462,9 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 voice_mode or "model",
                 clone_voice,
                 list(speakers_map.keys()) if speakers_map else [],
+                len(segments_list) if segments_list else 0,
+                bool(music_prompt or music_path),
+                (checkpoint or {}).get("nextIndex") if checkpoint else None,
             )
             book = run_audiobook(
                 text=text,
@@ -379,6 +476,13 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 speed=speed_f,
                 max_chars=max_chars,
                 speakers=speakers_map,
+                segments=segments_list,
+                music_prompt=music_prompt,
+                music_volume=music_vol,
+                music_storage_path=music_path,
+                checkpoint=checkpoint,
+                resume_chunk_paths=resume_paths or None,
+                on_chunk_saved=on_chunk_saved,
                 on_progress=set_progress,
             )
             audio_path = book.path
@@ -388,6 +492,8 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 "chapters": book.chapters[:40],
                 "translated": book.translated,
                 "clone": book.clone,
+                "music": book.music,
+                "resumedFrom": book.resumed_from,
                 "sourceLang": book.source_lang,
                 "targetLang": book.target_lang,
                 "charCount": book.char_count,
@@ -399,6 +505,7 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 ),
                 "instruct": instruct_s[:500] if instruct_s else None,
                 "speed": speed_f,
+                "musicPrompt": music_prompt[:200] if music_prompt else None,
             }
         elif job_type == "clips":
             source_storage = params.get("sourceStorageId")

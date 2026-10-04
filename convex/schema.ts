@@ -37,6 +37,11 @@ export default defineSchema({
     resultStorageId: v.optional(v.id("_storage")),
     /** Métadonnées résultat (ex. propositions de segments Couche 3) */
     resultMeta: v.optional(v.any()),
+    /**
+     * Vague B2 — reprise mid-job audiobook :
+     * { nextIndex, chunkStorageIds[], chapters[] }
+     */
+    checkpoint: v.optional(v.any()),
     error: v.optional(v.string()),
     createdAt: v.number(),
     startedAt: v.optional(v.number()),

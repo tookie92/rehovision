@@ -24,10 +24,25 @@ export const claimNextJob = mutation({
     }
 
     const now = Date.now();
+    const resumeProgress =
+      typeof next.progress === "number" && next.progress > 1
+        ? next.progress
+        : next.checkpoint &&
+            typeof (next.checkpoint as { nextIndex?: number }).nextIndex ===
+              "number"
+          ? Math.max(
+              1,
+              Math.min(
+                80,
+                20 +
+                  Number((next.checkpoint as { nextIndex: number }).nextIndex),
+              ),
+            )
+          : 1;
     await ctx.db.patch(next._id, {
       status: "running",
       startedAt: now,
-      progress: 1,
+      progress: resumeProgress,
       error: undefined,
     });
 
@@ -49,6 +64,30 @@ export const updateProgress = mutation({
     }
     const progress = Math.max(0, Math.min(100, args.progress));
     await ctx.db.patch(args.jobId, { progress });
+  },
+});
+
+/** Sauvegarde un checkpoint audiobook (chunks déjà générés). */
+export const saveCheckpoint = mutation({
+  args: {
+    token: v.string(),
+    jobId: v.id("jobs"),
+    checkpoint: v.any(),
+    progress: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    assertWorkerToken(args.token);
+    const job = await ctx.db.get(args.jobId);
+    if (!job || job.status !== "running") {
+      return;
+    }
+    const patch: Record<string, unknown> = {
+      checkpoint: args.checkpoint,
+    };
+    if (typeof args.progress === "number") {
+      patch.progress = Math.max(0, Math.min(100, args.progress));
+    }
+    await ctx.db.patch(args.jobId, patch);
   },
 });
 
@@ -78,6 +117,7 @@ export const completeJob = mutation({
       progress: 100,
       resultStorageId: args.resultStorageId,
       ...(args.resultMeta !== undefined ? { resultMeta: args.resultMeta } : {}),
+      checkpoint: undefined,
       finishedAt: Date.now(),
       error: undefined,
     });
@@ -122,11 +162,18 @@ export const reclaimStaleJobs = mutation({
     for (const job of running) {
       const started = job.startedAt ?? job.createdAt;
       if (started <= cutoff) {
+        // Garde checkpoint + progress pour reprise audiobook (B2)
+        const keepProgress =
+          typeof job.progress === "number" && job.progress > 0
+            ? job.progress
+            : undefined;
         await ctx.db.patch(job._id, {
           status: "queued",
-          progress: 0,
+          ...(keepProgress !== undefined ? { progress: keepProgress } : {}),
           startedAt: undefined,
-          error: "Remis en file (worker redémarré / job orphelin)",
+          error: job.checkpoint
+            ? "Reprise prévue (checkpoint conservé)"
+            : "Remis en file (worker redémarré / job orphelin)",
         });
         reclaimed += 1;
       }
