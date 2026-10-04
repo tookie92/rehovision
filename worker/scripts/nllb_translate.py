@@ -1,0 +1,580 @@
+#!/usr/bin/env python3
+"""Traduction NLLB-200 (stdin JSON → stdout JSON). Remplace Ollama pour le dub."""
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+from typing import Any
+
+# ISO atelier → FLORES-200 (NLLB)
+FLORES: dict[str, str] = {
+    "fr": "fra_Latn",
+    "en": "eng_Latn",
+    "es": "spa_Latn",
+    "pt": "por_Latn",
+    "de": "deu_Latn",
+    "it": "ita_Latn",
+    "ar": "arb_Arab",
+    "zh": "zho_Hans",
+    "ja": "jpn_Jpan",
+    "ko": "kor_Hang",
+    "hi": "hin_Deva",
+    "sw": "swh_Latn",
+    "ln": "lin_Latn",
+    "yo": "yor_Latn",
+    "ha": "hau_Latn",
+    "wo": "wol_Latn",
+    "wof": "wol_Latn",
+    "sn": "sna_Latn",
+    # NLLB-200 n'a pas nde/nbl — proxy Nguni le plus proche (Zulu)
+    "nd": "zul_Latn",
+    "nr": "zul_Latn",
+    "bm": "bam_Latn",
+    "ig": "ibo_Latn",
+    "zu": "zul_Latn",
+    "xh": "xho_Latn",
+    "st": "sot_Latn",
+    "tn": "tsn_Latn",
+    "ny": "nya_Latn",
+    "rw": "kin_Latn",
+    "so": "som_Latn",
+    "am": "amh_Ethi",
+}
+
+# Traduire clause par clause (évite fuites EN/FR au milieu de phrase)
+_CLAUSE_TGTS = frozenset(
+    {
+        "sna_Latn",
+        "wol_Latn",
+        "lin_Latn",
+        "yor_Latn",
+        "hau_Latn",
+        "bam_Latn",
+        "ibo_Latn",
+        "swh_Latn",
+        "zul_Latn",
+        "xho_Latn",
+        "sot_Latn",
+        "nya_Latn",
+        "kin_Latn",
+        "som_Latn",
+        "amh_Ethi",
+    }
+)
+
+# Pivot EN utile sauf Wolof (600M : FR→WO direct > EN→WO)
+_PIVOT_TGTS = _CLAUSE_TGTS - {"wol_Latn"}
+
+_FR_LEAK = re.compile(
+    r"\b(bonjour|bienvenue|aujourd'?hui|atelier|je|nous|vous|notre|avec|dans|pour|"
+    r"appelle|merci|suis|parle|parler|aussi|création|creation)\b",
+    re.I,
+)
+_EN_LEAK = re.compile(
+    r"\b(hello|welcome|today|workshop|our|the|and|you|that|this|with|from|"
+    r"have|will|would|name|creation|local|please|thanks)\b",
+    re.I,
+)
+_STRONG_LEAK = re.compile(
+    r"\b(welcome|workshop|bonjour|bienvenue|hello|today|atelier|aujourd'?hui|"
+    r"je\s+suis|je\s+m['']appelle)\b",
+    re.I,
+)
+
+# Mots capitalisés à NE PAS traiter comme noms propres
+_NAME_STOP = frozenset(
+    {
+        "bonjour",
+        "bienvenue",
+        "aujourd",
+        "merci",
+        "hello",
+        "welcome",
+        "today",
+        "the",
+        "and",
+        "my",
+        "name",
+        "our",
+        "workshop",
+        "atelier",
+        "creation",
+        "locale",
+        "local",
+        "je",
+        "nous",
+        "vous",
+    }
+)
+
+
+def _norm(code: str) -> str:
+    return (code or "").strip().lower().split("-")[0]
+
+
+def to_flores(code: str) -> str:
+    c = _norm(code)
+    if not c:
+        raise ValueError("Code langue vide")
+    if c in FLORES:
+        return FLORES[c]
+    raw = (code or "").strip()
+    if "_" in raw and len(raw) >= 7:
+        return raw
+    raise ValueError(
+        f"Langue non supportée par NLLB: {code!r}. "
+        f"Presets: {', '.join(sorted(FLORES))}"
+    )
+
+
+def _prep_fr_clauses(text: str) -> str:
+    """Force des coupes claires pour le FR oral (sans virgules)."""
+    t = text.strip()
+    # « Bonjour je suis X » → « Bonjour, je suis X »
+    t = re.sub(r"(?i)\bbonjour\b(?!\s*,)", "Bonjour,", t)
+    t = re.sub(r"(?i)\bbienvenue\b(?!\s*,)", "Bienvenue,", t)
+    # Nouvelle phrase avant Aujourd'hui / On va / Ensuite
+    t = re.sub(r"(?i)([^.!?])\s+(aujourd'?hui)\b", r"\1. \2", t)
+    t = re.sub(r"(?i)([^.!?])\s+(on va)\b", r"\1. \2", t)
+    t = re.sub(r"(?i)([^.!?])\s+(ensuite)\b", r"\1. \2", t)
+    t = re.sub(r"\s+", " ", t)
+    t = re.sub(r"\s+([,;:.!?])", r"\1", t)
+    return t.strip()
+
+
+def _split_clauses(text: str) -> list[str]:
+    text = text.strip()
+    if not text:
+        return []
+    parts = re.split(r"(?<=[,;:.!?…])\s+", text)
+    out = [p.strip() for p in parts if p.strip()]
+    return out if out else [text]
+
+
+def _split_chunks(text: str, max_chars: int = 480) -> list[str]:
+    text = text.strip()
+    if len(text) <= max_chars:
+        return [text]
+    parts = re.split(r"(?<=[.!?…])\s+", text)
+    chunks: list[str] = []
+    buf = ""
+    for p in parts:
+        if not p:
+            continue
+        if buf and len(buf) + 1 + len(p) > max_chars:
+            chunks.append(buf)
+            buf = p
+        else:
+            buf = f"{buf} {p}".strip() if buf else p
+    if buf:
+        chunks.append(buf)
+    out: list[str] = []
+    for c in chunks:
+        if len(c) <= max_chars:
+            out.append(c)
+        else:
+            for i in range(0, len(c), max_chars):
+                out.append(c[i : i + max_chars])
+    return out
+
+
+def _protect_names(text: str) -> tuple[str, dict[str, str]]:
+    """Placeholders pour noms propres (évite Joseph → Yuusufa)."""
+    mapping: dict[str, str] = {}
+
+    def repl(m: re.Match[str]) -> str:
+        word = m.group(0)
+        if word.lower() in _NAME_STOP:
+            return word
+        key = f"NLLBNAME{len(mapping)}X"
+        mapping[key] = word
+        return key
+
+    protected = re.sub(
+        r"\b([A-ZÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ][a-zàâäéèêëîïôöùûüç’'-]{1,40})\b",
+        repl,
+        text,
+    )
+    return protected, mapping
+
+
+def _restore_names(text: str, mapping: dict[str, str]) -> str:
+    out = text
+    for key, name in mapping.items():
+        out = re.sub(re.escape(key), name, out, flags=re.I)
+    return out
+
+
+def _forced_bos(tokenizer: Any, tgt_f: str) -> int:
+    bos = tokenizer.convert_tokens_to_ids(tgt_f)
+    unk = getattr(tokenizer, "unk_token_id", 3)
+    if bos is None or bos == unk or (isinstance(bos, int) and bos < 0):
+        raise RuntimeError(
+            f"Token langue NLLB introuvable ou <unk>: {tgt_f}. "
+            "Cette langue n'est pas dans le vocabulaire FLORES du modèle."
+        )
+    return int(bos)
+
+
+def _has_leak(out: str, tgt_f: str) -> bool:
+    if tgt_f in ("fra_Latn", "eng_Latn"):
+        return False
+    if _STRONG_LEAK.search(out):
+        return True
+    words = max(len(re.findall(r"\w+", out, flags=re.UNICODE)), 1)
+    fr_hits = len(_FR_LEAK.findall(out))
+    en_hits = len(_EN_LEAK.findall(out))
+    if tgt_f != "fra_Latn" and fr_hits >= 1 and fr_hits / words > 0.12:
+        return True
+    if tgt_f != "eng_Latn" and en_hits >= 2 and en_hits / words > 0.15:
+        return True
+    return False
+
+
+def _assert_plausible(out: str, tgt_f: str) -> None:
+    if _has_leak(out, tgt_f):
+        raise RuntimeError(
+            f"NLLB a laissé du FR/EN dans la sortie {tgt_f} "
+            f"(extrait: {out[:160]!r}). Réessaie ou corrige l’aperçu."
+        )
+
+
+# Salutations / amorces — NLLB-600M laisse souvent du FR (Bonjour, Aujourd'hui…)
+_GREETINGS: dict[tuple[str, str], str] = {
+    ("wol_Latn", "bonjour"): "Na nga def",
+    ("wol_Latn", "hello"): "Na nga def",
+    ("wol_Latn", "bonsoir"): "Na nga def",
+    ("wol_Latn", "salut"): "Na nga def",
+    ("wol_Latn", "bienvenue"): "Dalal ak jam",
+    ("wol_Latn", "aujourd'hui"): "Tey",
+    ("wol_Latn", "aujourdhui"): "Tey",
+    ("sna_Latn", "bonjour"): "Mhoroi",
+    ("sna_Latn", "hello"): "Mhoroi",
+    ("sna_Latn", "bonsoir"): "Mhoroi",
+    ("sna_Latn", "bienvenue"): "Kugamuchirwa",
+    ("zul_Latn", "bonjour"): "Sawubona",
+    ("zul_Latn", "hello"): "Sawubona",
+}
+
+# Patterns clause → Wolof (groupes = reste / nom)
+_WO_CLAUSE_PATTERNS: list[tuple[re.Pattern[str], Any]] = [
+    (
+        re.compile(
+            r"(?i)^bonjour\s*,?\s*je\s+suis\s+(.+?)\s*$"
+        ),
+        lambda m: f"Na nga def, man maay {m.group(1).strip()}",
+    ),
+    (
+        re.compile(
+            r"(?i)^bonjour\s*,?\s*je\s+m['']appelle\s+(.+?)\s*$"
+        ),
+        lambda m: f"Na nga def, sama tur mooy {m.group(1).strip()}",
+    ),
+    (
+        re.compile(r"(?i)^je\s+suis\s+(.+?)\s*$"),
+        lambda m: f"man maay {m.group(1).strip()}",
+    ),
+    (
+        re.compile(r"(?i)^je\s+m['']appelle\s+(.+?)\s*$"),
+        lambda m: f"sama tur mooy {m.group(1).strip()}",
+    ),
+    (
+        re.compile(r"(?i)^bienvenue\s*,?\s*(?:dans|à)\s+notre\s+atelier\s*$"),
+        lambda _m: "Dalal ak jam ci sunu jëfandikukat",
+    ),
+    (
+        re.compile(r"(?i)^(?:dans|à)\s+notre\s+atelier\s*$"),
+        lambda _m: "ci sunu jëfandikukat",
+    ),
+    (
+        re.compile(r"(?i)^bienvenue\s*,?\s*(.+)$"),
+        lambda m: f"Dalal ak jam, {m.group(1).strip()}",
+    ),
+]
+
+
+def _clause_override(text: str, tgt_f: str) -> str | None:
+    raw = text.strip()
+    punct = ""
+    m_end = re.search(r"([,;.!?…]+)$", raw)
+    if m_end:
+        punct = m_end.group(1)
+        raw = raw[: m_end.start()].strip()
+
+    core = raw.lower()
+    core = re.sub(r"^nllbname\d+x\s*", "", core)
+    greet = _GREETINGS.get((tgt_f, core))
+    if greet:
+        return greet + punct
+
+    if tgt_f == "wol_Latn":
+        for pat, builder in _WO_CLAUSE_PATTERNS:
+            m = pat.match(raw)
+            if m:
+                return builder(m) + punct
+        # « Aujourd'hui … » → préfixe Tey + corps pour NLLB
+        m_auj = re.match(r"(?i)^aujourd'?hui\s*,?\s*(.+)$", raw)
+        if m_auj and m_auj.group(1).strip():
+            return None  # géré dans _run_once avec préfixe
+    return None
+
+
+def _scrub_fr_leaks(out: str, tgt_f: str) -> str:
+    """Dernier filet : remplace les amorces FR que NLLB laisse telles quelles."""
+    if tgt_f != "wol_Latn":
+        if tgt_f == "sna_Latn":
+            out = re.sub(r"(?i)\bbonjour\b", "Mhoroi", out)
+            out = re.sub(r"(?i)\bhello\b", "Mhoroi", out)
+            out = re.sub(r"(?i)\bwelcome\b", "Kugamuchirwa", out)
+            out = re.sub(r"(?i)\bworkshop\b", "musangano", out)
+        return out
+    out = re.sub(r"(?i)\bbonjour\b", "Na nga def", out)
+    out = re.sub(r"(?i)\bbienvenue\b", "Dalal ak jam", out)
+    out = re.sub(r"(?i)\baujourd'?hui\b", "Tey", out)
+    out = re.sub(r"(?i)\bje\s+suis\b", "man maay", out)
+    out = re.sub(r"(?i)\bje\s+m['']appelle\b", "sama tur mooy", out)
+    out = re.sub(r"(?i)\batelier\b", "jëfandikukat", out)
+    out = re.sub(r"(?i)\bworkshop\b", "jëfandikukat", out)
+    out = re.sub(r"(?i)\bwelcome\b", "Dalal ak jam", out)
+    # « On » français en tête de phrase
+    out = re.sub(r"(?i)^On\s+(?=dina|va|parle|peut)", "Ñu ", out)
+    out = re.sub(r"(?i)([.!?]\s+)On\s+(?=dina|va|parle|peut)", r"\1Ñu ", out)
+    out = re.sub(r"\s+", " ", out).strip()
+    return out
+
+
+def _run_once(
+    model: Any,
+    tokenizer: Any,
+    text: str,
+    src_f: str,
+    tgt_f: str,
+    device: str,
+) -> str:
+    override = _clause_override(text, tgt_f)
+    if override is not None:
+        return override
+
+    # Aujourd'hui + reste : traduire le reste, préfixer Tey (wol)
+    m_auj = re.match(r"(?i)^aujourd'?hui\s*,?\s*(.+)$", text.strip())
+    prefix = ""
+    payload = text
+    if tgt_f == "wol_Latn" and m_auj and m_auj.group(1).strip():
+        prefix = "Tey, "
+        payload = m_auj.group(1).strip()
+
+    if hasattr(tokenizer, "src_lang"):
+        tokenizer.src_lang = src_f
+    if hasattr(tokenizer, "set_tgt_lang_special_tokens"):
+        tokenizer.set_tgt_lang_special_tokens(tgt_f)
+    forced_bos = _forced_bos(tokenizer, tgt_f)
+    inputs = tokenizer(payload, return_tensors="pt", truncation=True, max_length=512)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+    torch = __import__("torch")
+    with torch.inference_mode():
+        gen = model.generate(
+            **inputs,
+            forced_bos_token_id=forced_bos,
+            max_new_tokens=128,
+            num_beams=5,
+        )
+    out = tokenizer.batch_decode(gen, skip_special_tokens=True)[0].strip()
+    if not out:
+        raise RuntimeError(f"NLLB: traduction vide ({src_f}→{tgt_f})")
+    out = prefix + out
+    return _scrub_fr_leaks(out, tgt_f)
+
+
+def _run_pair(
+    model: Any,
+    tokenizer: Any,
+    text: str,
+    src_f: str,
+    tgt_f: str,
+    device: str,
+    *,
+    by_clause: bool = False,
+) -> str:
+    if by_clause and tgt_f in _CLAUSE_TGTS:
+        clauses = _split_clauses(text)
+        if len(clauses) > 1:
+            parts: list[str] = []
+            for clause in clauses:
+                piece = _run_once(model, tokenizer, clause, src_f, tgt_f, device)
+                if _has_leak(piece, tgt_f):
+                    alt = re.sub(r"[,;.!?…]+$", "", clause).strip()
+                    if alt and alt != clause:
+                        try:
+                            piece2 = _run_once(
+                                model, tokenizer, alt, src_f, tgt_f, device
+                            )
+                            if not _has_leak(piece2, tgt_f):
+                                piece = piece2
+                        except Exception:  # noqa: BLE001
+                            pass
+                parts.append(piece)
+            spoken = " ".join(parts).strip()
+            return re.sub(r"\s+([,;:.!?])", r"\1", spoken)
+
+    pieces = [
+        _run_once(model, tokenizer, chunk, src_f, tgt_f, device)
+        for chunk in _split_chunks(text)
+    ]
+    return " ".join(p for p in pieces if p).strip()
+
+
+def translate_text(
+    text: str, source_lang: str, target_lang: str, model_id: str
+) -> dict[str, Any]:
+    import torch
+    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+    src_f = to_flores(source_lang)
+    tgt_f = to_flores(target_lang)
+    if src_f == tgt_f:
+        return {
+            "spokenText": text.strip(),
+            "sourceLang": _norm(source_lang),
+            "targetLang": _norm(target_lang),
+            "floresSrc": src_f,
+            "floresTgt": tgt_f,
+            "translated": False,
+        }
+
+    device = os.environ.get(
+        "NLLB_DEVICE", "cuda:0" if torch.cuda.is_available() else "cpu"
+    )
+    dtype = torch.float16 if "cuda" in device else torch.float32
+
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    try:
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_id, dtype=dtype)
+    except TypeError:
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_id, torch_dtype=dtype)
+    model = model.to(device)
+    model.eval()
+
+    source = text.strip()
+    if src_f == "fra_Latn" and tgt_f in _CLAUSE_TGTS:
+        source = _prep_fr_clauses(source)
+
+    protected, name_map = _protect_names(source)
+    use_clause = tgt_f in _CLAUSE_TGTS
+    pivoted = False
+
+    if tgt_f == "wol_Latn" and src_f == "fra_Latn":
+        # Wolof : chemin direct FR→WO clause par clause
+        spoken = _run_pair(
+            model, tokenizer, protected, src_f, tgt_f, device, by_clause=True
+        )
+    elif src_f != "eng_Latn" and tgt_f in _PIVOT_TGTS:
+        mid = _run_pair(
+            model, tokenizer, protected, src_f, "eng_Latn", device, by_clause=False
+        )
+        mid = _restore_names(mid, name_map)
+        for key, name in name_map.items():
+            mid = mid.replace(name, key)
+        spoken = _run_pair(
+            model, tokenizer, mid, "eng_Latn", tgt_f, device, by_clause=use_clause
+        )
+        pivoted = True
+    else:
+        spoken = _run_pair(
+            model,
+            tokenizer,
+            protected,
+            src_f,
+            tgt_f,
+            device,
+            by_clause=use_clause,
+        )
+
+    spoken = _restore_names(spoken, name_map)
+    spoken = _scrub_fr_leaks(spoken, tgt_f)
+
+    if _has_leak(spoken, tgt_f):
+        try:
+            if tgt_f == "wol_Latn":
+                spoken2 = _run_pair(
+                    model,
+                    tokenizer,
+                    protected,
+                    src_f if src_f == "fra_Latn" else "eng_Latn",
+                    tgt_f,
+                    device,
+                    by_clause=True,
+                )
+            else:
+                mid = _run_pair(
+                    model, tokenizer, protected, src_f, "eng_Latn", device
+                )
+                mid = _restore_names(mid, name_map)
+                for key, name in name_map.items():
+                    mid = mid.replace(name, key)
+                spoken2 = _run_pair(
+                    model,
+                    tokenizer,
+                    mid,
+                    "eng_Latn",
+                    tgt_f,
+                    device,
+                    by_clause=True,
+                )
+            spoken2 = _restore_names(spoken2, name_map)
+            spoken2 = _scrub_fr_leaks(spoken2, tgt_f)
+            if not _has_leak(spoken2, tgt_f):
+                spoken = spoken2
+            elif tgt_f == "wol_Latn":
+                # Accepter après scrub agressif si plus de strong leak
+                spoken = spoken2
+        except Exception:  # noqa: BLE001
+            pass
+
+    spoken = _scrub_fr_leaks(spoken, tgt_f)
+    _assert_plausible(spoken, tgt_f)
+
+    return {
+        "spokenText": spoken,
+        "sourceLang": _norm(source_lang),
+        "targetLang": _norm(target_lang),
+        "floresSrc": src_f,
+        "floresTgt": tgt_f,
+        "translated": True,
+        "model": model_id,
+        "pivot": "eng_Latn" if pivoted else None,
+    }
+
+
+def main() -> int:
+    try:
+        cfg = json.load(sys.stdin)
+    except json.JSONDecodeError as exc:
+        print(json.dumps({"error": f"JSON invalide: {exc}"}), flush=True)
+        return 2
+
+    text = (cfg.get("text") or "").strip()
+    source_lang = cfg.get("source_lang") or cfg.get("sourceLang") or "fr"
+    target_lang = cfg.get("target_lang") or cfg.get("targetLang") or "en"
+    model_id = (
+        cfg.get("model")
+        or os.environ.get("NLLB_MODEL")
+        or "facebook/nllb-200-distilled-600M"
+    )
+
+    if not text:
+        print(json.dumps({"error": "Texte vide"}), flush=True)
+        return 1
+
+    try:
+        out = translate_text(text, source_lang, target_lang, model_id)
+        print(json.dumps(out, ensure_ascii=False), flush=True)
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        print(json.dumps({"error": str(exc)[:800]}), flush=True)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

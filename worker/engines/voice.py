@@ -2,12 +2,12 @@
 Génération voix Couche 1.
 
 VOICE_ENGINE=
-  auto       — OmniVoice si dispo, sinon Piper (FR), sinon stub
-  omnivoice  — OmniVoice (auto-voice / instruct)
+  auto       — OmniVoice si dispo, sinon Piper (FR sans clone), sinon ERREUR
+  omnivoice  — OmniVoice (clone / instruct / auto)
   piper      — Piper ONNX local (fr_FR-siwis)
-  stub       — ton test (debug)
+  stub       — ton test (debug explicite seulement)
 
-OmniVoice n'était PAS téléchargé (cache HF ~124Ko). Piper FR l'est.
+Jamais de stub silencieux en production : on lève une erreur claire (ex. OOM).
 """
 from __future__ import annotations
 
@@ -25,6 +25,12 @@ OUTPUT_DIR = ROOT / "outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 PIPER_DIR = ROOT / "models" / "piper"
 
+# Codes OmniVoice connus même sans import du paquet dans worker/.venv
+_KNOWN_OMNI_LANGS = {
+    "fr", "en", "wo", "wof", "sn", "sw", "ln", "yo", "ha", "ar", "pt",
+    "es", "de", "it", "zh", "ja", "ko", "hi", "bm", "ff", "ig", "am",
+}
+
 _omnivoice_model = None
 
 
@@ -34,35 +40,77 @@ def generate_voice(
     target_lang: str,
     duration_s: int | None = None,
     instruct: str | None = None,
+    ref_audio: Path | str | None = None,
+    ref_text: str | None = None,
 ) -> Path:
     engine = os.environ.get("VOICE_ENGINE", "auto").strip().lower()
     text = text.strip()
     if not text:
         raise ValueError("Texte vide")
 
+    ref_path = Path(ref_audio) if ref_audio else None
+    if ref_path is not None and not ref_path.is_file():
+        raise RuntimeError(f"Audio de référence introuvable: {ref_path}")
+
     if engine == "stub":
         return _generate_stub(text, source_lang, target_lang, duration_s)
     if engine == "piper":
+        if ref_path:
+            raise RuntimeError(
+                "Piper ne peut pas cloner une voix. Désactive le clone "
+                "ou utilise OmniVoice."
+            )
         return _generate_piper(text, target_lang)
     if engine == "omnivoice":
-        return _generate_omnivoice(text, target_lang, instruct)
+        return _generate_omnivoice(
+            text, target_lang, instruct, ref_path, ref_text
+        )
 
     # auto
-    if _omnivoice_ready():
-        try:
-            return _generate_omnivoice(text, target_lang, instruct)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("OmniVoice échec → Piper/stub: %s", exc)
-    if target_lang.startswith("fr") and _piper_ready():
-        return _generate_piper(text, target_lang)
-    if _piper_ready() and target_lang.startswith("fr"):
-        return _generate_piper(text, target_lang)
-    log.warning(
-        "Pas d'OmniVoice / Piper pour %s — stub. "
-        "Télécharge OmniVoice ou utilise target_lang=fr avec Piper.",
-        target_lang,
-    )
-    return _generate_stub(text, source_lang, target_lang, duration_s)
+    if not _omnivoice_ready():
+        if target_lang.startswith("fr") and _piper_ready() and not ref_path:
+            return _generate_piper(text, target_lang)
+        raise RuntimeError(
+            "OmniVoice indisponible (poids / venv). "
+            "Voir worker/scripts/setup_omnivoice.sh"
+        )
+
+    try:
+        return _generate_omnivoice(
+            text, target_lang, instruct, ref_path, ref_text
+        )
+    except Exception as exc:  # noqa: BLE001
+        msg = _friendly_voice_error(exc, clone=bool(ref_path), lang=target_lang)
+        log.error("OmniVoice échec: %s", msg)
+        # Piper FR uniquement si PAS de clone demandé
+        if (
+            not ref_path
+            and target_lang.startswith("fr")
+            and _piper_ready()
+            and "out of memory" not in str(exc).lower()
+            and "oom" not in str(exc).lower()
+        ):
+            log.warning("Repli Piper FR (sans clone)")
+            return _generate_piper(text, target_lang)
+        raise RuntimeError(msg) from exc
+
+
+def _friendly_voice_error(exc: BaseException, *, clone: bool, lang: str) -> str:
+    raw = str(exc)
+    low = raw.lower()
+    if "out of memory" in low or "oom" in low:
+        return (
+            "GPU saturée (CUDA OOM) pendant "
+            f"{'le clonage de voix' if clone else 'OmniVoice'} "
+            f"(cible {lang}). Réessaie dans quelques secondes, ou choisis "
+            "« Voix modèle » sans clone. Libère la VRAM (ferme un autre job GPU)."
+        )
+    if clone:
+        return (
+            f"Clonage OmniVoice échoué ({lang}): {raw[:280]}. "
+            "Réessaie, ou passe en « Voix modèle »."
+        )
+    return f"OmniVoice échoué ({lang}): {raw[:320]}"
 
 
 def release_voice_gpu() -> None:
@@ -90,7 +138,6 @@ def _piper_ready() -> bool:
 
 
 def _omnivoice_python() -> str | None:
-    """Interpréteur du venv dédié (worker/venv_omnivoice), sinon le courant."""
     env = os.environ.get("OMNIVOICE_PYTHON", "").strip()
     if env and Path(env).is_file():
         return env
@@ -120,7 +167,6 @@ def _omnivoice_ready() -> bool:
         return True
     if not _omnivoice_weights_ready():
         return False
-    # Importable dans ce process, ou via venv dédié
     try:
         import omnivoice  # noqa: F401
         return True
@@ -177,12 +223,86 @@ def _ensure_omnivoice():
     return _omnivoice_model
 
 
+def _omnivoice_language_arg(target_lang: str) -> str | None:
+    code = (target_lang or "").split("-")[0].lower().strip()
+    if not code:
+        return None
+    try:
+        from omnivoice.utils.lang_map import LANG_IDS
+
+        if code in LANG_IDS:
+            return code
+    except Exception:  # noqa: BLE001
+        pass
+    if code in _KNOWN_OMNI_LANGS:
+        return code
+    log.info("Langue %s hors catalogue connu → mode agnostique", code)
+    return None
+
+
+def prepare_ref_audio(ref_audio: Path) -> Path:
+    """WAV mono court pour clone (évite OOM DAC sur ref longue)."""
+    import subprocess
+
+    # 8–12 s suffisent pour un clone ; au-delà le DAC explose la VRAM
+    max_s = float(os.environ.get("OMNIVOICE_REF_MAX_S", "10"))
+    out = OUTPUT_DIR / f"ref_{ref_audio.stem}_{int(max_s)}s.wav"
+    proc = subprocess.run(
+        [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(ref_audio),
+            "-t", str(max_s),
+            "-ac", "1", "-ar", "24000",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0 or not out.is_file():
+        raise RuntimeError(
+            "Impossible de préparer l'audio de référence. "
+            f"ffmpeg: {(proc.stderr or '')[:200]}"
+        )
+    log.info(
+        "ref_audio prêt %s → %s (max %.0fs)",
+        ref_audio.name,
+        out.name,
+        max_s,
+    )
+    return out
+
+
+def prepare_clone_ref(
+    ref_audio: Path,
+    *,
+    source_lang: str | None = None,
+) -> tuple[Path, str]:
+    """Prépare la ref + Whisper aligné sur le même extrait (obligatoire pour clone)."""
+    from engines.stt import transcribe
+
+    ref_path = prepare_ref_audio(ref_audio)
+    ref_text = transcribe(
+        ref_path,
+        language=(source_lang or None),
+    )
+    log.info("Clone ref_text aligné — %d chars: %s", len(ref_text), ref_text[:100])
+    return ref_path, ref_text
+
+
 def _generate_omnivoice(
     text: str,
     target_lang: str,
     instruct: str | None,
+    ref_audio: Path | None = None,
+    ref_text: str | None = None,
 ) -> Path:
-    # Venv dédié (Torch cu128) — évite de casser worker/.venv (Piper)
+    from engines.gpu_util import free_vram
+
+    free_vram("avant OmniVoice")
+
+    ref_path = Path(ref_audio) if ref_audio else None
+
     py = _omnivoice_python()
     try:
         import omnivoice  # noqa: F401
@@ -191,14 +311,36 @@ def _generate_omnivoice(
         in_process = False
 
     if not in_process and py:
-        return _generate_omnivoice_subprocess(py, text, target_lang, instruct)
+        return _generate_omnivoice_subprocess(
+            py, text, target_lang, instruct, ref_path, ref_text
+        )
 
     import soundfile as sf
 
     model = _ensure_omnivoice()
-    kwargs: dict = {"text": text}
-    if instruct:
+    language = _omnivoice_language_arg(target_lang)
+    kwargs: dict = {"text": text, "language": language}
+    if ref_path is not None:
+        kwargs["ref_audio"] = str(ref_path)
+        if not (ref_text and ref_text.strip()):
+            raise RuntimeError(
+                "Clone OmniVoice: ref_text manquant (doit être la transcription "
+                "exacte de l'extrait de référence)."
+            )
+        kwargs["ref_text"] = ref_text.strip()
+        log.info(
+            "OmniVoice CLONE ref=%s ref_text=%d chars language=%s spoken=%d",
+            ref_path.name,
+            len(ref_text or ""),
+            language,
+            len(text),
+        )
+    elif instruct:
         kwargs["instruct"] = instruct
+        log.info("OmniVoice DESIGN instruct language=%s", language)
+    else:
+        log.info("OmniVoice AUTO language=%s", language)
+
     audio = model.generate(**kwargs)
     wav = audio[0] if isinstance(audio, (list, tuple)) else audio
     out = OUTPUT_DIR / f"omnivoice_{target_lang}_{abs(hash(text)) % 10_000_000}.wav"
@@ -212,48 +354,81 @@ def _generate_omnivoice_subprocess(
     text: str,
     target_lang: str,
     instruct: str | None,
+    ref_audio: Path | None = None,
+    ref_text: str | None = None,
 ) -> Path:
     import json
     import subprocess
-    import tempfile
 
     out = OUTPUT_DIR / f"omnivoice_{target_lang}_{abs(hash(text)) % 10_000_000}.wav"
+    language = _omnivoice_language_arg(target_lang)
     payload = {
         "text": text,
         "out": str(out),
         "model": os.environ.get("OMNIVOICE_MODEL", "k2-fsa/OmniVoice"),
         "device": os.environ.get("OMNIVOICE_DEVICE", "cuda:0"),
         "instruct": instruct,
+        "language": language,
+        "ref_audio": str(ref_audio) if ref_audio else None,
+        "ref_text": (ref_text or "").strip() or None,
+        "tokenizer_cpu": os.environ.get("OMNIVOICE_TOKENIZER_CPU", "1") != "0",
     }
     script = r"""
-import json, sys
+import json, sys, gc, os
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import soundfile as sf
 import torch
 from omnivoice import OmniVoice
+from omnivoice.utils.lang_map import LANG_IDS
 cfg = json.load(sys.stdin)
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
 device = cfg["device"]
 dtype = torch.float16 if "cuda" in device else torch.float32
+# Tokenizer audio (DAC) sur CPU → laisse la VRAM au DiT (12 Go + Ollama)
+tok_on_cpu = cfg.get("tokenizer_cpu", True)
 model = OmniVoice.from_pretrained(cfg["model"], device_map=device, dtype=dtype)
-kwargs = {"text": cfg["text"]}
-if cfg.get("instruct"):
+if tok_on_cpu and hasattr(model, "audio_tokenizer"):
+    try:
+        model.audio_tokenizer.to("cpu")
+        print("audio_tokenizer → cpu", file=sys.stderr)
+    except Exception as e:
+        print("tokenizer cpu move failed:", e, file=sys.stderr)
+lang = cfg.get("language")
+if lang and lang not in LANG_IDS:
+    lang = None
+kwargs = {"text": cfg["text"], "language": lang}
+if cfg.get("ref_audio"):
+    if not cfg.get("ref_text"):
+        raise SystemExit("ref_text required for clone")
+    kwargs["ref_audio"] = cfg["ref_audio"]
+    kwargs["ref_text"] = cfg["ref_text"]
+elif cfg.get("instruct"):
     kwargs["instruct"] = cfg["instruct"]
 audio = model.generate(**kwargs)
 wav = audio[0] if isinstance(audio, (list, tuple)) else audio
 sf.write(cfg["out"], wav, 24000)
+del model
+gc.collect()
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
 print(cfg["out"])
 """
-    log.info("OmniVoice via subprocess %s", python_bin)
+    mode = "CLONE" if ref_audio else ("DESIGN" if instruct else "AUTO")
+    log.info("OmniVoice %s via subprocess %s", mode, python_bin)
+    env = os.environ.copy()
+    env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     proc = subprocess.run(
         [python_bin, "-c", script],
         input=json.dumps(payload),
         text=True,
         capture_output=True,
         check=False,
+        env=env,
     )
     if proc.returncode != 0:
-        raise RuntimeError(
-            f"OmniVoice subprocess failed: {proc.stderr[-2000:] or proc.stdout[-1000:]}"
-        )
+        err = proc.stderr[-2500:] or proc.stdout[-1000:]
+        raise RuntimeError(err or "OmniVoice subprocess failed")
     if not out.is_file():
         raise RuntimeError("OmniVoice n'a pas écrit le WAV")
     log.info("OmniVoice OK → %s", out)

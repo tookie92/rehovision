@@ -1,14 +1,13 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
-import { FormEvent, useEffect, useState } from "react";
-import { AudioLines, Mic2 } from "lucide-react";
+import { useQuery } from "convex/react";
+import { useEffect, useState } from "react";
 import { api } from "@convex/_generated/api";
 import { getSessionId } from "../lib/session";
-import { LANGUAGES } from "../lib/languages";
 import { AppSidebar, type AppTab } from "../components/AppSidebar";
-import { JobList } from "../components/JobList";
 import { ClipsPanel } from "../components/ClipsPanel";
+import { DubPanel } from "../components/DubPanel";
+import { MusicPanel } from "../components/MusicPanel";
 import { MediaByStorage } from "../components/MediaByStorage";
 import {
   SidebarInset,
@@ -17,34 +16,15 @@ import {
 } from "../components/ui/sidebar";
 
 type Tab = AppTab;
-type DubMode = "narration" | "doublage";
 
 export default function HomePage() {
   const [tab, setTab] = useState<Tab>("dub");
   const [sessionId, setSessionId] = useState("");
 
-  // Musique
-  const [prompt, setPrompt] = useState("Ambiance lo-fi calme pour vlog");
-  const [durationS, setDurationS] = useState(30);
-
-  // Doublage / narration
-  const [dubMode, setDubMode] = useState<DubMode>("narration");
-  const [text, setText] = useState(
-    "Bonjour, bienvenue dans notre atelier. Aujourd'hui on parle de création locale.",
-  );
-  const [audioFile, setAudioFile] = useState<File | null>(null);
-  const [sourceLang, setSourceLang] = useState("fr");
-  const [targetLang, setTargetLang] = useState("fr");
-  const [voiceConsent, setVoiceConsent] = useState(false);
-
-  const [submitting, setSubmitting] = useState(false);
-
   useEffect(() => {
     setSessionId(getSessionId());
   }, []);
 
-  const createJob = useMutation(api.jobs.create);
-  const generateUploadUrl = useMutation(api.jobs.generateUploadUrl);
   const jobs = useQuery(
     api.jobs.listBySession,
     sessionId ? { sessionId } : "skip",
@@ -63,74 +43,6 @@ export default function HomePage() {
         );
       return true;
     }) ?? undefined;
-
-  const canSubmitDub =
-    !!sessionId &&
-    voiceConsent &&
-    (dubMode === "narration" ? text.trim().length > 0 : audioFile !== null);
-
-  async function onMusic(e: FormEvent) {
-    e.preventDefault();
-    if (!sessionId || !prompt.trim()) return;
-    setSubmitting(true);
-    try {
-      await createJob({
-        type: "music",
-        sessionId,
-        params: { prompt: prompt.trim(), durationS },
-      });
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function onDub(e: FormEvent) {
-    e.preventDefault();
-    if (!canSubmitDub || !sessionId) return;
-    setSubmitting(true);
-    try {
-      let sourceStorageId: string | undefined;
-      if (dubMode === "doublage" && audioFile) {
-        const uploadUrl = await generateUploadUrl({ sessionId });
-        const res = await fetch(uploadUrl, {
-          method: "POST",
-          headers: { "Content-Type": audioFile.type || "application/octet-stream" },
-          body: audioFile,
-        });
-        if (!res.ok) {
-          throw new Error(`Upload audio échoué (${res.status})`);
-        }
-        const body = (await res.json()) as { storageId?: string };
-        if (!body.storageId) {
-          throw new Error("Upload sans storageId");
-        }
-        sourceStorageId = body.storageId;
-      }
-
-      await createJob({
-        type: dubMode === "doublage" ? "dub" : "narration",
-        sessionId,
-        params: {
-          ...(dubMode === "narration" || text.trim()
-            ? { text: text.trim() }
-            : {}),
-          ...(sourceStorageId ? { sourceStorageId } : {}),
-          sourceLang,
-          targetLang,
-          voiceConsent: true,
-          consentAt: Date.now(),
-          mode: dubMode,
-          engine: "auto",
-        },
-      });
-      setAudioFile(null);
-    } catch (err) {
-      console.error(err);
-      alert(err instanceof Error ? err.message : "Échec envoi");
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   return (
     <SidebarProvider>
@@ -164,225 +76,19 @@ export default function HomePage() {
           )}
 
           {tab === "dub" && (
-            <section className="space-y-6">
-              <div>
-                <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-                  Doublage & narration
-                </h1>
-                <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">
-                  Narration : texte → TTS. Doublage : audio → Whisper → traduction
-                  (Ollama) → voix. Piper FR pour le français ; OmniVoice ensuite.
-                </p>
-              </div>
-
-              <form
-                onSubmit={onDub}
-                className="space-y-5 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--bg-elevated)] p-4 shadow-[var(--shadow)] sm:p-6"
-              >
-                <fieldset className="space-y-2">
-                  <legend className="text-sm font-medium">Mode</legend>
-                  <div className="flex flex-wrap gap-2">
-                    {(
-                      [
-                        ["narration", "Narration (texte)"],
-                        ["doublage", "Doublage (audio)"],
-                      ] as const
-                    ).map(([id, label]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setDubMode(id)}
-                        className={
-                          dubMode === id
-                            ? "min-h-11 rounded-xl bg-[var(--ink)] px-4 text-sm font-semibold text-white"
-                            : "min-h-11 rounded-xl border border-[var(--line)] bg-white px-4 text-sm font-medium transition-colors hover:bg-[var(--bg-subtle)]"
-                        }
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
-
-                {dubMode === "doublage" && (
-                  <label className="block space-y-2">
-                    <span className="text-sm font-medium">Audio source</span>
-                    <input
-                      type="file"
-                      accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm"
-                      onChange={(e) =>
-                        setAudioFile(e.target.files?.[0] ?? null)
-                      }
-                      required
-                      className="block w-full text-sm file:mr-3 file:min-h-11 file:rounded-xl file:border-0 file:bg-[var(--ink)] file:px-4 file:text-sm file:font-semibold file:text-white"
-                    />
-                    {audioFile && (
-                      <span className="text-xs text-[var(--muted)]">
-                        {audioFile.name} · {(audioFile.size / 1024).toFixed(0)} Ko
-                      </span>
-                    )}
-                  </label>
-                )}
-
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium">
-                    {dubMode === "narration"
-                      ? "Script"
-                      : "Script (optionnel — sinon Whisper)"}
-                  </span>
-                  <textarea
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    rows={dubMode === "narration" ? 7 : 4}
-                    required={dubMode === "narration"}
-                    className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg)] px-4 py-3 text-[15px] leading-relaxed outline-none transition-shadow duration-200 focus:border-[var(--line-strong)] focus:ring-2 focus:ring-[var(--signal)]/30"
-                    placeholder={
-                      dubMode === "narration"
-                        ? "Colle le texte à narrer…"
-                        : "Laisse vide pour transcrire l’audio, ou colle une transcription…"
-                    }
-                  />
-                </label>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block space-y-2">
-                    <span className="text-sm font-medium">Langue source</span>
-                    <select
-                      value={sourceLang}
-                      onChange={(e) => setSourceLang(e.target.value)}
-                      className="min-h-11 w-full rounded-xl border border-[var(--line)] bg-white px-3 outline-none focus:ring-2 focus:ring-[var(--signal)]/30"
-                    >
-                      {LANGUAGES.map((l) => (
-                        <option key={l.code} value={l.code}>
-                          {l.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block space-y-2">
-                    <span className="text-sm font-medium">Langue cible</span>
-                    <select
-                      value={targetLang}
-                      onChange={(e) => setTargetLang(e.target.value)}
-                      className="min-h-11 w-full rounded-xl border border-[var(--line)] bg-white px-3 outline-none focus:ring-2 focus:ring-[var(--signal)]/30"
-                    >
-                      {LANGUAGES.map((l) => (
-                        <option key={l.code} value={l.code}>
-                          {l.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-3">
-                  <input
-                    type="checkbox"
-                    checked={voiceConsent}
-                    onChange={(e) => setVoiceConsent(e.target.checked)}
-                    className="mt-1 size-4 accent-[var(--ink)]"
-                    required
-                  />
-                  <span className="text-sm leading-snug text-[var(--ink)]">
-                    Je confirme disposer du{" "}
-                    <strong className="font-semibold">consentement explicite</strong>{" "}
-                    pour toute voix / clonage utilisé. Interdit : usurpation, fraude.
-                  </span>
-                </label>
-
-                <button
-                  type="submit"
-                  disabled={submitting || !canSubmitDub}
-                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity duration-200 hover:opacity-90 disabled:opacity-40 sm:w-auto sm:min-w-[200px]"
-                >
-                  <Mic2 className="size-4" aria-hidden />
-                  {submitting
-                    ? "Envoi…"
-                    : dubMode === "doublage"
-                      ? "Lancer le doublage"
-                      : "Générer la voix"}
-                </button>
-                <p className="text-xs text-[var(--muted)]">
-                  Pipeline : Whisper (CPU) → Ollama ({`llama3.2`}) → Piper FR si cible
-                  français. Autres cibles : stub jusqu’à OmniVoice.
-                </p>
-              </form>
-
-              <section className="space-y-3">
-                <h2 className="text-lg font-semibold">Historique doublage</h2>
-                <JobList
-                  jobs={filteredJobs}
-                  loading={!sessionId || jobs === undefined}
-                />
-              </section>
-            </section>
+            <DubPanel
+              sessionId={sessionId}
+              jobs={filteredJobs}
+              jobsLoading={!sessionId || jobs === undefined}
+            />
           )}
 
           {tab === "music" && (
-            <section className="space-y-6">
-              <div>
-                <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-                  Musique
-                </h1>
-                <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">
-                  Prompt → ACE-Step (ou moteur de test). Résultat en temps réel.
-                </p>
-              </div>
-
-              <form
-                onSubmit={onMusic}
-                className="space-y-5 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--bg-elevated)] p-4 shadow-[var(--shadow)] sm:p-6"
-              >
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium">Prompt</span>
-                  <textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    rows={4}
-                    required
-                    className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg)] px-4 py-3 outline-none transition-shadow duration-200 focus:ring-2 focus:ring-[var(--signal)]/30"
-                    placeholder="Décris l'ambiance…"
-                  />
-                </label>
-
-                <fieldset className="space-y-2">
-                  <legend className="text-sm font-medium">Durée</legend>
-                  <div className="flex flex-wrap gap-2">
-                    {[15, 30, 60].map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => setDurationS(d)}
-                        className={
-                          durationS === d
-                            ? "min-h-11 rounded-xl bg-[var(--ink)] px-4 text-sm font-semibold text-white"
-                            : "min-h-11 rounded-xl border border-[var(--line)] bg-white px-4 text-sm font-medium transition-colors hover:bg-[var(--bg-subtle)]"
-                        }
-                      >
-                        {d}s
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
-
-                <button
-                  type="submit"
-                  disabled={submitting || !sessionId}
-                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40 sm:w-auto sm:min-w-[200px]"
-                >
-                  <AudioLines className="size-4" aria-hidden />
-                  {submitting ? "Envoi…" : "Générer"}
-                </button>
-              </form>
-
-              <section className="space-y-3">
-                <h2 className="text-lg font-semibold">Historique musique</h2>
-                <JobList
-                  jobs={filteredJobs}
-                  loading={!sessionId || jobs === undefined}
-                />
-              </section>
-            </section>
+            <MusicPanel
+              sessionId={sessionId}
+              jobs={filteredJobs}
+              jobsLoading={!sessionId || jobs === undefined}
+            />
           )}
 
           {tab === "library" && (
@@ -399,10 +105,8 @@ export default function HomePage() {
                 <div className="h-24 animate-pulse rounded-[var(--radius)] bg-[var(--bg-subtle)]" />
               ) : library.length === 0 ? (
                 <p className="rounded-[var(--radius)] border border-dashed border-[var(--line-strong)] px-4 py-10 text-center text-sm text-[var(--muted)]">
-                  Vide pour l&apos;instant. Après ACE-Step :{" "}
-                  <code className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-xs">
-                    worker/bench_music.py --upload
-                  </code>
+                  Vide pour l&apos;instant. Génère une piste dans Musique, ou
+                  lance le bench ACE-Step.
                 </p>
               ) : (
                 <ul className="space-y-3">

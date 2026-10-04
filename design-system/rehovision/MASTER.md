@@ -13,8 +13,9 @@ Inspired by ElevenLabs speech studio + ui-ux-pro-max (atelier clair).
 ## Patterns
 - ElevenLabs-like left sidebar (shadcn `SidebarProvider` / `Sidebar` / `SidebarInset`) — brand + groupe Création + footer warn
 - Product nav: Doublage / Clips / Musique / Bibliothèque
-- Large script textarea
-- Explicit voice-consent checkbox before dub submit
+- Doublage: wizard 3 étapes (voir pages/dub.md) — aperçu texte lu, pas de cible obligatoire
+- Musique: MusicPanel ACE-Step Create léger (voir pages/music.md) — caption + lyrics, résultat hero
+- Explicit voice-consent checkbox before dub generate
 - Job history with status chips + progress
 - Clips: carte Projet (source + versions enfants), pas liste plate (voir pages/clips.md)
 - shadcn-lite: `components/ui/{button,label,badge,progress,skeleton,toast,sidebar}`

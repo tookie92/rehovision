@@ -13,7 +13,6 @@ import os
 import struct
 import wave
 from pathlib import Path
-from typing import Optional
 
 log = logging.getLogger("engines.music")
 
@@ -25,28 +24,36 @@ def generate_music(
     prompt: str,
     duration_s: int,
     seed: int | None = None,
+    *,
+    lyrics: str | None = None,
+    instrumental: bool = True,
+    bpm: int | None = None,
+    keyscale: str | None = None,
+    timesignature: str | int | None = None,
+    inference_steps: int | None = None,
 ) -> Path:
     """Génère un fichier audio et retourne son chemin local."""
     engine = os.environ.get("MUSIC_ENGINE", "fake").strip().lower()
     if engine == "acestep":
-        return _generate_acestep(prompt, duration_s, seed)
+        return _generate_acestep(
+            prompt,
+            duration_s,
+            seed,
+            lyrics=lyrics,
+            instrumental=instrumental,
+            bpm=bpm,
+            keyscale=keyscale,
+            timesignature=timesignature,
+            inference_steps=inference_steps,
+        )
     return _generate_fake(prompt, duration_s, seed)
 
 
 def release_gpu() -> None:
     """Libère la VRAM entre deux jobs."""
-    engine = os.environ.get("MUSIC_ENGINE", "fake").strip().lower()
-    if engine != "acestep":
-        return
-    try:
-        import torch
+    from engines.gpu_util import free_vram
 
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.ipc_collect()
-            log.info("VRAM libérée (empty_cache)")
-    except Exception as exc:  # noqa: BLE001
-        log.warning("release_gpu: %s", exc)
+    free_vram("fin job")
 
 
 def _generate_fake(prompt: str, duration_s: int, seed: int | None) -> Path:
@@ -54,7 +61,6 @@ def _generate_fake(prompt: str, duration_s: int, seed: int | None) -> Path:
     duration_s = max(1, min(int(duration_s), 120))
     sample_rate = 44100
     rng_seed = seed if seed is not None else abs(hash(prompt)) % (2**31)
-    # Fréquence dérivée du seed pour varier un peu
     freq = 220.0 + (rng_seed % 400)
 
     n_samples = sample_rate * duration_s
@@ -66,7 +72,6 @@ def _generate_fake(prompt: str, duration_s: int, seed: int | None) -> Path:
         wf.setframerate(sample_rate)
         for i in range(n_samples):
             t = i / sample_rate
-            # Enveloppe douce + légère modulation
             env = min(1.0, t * 4) * min(1.0, (duration_s - t) * 4)
             val = 0.25 * env * math.sin(2 * math.pi * freq * t)
             val += 0.08 * env * math.sin(2 * math.pi * (freq * 1.5) * t)
@@ -77,8 +82,28 @@ def _generate_fake(prompt: str, duration_s: int, seed: int | None) -> Path:
     return out
 
 
-def _generate_acestep(prompt: str, duration_s: int, seed: int | None) -> Path:
-    """Délègue à ACE-Step 1.5 via l'API Python officielle."""
+def _generate_acestep(
+    prompt: str,
+    duration_s: int,
+    seed: int | None,
+    *,
+    lyrics: str | None,
+    instrumental: bool,
+    bpm: int | None,
+    keyscale: str | None,
+    timesignature: str | int | None,
+    inference_steps: int | None,
+) -> Path:
     from engines.acestep_backend import run_acestep
 
-    return run_acestep(prompt=prompt, duration_s=duration_s, seed=seed)
+    return run_acestep(
+        prompt=prompt,
+        duration_s=duration_s,
+        seed=seed,
+        lyrics=lyrics,
+        instrumental=instrumental,
+        bpm=bpm,
+        keyscale=keyscale,
+        timesignature=timesignature,
+        inference_steps=inference_steps,
+    )

@@ -26,9 +26,19 @@ function jobTitle(job: Doc<"jobs">): string {
 
 function jobMeta(job: Doc<"jobs">): string {
   const p = job.params as Record<string, unknown>;
-  if (job.type === "music") return `${p.durationS ?? "?"}s`;
+  if (job.type === "music") {
+    const mode = p.instrumental === false ? "vocal" : "instr";
+    const bpm = p.bpm != null ? ` · ${p.bpm} BPM` : "";
+    return `${p.durationS ?? "?"}s · ${mode}${bpm}`;
+  }
   if (job.type === "dub" || job.type === "narration") {
-    return `${p.sourceLang ?? "?"} → ${p.targetLang ?? "?"}`;
+    const voice =
+      p.voiceMode === "keep" || p.cloneVoice === true
+        ? "ma voix"
+        : p.voiceMode === "model" || p.cloneVoice === false
+          ? "voix modèle"
+          : "voix";
+    return `${p.sourceLang ?? "?"} → ${p.targetLang ?? "?"} · ${voice}`;
   }
   return job.type;
 }
@@ -93,6 +103,17 @@ export function JobList({
           {job.status === "failed" && job.error && (
             <p className="mt-2 text-sm text-[var(--danger)]">{job.error}</p>
           )}
+          {(() => {
+            const meta = job.resultMeta as Record<string, unknown> | undefined;
+            const spoken = typeof meta?.spokenText === "string" ? meta.spokenText : "";
+            if (!spoken) return null;
+            return (
+              <p className="mt-2 rounded-lg bg-[var(--bg-subtle)] px-3 py-2 text-xs leading-relaxed text-[var(--muted)]">
+                <span className="font-medium text-[var(--ink)]">Texte lu : </span>
+                {spoken.length > 280 ? `${spoken.slice(0, 280)}…` : spoken}
+              </p>
+            );
+          })()}
           {job.status === "done" && job.resultStorageId && (
             <div className="mt-3">
               <MediaByStorage storageId={job.resultStorageId} kind="audio" />

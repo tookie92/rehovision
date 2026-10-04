@@ -24,8 +24,10 @@ from convex import ConvexClient  # noqa: E402
 from engines.clips import run_clips_stub  # noqa: E402
 from engines.dub import run_dub  # noqa: E402
 from engines.edit import render_edit  # noqa: E402
+from engines.gpu_util import free_vram  # noqa: E402
 from engines.music import generate_music, release_gpu  # noqa: E402
 from engines.suggest import apply_suggestion  # noqa: E402
+from engines.translate_server import start_translate_server  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -152,6 +154,7 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
 
     set_progress(10)
     _reset_vram_peak()
+    free_vram(f"début {job_type}")
     t0 = time.perf_counter()
     result_meta: dict | None = None
     try:
@@ -161,8 +164,53 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
             seed = params.get("seed")
             if seed is not None:
                 seed = int(seed)
-            log.info("Job %s music — prompt=%r %ss", job_id, prompt[:60], duration_s)
-            audio_path = generate_music(prompt=prompt, duration_s=duration_s, seed=seed)
+            instrumental = bool(params.get("instrumental", True))
+            lyrics = str(params.get("lyrics") or "").strip() or None
+            bpm = params.get("bpm")
+            if bpm is not None and bpm != "":
+                try:
+                    bpm = int(bpm)
+                except (TypeError, ValueError):
+                    bpm = None
+            else:
+                bpm = None
+            keyscale = str(params.get("keyscale") or "").strip() or None
+            timesignature = params.get("timesignature")
+            if timesignature is not None and timesignature != "":
+                timesignature = str(timesignature).strip()
+            else:
+                timesignature = None
+            steps = params.get("inferenceSteps") or params.get("inference_steps")
+            if steps is not None:
+                steps = int(steps)
+            log.info(
+                "Job %s music — prompt=%r %ss instr=%s lyrics_len=%d bpm=%s",
+                job_id,
+                prompt[:60],
+                duration_s,
+                instrumental,
+                len(lyrics or ""),
+                bpm,
+            )
+            audio_path = generate_music(
+                prompt=prompt,
+                duration_s=duration_s,
+                seed=seed,
+                lyrics=lyrics,
+                instrumental=instrumental,
+                bpm=bpm,
+                keyscale=keyscale,
+                timesignature=timesignature,
+                inference_steps=steps,
+            )
+            result_meta = {
+                "prompt": prompt[:500],
+                "durationS": duration_s,
+                "instrumental": instrumental,
+                "bpm": bpm,
+                "seed": seed,
+                "keyscale": keyscale,
+            }
         elif job_type in ("dub", "narration"):
             if not params.get("voiceConsent"):
                 raise RuntimeError("Consentement voix manquant (voiceConsent)")
@@ -175,24 +223,54 @@ def process_job(client: ConvexClient, token: str, job: dict) -> None:
                 source_path = download_storage_file(client, str(source_storage))
             if not text and source_path is None:
                 raise RuntimeError("Texte ou audio source requis")
+            voice_mode = str(params.get("voiceMode") or "").strip().lower()
+            if voice_mode in ("keep", "clone", "garder"):
+                clone_voice = True
+            elif voice_mode in ("model", "auto", "modele", "modèle"):
+                clone_voice = False
+            else:
+                clone_voice = bool(params.get("cloneVoice", True))
             log.info(
-                "Job %s %s — %s→%s text=%s audio=%s",
+                "Job %s %s — %s→%s text=%s audio=%s clone=%s",
                 job_id,
                 job_type,
                 source_lang,
                 target_lang,
                 bool(text),
                 bool(source_path),
+                clone_voice,
             )
             instruct = params.get("instruct")
-            audio_path = run_dub(
+            target_text = str(params.get("targetText") or "").strip() or None
+            auto_tr = params.get("autoTranslate")
+            if auto_tr is not None:
+                auto_tr = bool(auto_tr)
+            ref_storage = params.get("refStorageId") or params.get("voiceRefStorageId")
+            ref_path: Path | None = None
+            if ref_storage:
+                ref_path = download_storage_file(client, str(ref_storage))
+            dub = run_dub(
                 text=text,
                 audio_path=source_path,
                 source_lang=source_lang,
                 target_lang=target_lang,
+                target_text=target_text,
+                auto_translate=auto_tr,
                 instruct=str(instruct) if instruct else None,
+                clone_voice=clone_voice,
+                ref_audio_path=ref_path,
                 on_progress=set_progress,
             )
+            audio_path = dub.path
+            result_meta = {
+                "sourceText": dub.source_text[:2000],
+                "spokenText": dub.spoken_text[:2000],
+                "translated": dub.translated,
+                "clone": dub.clone,
+                "sourceLang": dub.source_lang,
+                "targetLang": dub.target_lang,
+                "voiceMode": "keep" if dub.clone else "model",
+            }
         elif job_type == "clips":
             source_storage = params.get("sourceStorageId")
             if not source_storage:
@@ -312,6 +390,10 @@ def main() -> None:
 
     client = ConvexClient(url)
     log.info("Worker démarré — %s — engine=%s", url, os.environ.get("MUSIC_ENGINE", "fake"))
+    try:
+        start_translate_server()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Serveur NLLB translate non démarré: %s", exc)
 
     result = client.mutation(
         "worker:reclaimStaleJobs",

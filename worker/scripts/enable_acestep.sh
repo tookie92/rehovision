@@ -23,27 +23,19 @@ if [[ ! -d "$CKPT" ]] || [[ -z "$(ls -A "$CKPT" 2>/dev/null)" ]]; then
   exit 3
 fi
 
-# Pointer le service vers le venv ACE-Step (torch + acestep + convex)
+# Worker reste sur .venv (Piper) ; ACE tourne en subprocess via ACESTEP_PYTHON
 if grep -q '^MUSIC_ENGINE=' "$ENVF"; then
   sed -i 's/^MUSIC_ENGINE=.*/MUSIC_ENGINE=acestep/' "$ENVF"
 else
   echo 'MUSIC_ENGINE=acestep' >> "$ENVF"
 fi
 
-# Remplacer l'interpréteur du worker courant : on lance via ACE venv
-# (systemd ExecStart pointe encore sur worker/.venv — on crée un wrapper)
-cat > "$ROOT/run_acestep_worker.sh" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-cd "$ROOT"
-export PATH="$ROOT/vendor/ACE-Step-1.5/.venv/bin:\$PATH"
-exec "$ROOT/vendor/ACE-Step-1.5/.venv/bin/python" "$ROOT/main.py"
-EOF
-chmod +x "$ROOT/run_acestep_worker.sh"
+ACE_PY="$ROOT/vendor/ACE-Step-1.5/.venv/bin/python"
+if grep -q '^ACESTEP_PYTHON=' "$ENVF"; then
+  sed -i "s|^ACESTEP_PYTHON=.*|ACESTEP_PYTHON=$ACE_PY|" "$ENVF"
+else
+  echo "ACESTEP_PYTHON=$ACE_PY" >> "$ENVF"
+fi
 
-echo "MUSIC_ENGINE=acestep dans $ENVF"
-echo "Pour redémarrer le worker :"
-echo "  sudo systemctl restart rehovision-worker"
-echo "  # ou, si l'unité pointe encore sur .venv :"
-echo "  pkill -f 'worker/.venv/bin/python main.py' ; $ROOT/run_acestep_worker.sh &"
-echo "Ou mets ExecStart=$ROOT/run_acestep_worker.sh dans /etc/systemd/system/rehovision-worker.service"
+echo "MUSIC_ENGINE=acestep + ACESTEP_PYTHON=$ACE_PY"
+echo "Redémarrer : sudo systemctl restart rehovision-worker"
