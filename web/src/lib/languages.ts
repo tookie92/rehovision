@@ -37,11 +37,27 @@ export const OMNIVOICE_LANG_MAP: Record<string, string> = {
   // Labels plus clairs pour les deux Wolof
   wo: "Wolof (Sénégal)",
   wof: "Wolof (Gambie)",
+  ar: "العربية (arb)",
 };
 
-export function isOmniVoiceLang(code: string): boolean {
+/** ISO atelier → code OmniVoice LANG_IDS (miroir worker/engines/voice.py). */
+export const OMNI_LANG_ALIAS: Record<string, string> = {
+  wof: "wo",
+  ar: "arb",
+  nd: "zu",
+  nr: "zu",
+  st: "zu",
+  tn: "zu",
+};
+
+export function resolveOmniVoiceLang(code: string): string {
   const c = normalizeLangCode(code);
-  return c in OMNIVOICE_LANGS || c === "wo" || c === "wof";
+  return OMNI_LANG_ALIAS[c] ?? c;
+}
+
+export function isOmniVoiceLang(code: string): boolean {
+  const resolved = resolveOmniVoiceLang(code);
+  return resolved in OMNIVOICE_LANGS;
 }
 
 export function langSupport(code: string): LangOption["support"] {

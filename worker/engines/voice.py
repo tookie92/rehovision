@@ -25,11 +25,17 @@ OUTPUT_DIR = ROOT / "outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 PIPER_DIR = ROOT / "models" / "piper"
 
-# Codes OmniVoice connus même sans import du paquet dans worker/.venv
-_KNOWN_OMNI_LANGS = {
-    "fr", "en", "wo", "wof", "sn", "sw", "ln", "yo", "ha", "ar", "pt",
-    "es", "de", "it", "zh", "ja", "ko", "hi", "bm", "ff", "ig", "am",
+# ISO atelier → code OmniVoice LANG_IDS (évite mode agnostique = son bizarre)
+_OMNI_LANG_ALIAS: dict[str, str] = {
+    "wof": "wo",
+    "ar": "arb",
+    "nd": "zu",
+    "nr": "zu",
+    "st": "zu",
+    "tn": "zu",
 }
+# Proxies Nguni quand le code exact n'existe pas dans LANG_IDS
+_OMNI_NGUNI_PROXY = frozenset({"nd", "nr", "st", "tn"})
 
 _omnivoice_model = None
 
@@ -226,23 +232,50 @@ def _ensure_omnivoice():
     return _omnivoice_model
 
 
-def _omnivoice_language_arg(target_lang: str) -> str | None:
-    code = (target_lang or "").split("-")[0].lower().strip()
-    if code == "wof":
-        code = "wo"
-    if not code:
-        return None
+def _omnivoice_lang_ids() -> frozenset[str]:
     try:
         from omnivoice.utils.lang_map import LANG_IDS
 
-        if code in LANG_IDS:
-            return code
+        return frozenset(LANG_IDS.keys())
     except Exception:  # noqa: BLE001
-        pass
-    if code in _KNOWN_OMNI_LANGS:
+        return frozenset()
+
+
+def resolve_omnivoice_language(target_lang: str) -> str:
+    """Code LANG_IDS OmniVoice ou erreur explicite (jamais None / agnostique)."""
+    raw = (target_lang or "").split("-")[0].lower().strip()
+    if not raw:
+        raise RuntimeError("Langue TTS vide")
+    code = _OMNI_LANG_ALIAS.get(raw, raw)
+    ids = _omnivoice_lang_ids()
+    if ids and code in ids:
+        if raw != code and raw in _OMNI_LANG_ALIAS:
+            log.info("OmniVoice lang %s → %s", raw, code)
+        elif raw in _OMNI_NGUNI_PROXY and code == "zu":
+            log.warning(
+                "Langue %s → proxy OmniVoice zu (Ndebele/Nguni, qualité variable)",
+                raw,
+            )
         return code
-    log.info("Langue %s hors catalogue connu → mode agnostique", code)
-    return None
+    if ids and raw in _OMNI_NGUNI_PROXY and "zu" in ids:
+        log.warning(
+            "Langue %s → proxy OmniVoice zu (Ndebele/Nguni, qualité variable)",
+            raw,
+        )
+        return "zu"
+    if ids:
+        sample = ", ".join(sorted(list(ids)[:12]))
+        raise RuntimeError(
+            f"Langue TTS « {target_lang} » non supportée par OmniVoice "
+            f"(ex. fr, en, wo, sw, sn, yo, ha, ln, pt, ar→arb). "
+            f"Catalogue partiel : {sample}…"
+        )
+    # Pas d'import omnivoice dans ce venv — le subprocess validera
+    return code
+
+
+def _omnivoice_language_arg(target_lang: str) -> str:
+    return resolve_omnivoice_language(target_lang)
 
 
 def prepare_ref_audio(ref_audio: Path) -> Path:
@@ -418,8 +451,11 @@ if tok_on_cpu and hasattr(model, "audio_tokenizer"):
     except Exception as e:
         print("tokenizer cpu move failed:", e, file=sys.stderr)
 lang = cfg.get("language")
-if lang and lang not in LANG_IDS:
-    lang = None
+if not lang or lang not in LANG_IDS:
+    raise SystemExit(
+        f"Langue OmniVoice invalide ou absente: {lang!r}. "
+        "Le worker doit résoudre ar→arb, wof→wo, etc."
+    )
 kwargs = {"text": cfg["text"], "language": lang}
 if cfg.get("speed") is not None and float(cfg["speed"]) != 1.0:
     kwargs["speed"] = float(cfg["speed"])
