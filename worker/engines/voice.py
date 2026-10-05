@@ -25,7 +25,7 @@ OUTPUT_DIR = ROOT / "outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 PIPER_DIR = ROOT / "models" / "piper"
 
-# ISO atelier → code OmniVoice LANG_IDS (évite mode agnostique = son bizarre)
+# ISO atelier → code OmniVoice LANG_IDS
 _OMNI_LANG_ALIAS: dict[str, str] = {
     "wof": "wo",
     "ar": "arb",
@@ -36,6 +36,40 @@ _OMNI_LANG_ALIAS: dict[str, str] = {
 }
 # Proxies Nguni quand le code exact n'existe pas dans LANG_IDS
 _OMNI_NGUNI_PROXY = frozenset({"nd", "nr", "st", "tn"})
+
+# Voice-design (instruct) → bruit en saccades sur langues africaines (OmniVoice).
+# Forcer mode AUTO (pas d'instruct) tant qu'il n'y a pas de clone.
+_OMNI_NO_DESIGN = frozenset(
+    {
+        "wo",
+        "wof",
+        "sn",
+        "sw",
+        "ln",
+        "yo",
+        "ha",
+        "bm",
+        "ig",
+        "ff",
+        "am",
+        "zu",
+        "xh",
+        "nd",
+        "nr",
+        "st",
+        "tn",
+        "rw",
+        "so",
+        "ny",
+    }
+)
+
+# Codes présents dans LANG_IDS mais qui produisent du bruit si passés à OmniVoice
+# → forcer language=None (mode agnostique), mesuré sn/ln.
+_OMNI_FORCE_AGNOSTIC = frozenset({"sn", "ln"})
+
+# Fold diacritiques Latin avant TTS (Yoruba/Wolof diacritiques cassent parfois le vocoder)
+_OMNI_FOLD_DIACRITICS = frozenset(_OMNI_NO_DESIGN)
 
 _omnivoice_model = None
 
@@ -241,13 +275,21 @@ def _omnivoice_lang_ids() -> frozenset[str]:
         return frozenset()
 
 
-def resolve_omnivoice_language(target_lang: str) -> str:
-    """Code LANG_IDS OmniVoice ou erreur explicite (jamais None / agnostique)."""
+def resolve_omnivoice_language(target_lang: str) -> str | None:
+    """Code LANG_IDS OmniVoice, None si agnostique forcé, ou erreur si inconnu."""
     raw = (target_lang or "").split("-")[0].lower().strip()
     if not raw:
         raise RuntimeError("Langue TTS vide")
     code = _OMNI_LANG_ALIAS.get(raw, raw)
     ids = _omnivoice_lang_ids()
+
+    if raw in _OMNI_FORCE_AGNOSTIC or code in _OMNI_FORCE_AGNOSTIC:
+        log.warning(
+            "OmniVoice: code %s produit du bruit → mode agnostique (language=None)",
+            raw,
+        )
+        return None
+
     if ids and code in ids:
         if raw != code and raw in _OMNI_LANG_ALIAS:
             log.info("OmniVoice lang %s → %s", raw, code)
@@ -274,8 +316,67 @@ def resolve_omnivoice_language(target_lang: str) -> str:
     return code
 
 
-def _omnivoice_language_arg(target_lang: str) -> str:
+def _omnivoice_language_arg(target_lang: str) -> str | None:
     return resolve_omnivoice_language(target_lang)
+
+
+def _fold_latin_diacritics(text: str) -> str:
+    """NFD + strip combining marks ; replis Yoruba courants hors Mn."""
+    import re
+    import unicodedata
+
+    nfd = unicodedata.normalize("NFD", text)
+    bare = "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+    for src, dst in (
+        ("ọ", "o"),
+        ("Ọ", "O"),
+        ("ẹ", "e"),
+        ("Ẹ", "E"),
+        ("ṣ", "s"),
+        ("Ṣ", "S"),
+        ("ṅ", "n"),
+        ("Ṅ", "N"),
+        ("ŋ", "n"),
+        ("Ŋ", "N"),
+    ):
+        bare = bare.replace(src, dst)
+    return re.sub(r"\s+", " ", bare).strip()
+
+
+def _prep_omnivoice_speech(
+    text: str,
+    target_lang: str,
+    instruct: str | None,
+    *,
+    has_clone: bool,
+) -> tuple[str, str | None, str | None]:
+    """Texte + language + instruct prêts pour OmniVoice (anti bruit africain)."""
+    raw = (target_lang or "").split("-")[0].lower().strip()
+    code = _OMNI_LANG_ALIAS.get(raw, raw)
+    spoken = text.strip()
+    if raw in _OMNI_FOLD_DIACRITICS or code in _OMNI_FOLD_DIACRITICS:
+        folded = _fold_latin_diacritics(spoken)
+        if folded != spoken:
+            log.info(
+                "OmniVoice: diacritiques repliés pour %s (%d→%d chars)",
+                raw,
+                len(spoken),
+                len(folded),
+            )
+            spoken = folded
+    language = _omnivoice_language_arg(target_lang)
+    use_instruct = instruct
+    if (
+        not has_clone
+        and use_instruct
+        and (raw in _OMNI_NO_DESIGN or code in _OMNI_NO_DESIGN)
+    ):
+        log.info(
+            "OmniVoice: instruct ignoré pour %s (DESIGN → bruit en saccades)",
+            raw,
+        )
+        use_instruct = None
+    return spoken, language, use_instruct
 
 
 def prepare_ref_audio(ref_audio: Path) -> Path:
@@ -369,8 +470,10 @@ def _generate_omnivoice(
     import soundfile as sf
 
     model = _ensure_omnivoice()
-    language = _omnivoice_language_arg(target_lang)
-    kwargs: dict = {"text": text, "language": language}
+    spoken, language, use_instruct = _prep_omnivoice_speech(
+        text, target_lang, instruct, has_clone=ref_path is not None
+    )
+    kwargs: dict = {"text": spoken, "language": language}
     if speed is not None and speed != 1.0:
         kwargs["speed"] = speed
     if ref_path is not None:
@@ -386,18 +489,23 @@ def _generate_omnivoice(
             ref_path.name,
             len(ref_text or ""),
             language,
-            len(text),
+            len(spoken),
             speed,
         )
-    elif instruct:
-        kwargs["instruct"] = instruct
-        log.info("OmniVoice DESIGN instruct=%s language=%s speed=%s", instruct, language, speed)
+    elif use_instruct:
+        kwargs["instruct"] = use_instruct
+        log.info(
+            "OmniVoice DESIGN instruct=%s language=%s speed=%s",
+            use_instruct,
+            language,
+            speed,
+        )
     else:
         log.info("OmniVoice AUTO language=%s speed=%s", language, speed)
 
     audio = model.generate(**kwargs)
     wav = audio[0] if isinstance(audio, (list, tuple)) else audio
-    out = OUTPUT_DIR / f"omnivoice_{target_lang}_{abs(hash(text)) % 10_000_000}.wav"
+    out = OUTPUT_DIR / f"omnivoice_{target_lang}_{abs(hash(spoken)) % 10_000_000}.wav"
     sf.write(str(out), wav, 24000)
     log.info("OmniVoice OK → %s", out)
     return out
@@ -415,19 +523,22 @@ def _generate_omnivoice_subprocess(
     import json
     import subprocess
 
-    out = OUTPUT_DIR / f"omnivoice_{target_lang}_{abs(hash(text)) % 10_000_000}.wav"
-    language = _omnivoice_language_arg(target_lang)
+    spoken, language, use_instruct = _prep_omnivoice_speech(
+        text, target_lang, instruct, has_clone=ref_audio is not None
+    )
+    out = OUTPUT_DIR / f"omnivoice_{target_lang}_{abs(hash(spoken)) % 10_000_000}.wav"
     payload = {
-        "text": text,
+        "text": spoken,
         "out": str(out),
         "model": os.environ.get("OMNIVOICE_MODEL", "k2-fsa/OmniVoice"),
         "device": os.environ.get("OMNIVOICE_DEVICE", "cuda:0"),
-        "instruct": instruct,
+        "instruct": use_instruct,
         "language": language,
         "ref_audio": str(ref_audio) if ref_audio else None,
         "ref_text": (ref_text or "").strip() or None,
         "speed": speed,
         "tokenizer_cpu": os.environ.get("OMNIVOICE_TOKENIZER_CPU", "1") != "0",
+        "allow_agnostic": language is None,
     }
     script = r"""
 import json, sys, gc, os
@@ -451,9 +562,16 @@ if tok_on_cpu and hasattr(model, "audio_tokenizer"):
     except Exception as e:
         print("tokenizer cpu move failed:", e, file=sys.stderr)
 lang = cfg.get("language")
-if not lang or lang not in LANG_IDS:
+allow_agnostic = bool(cfg.get("allow_agnostic"))
+if lang is None:
+    if not allow_agnostic:
+        raise SystemExit(
+            "Langue OmniVoice absente (agnostique non autorisé). "
+            "Le worker doit résoudre ar→arb, wof→wo, etc."
+        )
+elif lang not in LANG_IDS:
     raise SystemExit(
-        f"Langue OmniVoice invalide ou absente: {lang!r}. "
+        f"Langue OmniVoice invalide: {lang!r}. "
         "Le worker doit résoudre ar→arb, wof→wo, etc."
     )
 kwargs = {"text": cfg["text"], "language": lang}
@@ -475,8 +593,14 @@ if torch.cuda.is_available():
     torch.cuda.empty_cache()
 print(cfg["out"])
 """
-    mode = "CLONE" if ref_audio else ("DESIGN" if instruct else "AUTO")
-    log.info("OmniVoice %s via subprocess %s speed=%s", mode, python_bin, speed)
+    mode = "CLONE" if ref_audio else ("DESIGN" if use_instruct else "AUTO")
+    log.info(
+        "OmniVoice %s via subprocess %s lang=%s speed=%s",
+        mode,
+        python_bin,
+        language,
+        speed,
+    )
     env = os.environ.copy()
     env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     proc = subprocess.run(

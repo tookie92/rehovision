@@ -282,6 +282,8 @@ def _resolve_voice(
     """Retourne (instruct, ref_path, ref_text) pour un segment."""
     entry = _speaker_entry(speaker, speakers)
     if entry:
+        if entry.get("auto") or entry.get("voiceMode") == "auto":
+            return None, None, None
         ref_p = entry.get("ref_path") or entry.get("ref_audio_path")
         ref_t = entry.get("ref_text")
         if ref_p is not None and Path(ref_p).is_file():

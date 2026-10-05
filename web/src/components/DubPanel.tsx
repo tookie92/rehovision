@@ -1101,7 +1101,7 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                       <Chip
                         key={a.id}
                         active={age === a.id}
-                        onClick={() => setAge(age === a.id ? "" : a.id)}
+                        onClick={() => setAge(a.id)}
                       >
                         {a.label}
                       </Chip>
@@ -1118,7 +1118,7 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                       <Chip
                         key={p.id}
                         active={pitch === p.id}
-                        onClick={() => setPitch(pitch === p.id ? "" : p.id)}
+                        onClick={() => setPitch(p.id)}
                         size="sm"
                       >
                         {p.label}
@@ -1175,9 +1175,17 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                     Recette OmniVoice
                   </p>
                   <p className="mt-1 font-mono text-xs text-[var(--signal)] sm:text-sm">
-                    {instruct || "— choisis au moins un attribut"}
+                    {instruct ||
+                      "Sélectionne genre, âge et timbre (un chip par catégorie)"}
                   </p>
                 </div>
+
+                {voiceMode === "create" && !instruct && (
+                  <p className="rounded-lg border border-[var(--warn-line)] bg-[var(--warn-bg)] px-3 py-2 text-xs text-[var(--warn-ink)]">
+                    Mode « Créer une voix » : choisis au moins genre + âge +
+                    timbre pour continuer.
+                  </p>
+                )}
 
                 {!!instruct && (
                   <SaveVoiceBar
