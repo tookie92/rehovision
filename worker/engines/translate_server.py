@@ -216,7 +216,10 @@ def start_translate_server() -> None:
         return
     port = int(os.environ.get("TRANSLATE_PORT", "8788"))
     host = os.environ.get("TRANSLATE_HOST", "127.0.0.1")
+    # Évite « Address already in use » au restart systemd
+    ThreadingHTTPServer.allow_reuse_address = True
     _server = ThreadingHTTPServer((host, port), _Handler)
+    _server.allow_reuse_address = True
     _thread = threading.Thread(
         target=_server.serve_forever,
         name="nllb-translate-http",
