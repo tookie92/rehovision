@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as health from "../health.js";
 import type * as jobs from "../jobs.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as library from "../library.js";
@@ -22,6 +23,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  health: typeof health;
   jobs: typeof jobs;
   "lib/auth": typeof lib_auth;
   library: typeof library;

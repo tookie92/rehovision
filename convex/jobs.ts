@@ -42,13 +42,20 @@ export const generateUploadUrl = mutation({
 });
 
 export const listBySession = query({
-  args: { sessionId: v.string() },
+  args: {
+    sessionId: v.string(),
+    /** Limite récente pour accélérer le chargement UI (défaut 80). */
+    limit: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
+    const cap = Math.min(Math.max(args.limit ?? 80, 1), 200);
     const jobs = await ctx.db
       .query("jobs")
       .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
       .collect();
-    return jobs.sort((a, b) => b.createdAt - a.createdAt);
+    return jobs
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, cap);
   },
 });
 

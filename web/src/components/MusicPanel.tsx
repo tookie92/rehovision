@@ -1,9 +1,10 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { FormEvent, useMemo, useState } from "react";
 import {
   AudioLines,
+  BookmarkPlus,
   ChevronDown,
   ChevronUp,
   Dices,
@@ -21,6 +22,7 @@ type Props = {
   sessionId: string;
   jobs: Doc<"jobs">[] | undefined;
   jobsLoading: boolean;
+  libraryPresets?: Doc<"library">[] | undefined;
 };
 
 const PRESETS: { id: string; label: string; caption: string }[] = [
@@ -79,7 +81,12 @@ function stripInstrumentalBias(caption: string): string {
   return c;
 }
 
-export function MusicPanel({ sessionId, jobs, jobsLoading }: Props) {
+export function MusicPanel({
+  sessionId,
+  jobs,
+  jobsLoading,
+  libraryPresets,
+}: Props) {
   const [caption, setCaption] = useState(
     "Ambiance lo-fi calme pour vlog, drums soft, Rhodes chaud",
   );
@@ -93,7 +100,9 @@ export function MusicPanel({ sessionId, jobs, jobsLoading }: Props) {
   const [submitting, setSubmitting] = useState(false);
 
   const createJob = useMutation(api.jobs.create);
-  const library = useQuery(api.library.list);
+  const saveToLibrary = useMutation(api.library.saveFromJob);
+  const library = libraryPresets;
+  const [saving, setSaving] = useState(false);
 
   const latest = useMemo(() => {
     if (!jobs?.length) return undefined;
@@ -456,6 +465,33 @@ export function MusicPanel({ sessionId, jobs, jobsLoading }: Props) {
                 >
                   <Dices className="size-4" aria-hidden />
                   Variante
+                </button>
+                <button
+                  type="button"
+                  disabled={saving || !sessionId}
+                  onClick={async () => {
+                    if (!latest?._id || !sessionId) return;
+                    setSaving(true);
+                    try {
+                      await saveToLibrary({
+                        sessionId,
+                        jobId: latest._id,
+                        mood: "music",
+                      });
+                    } catch (err) {
+                      alert(
+                        err instanceof Error
+                          ? err.message
+                          : "Échec sauvegarde biblio",
+                      );
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                  className="flex min-h-11 items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-4 text-sm font-medium hover:bg-[var(--bg-subtle)] disabled:opacity-40"
+                >
+                  <BookmarkPlus className="size-4" aria-hidden />
+                  {saving ? "Sauvegarde…" : "Bibliothèque"}
                 </button>
               </div>
             </div>

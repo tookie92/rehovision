@@ -51,7 +51,8 @@ C’est un **coupeur** : source longue → extrait de tête + versions (inclure/
 ## Prochaines étapes (ordre recommandé)
 
 ### 0. Qualité / infra (court)
-- [ ] Anti-hallucinations NLLB encore plus strict si besoin
+- [x] Anti-hallucinations NLLB encore plus strict (scrub FR→EN, tags hors modèle, retry clause)
+- [x] Convex auto-démarrage (`rehovision-convex.service` + `deploy.sh`) + chargement UI lazy
 - [x] Upload Clips gros fichiers : chunks 40 Mo via `/api/upload-video` → Convex **local** (bypass limite ~100 Mo Cloudflare Tunnel)
 - [x] Auth minimale (Clerk + table `users` sync à la connexion)
 
@@ -63,9 +64,9 @@ C’est un **coupeur** : source longue → extrait de tête + versions (inclure/
 - [x] Captions **karaoke / kinetic** (Whisper word timestamps + pill highlight HyperFrames)
 
 ### Ensuite
-- [ ] Musique : presets / variantes / lien biblio plus fort
-- [ ] Bibliothèque unifiée (voix, livres audio, clips, tracks)
-- [ ] Suggestions Clips vision / ML (quand GPU libre)
+- [x] Musique : presets / variantes / lien biblio (presets + « Bibliothèque » sur job terminé)
+- [x] Bibliothèque unifiée (presets + jobs terminés : musique, livre audio, doublage, clips)
+- [ ] Suggestions Clips vision / ML (quand GPU libre — hors scope actuel)
 
 ---
 

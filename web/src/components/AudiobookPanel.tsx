@@ -21,6 +21,13 @@ import {
 import { api } from "@convex/_generated/api";
 import type { Doc } from "@convex/_generated/dataModel";
 import { LangPicker } from "./LangPicker";
+import {
+  canAutoTranslate,
+  langLabel,
+  langSupport,
+  normalizeLangCode,
+  supportHint,
+} from "../lib/languages";
 import { JobList } from "./JobList";
 import { PUBLIC_VOICES } from "../lib/publicVoices";
 import {
@@ -169,6 +176,12 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
   );
   const instruct = narratorPublic?.instruct || "";
 
+  const src = normalizeLangCode(sourceLang);
+  const tgt = normalizeLangCode(targetLang);
+  const needsTranslation = src !== tgt;
+  const translationOk = !needsTranslation || canAutoTranslate(src, tgt);
+  const targetTtsSupport = langSupport(targetLang);
+
   const canSubmit =
     !!sessionId &&
     charCount > 20 &&
@@ -177,6 +190,7 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
     activeSegments.every((s) => s.text.trim().length > 0) &&
     !!sourceLang &&
     !!targetLang &&
+    translationOk &&
     voiceConsent &&
     (!musicEnabled || musicPrompt.trim().length > 4);
 
@@ -427,6 +441,34 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
             onChange={setTargetLang}
           />
         </div>
+        {needsTranslation && !translationOk && (
+          <p className="rounded-xl border border-[var(--danger)]/30 bg-red-50 px-3 py-2 text-xs text-[var(--danger)]">
+            Traduction NLLB indisponible pour{" "}
+            <strong>
+              {langLabel(sourceLang)} → {langLabel(targetLang)}
+            </strong>
+            . Choisissez une langue du catalogue atelier ou la même langue
+            source/cible.
+          </p>
+        )}
+        {needsTranslation && translationOk && (
+          <p className="text-xs text-[var(--muted)]">
+            Traduction auto NLLB · lecture en {langLabel(targetLang)} (
+            {supportHint(targetTtsSupport)}).
+          </p>
+        )}
+        {!needsTranslation && (
+          <p className="text-xs text-[var(--muted)]">
+            Pas de traduction — lecture directe en {langLabel(targetLang)} (
+            {supportHint(targetTtsSupport)}).
+          </p>
+        )}
+        {targetTtsSupport === "off" && (
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            Langue TTS hors catalogue OmniVoice — le worker tentera un mode
+            agnostique (qualité variable).
+          </p>
+        )}
 
         {/* Cast + clone par personnage */}
         <fieldset className="space-y-4">

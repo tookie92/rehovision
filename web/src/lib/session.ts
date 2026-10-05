@@ -18,3 +18,11 @@ export function getSessionId(): string {
   }
   return id;
 }
+
+/** Lie la session navigateur au compte Clerk (jobs persistants par user). */
+export function linkSessionToClerk(clerkId: string): void {
+  if (typeof window === "undefined" || !clerkId) return;
+  const prev = localStorage.getItem(KEY);
+  if (prev === clerkId) return;
+  localStorage.setItem(KEY, clerkId);
+}

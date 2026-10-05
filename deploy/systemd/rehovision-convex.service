@@ -1,0 +1,19 @@
+[Unit]
+Description=Rehovision Convex backend (docker compose)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=joseph
+Group=joseph
+WorkingDirectory=/home/joseph/rehovision
+EnvironmentFile=-/home/joseph/rehovision/.env.local
+ExecStart=/usr/bin/docker compose up -d backend dashboard
+ExecStop=/usr/bin/docker compose stop backend dashboard
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

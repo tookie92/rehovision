@@ -110,9 +110,18 @@ export function supportHint(support: LangOption["support"]): string {
   return "Code non listé OmniVoice";
 }
 
-/** Toujours autorisé côté UI — aperçu + retry Ollama gèrent la qualité. */
+/** Miroir worker/engines/translate.py — langues NLLB FLORES supportées. */
+export const NLLB_FLORES_ISO = new Set([
+  "fr", "en", "es", "pt", "de", "it", "ar", "zh", "ja", "ko", "hi",
+  "sw", "ln", "yo", "ha", "wo", "wof", "sn", "nd", "nr", "bm", "ig",
+  "zu", "xh", "st", "tn", "ny", "rw", "so", "am",
+]);
+
+/** Traduction auto NLLB disponible pour cette paire. */
 export function canAutoTranslate(source: string, target: string): boolean {
   const s = normalizeLangCode(source);
   const t = normalizeLangCode(target);
-  return Boolean(s && t);
+  if (!s || !t) return false;
+  if (s === t) return true;
+  return NLLB_FLORES_ISO.has(s) && NLLB_FLORES_ISO.has(t);
 }

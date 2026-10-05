@@ -500,6 +500,10 @@ def _scrub_fr_leaks(out: str, tgt_f: str) -> str:
             out,
         )
         out = re.sub(r"(?i)\bnotre\s+atelier\b", "our workshop", out)
+        out = re.sub(r"(?i)\bdans\s+notre\b", "in our", out)
+        out = re.sub(r"(?i)\bdans\s+sunu\b", "in our", out)
+        out = re.sub(r"(?i)\bnotre\b", "our", out)
+        out = re.sub(r"(?i)\bdans\b", "in", out)
         out = re.sub(r"(?i)\bbonjour\b", "Hello", out)
         out = re.sub(r"(?i)\bbienvenue\b", "Welcome", out)
         out = re.sub(r"(?i)\baujourd'?hui\b", "Today", out)

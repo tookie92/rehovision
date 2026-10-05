@@ -95,8 +95,15 @@ if [[ "$INSTALL_UNITS" -eq 1 ]]; then
   fi
   $SUDO cp "$ROOT/deploy/systemd/rehovision-web.service" /etc/systemd/system/
   $SUDO cp "$ROOT/deploy/systemd/rehovision-worker.service" /etc/systemd/system/
+  $SUDO cp "$ROOT/deploy/systemd/rehovision-convex.service" /etc/systemd/system/
   $SUDO systemctl daemon-reload
-  $SUDO systemctl enable rehovision-web rehovision-worker
+  $SUDO systemctl enable rehovision-convex rehovision-web rehovision-worker
+fi
+
+# --- Convex docker (local) ---
+log "Convex docker"
+if command -v docker >/dev/null 2>&1; then
+  docker compose -f "$ROOT/docker-compose.yml" up -d backend dashboard 2>/dev/null || true
 fi
 
 # --- Restart services ---
@@ -127,6 +134,7 @@ restart_svc() {
   fi
 }
 
+restart_svc rehovision-convex
 restart_svc rehovision-web
 # laisser le temps au Restart=always si kill
 sleep 1

@@ -1,36 +1,50 @@
 "use client";
 
 import { useQuery } from "convex/react";
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "@convex/_generated/api";
-import { getSessionId } from "../lib/session";
+import { useStudioSessionId } from "../lib/useStudioSessionId";
 import { AppSidebar, type AppTab } from "../components/AppSidebar";
 import { ClipsPanel } from "../components/ClipsPanel";
 import { AudiobookPanel } from "../components/AudiobookPanel";
 import { DubPanel } from "../components/DubPanel";
 import { MusicPanel } from "../components/MusicPanel";
 import { MediaByStorage } from "../components/MediaByStorage";
+import { ConvexStatusBanner } from "../components/ConvexStatusBanner";
 import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
 } from "../components/ui/sidebar";
+import { Badge } from "../components/ui/badge";
 
 type Tab = AppTab;
 
+const KIND_LABEL: Record<string, string> = {
+  preset: "Preset",
+  music: "Musique",
+  audiobook: "Livre audio",
+  dub: "Doublage",
+  narration: "Narration",
+  clip: "Clip",
+};
+
 export default function HomePage() {
   const [tab, setTab] = useState<Tab>("dub");
-  const [sessionId, setSessionId] = useState("");
-
-  useEffect(() => {
-    setSessionId(getSessionId());
-  }, []);
+  const sessionId = useStudioSessionId();
 
   const jobs = useQuery(
     api.jobs.listBySession,
-    sessionId ? { sessionId } : "skip",
+    sessionId ? { sessionId, limit: 80 } : "skip",
   );
-  const library = useQuery(api.library.list);
+  const libraryPresets = useQuery(
+    api.library.list,
+    tab === "music" ? {} : "skip",
+  );
+  const unifiedLibrary = useQuery(
+    api.library.listForSession,
+    tab === "library" && sessionId ? { sessionId } : "skip",
+  );
 
   const filteredJobs =
     jobs?.filter((j) => {
@@ -47,6 +61,20 @@ export default function HomePage() {
       return true;
     }) ?? undefined;
 
+  const libraryGroups = useMemo(() => {
+    if (!unifiedLibrary?.length) return [];
+    const order = ["audiobook", "dub", "narration", "music", "clip", "preset"];
+    const grouped = new Map<string, typeof unifiedLibrary>();
+    for (const item of unifiedLibrary) {
+      const list = grouped.get(item.kind) ?? [];
+      list.push(item);
+      grouped.set(item.kind, list);
+    }
+    return order
+      .filter((k) => grouped.has(k))
+      .map((k) => ({ kind: k, items: grouped.get(k)! }));
+  }, [unifiedLibrary]);
+
   return (
     <SidebarProvider>
       <a
@@ -57,6 +85,7 @@ export default function HomePage() {
       </a>
       <AppSidebar tab={tab} onTabChange={setTab} />
       <SidebarInset id="studio-main">
+        <ConvexStatusBanner />
         <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--line)] bg-[var(--bg-elevated)]/90 px-4 py-3 backdrop-blur-sm sm:px-6">
           <SidebarTrigger />
           <div className="min-w-0 lg:hidden">
@@ -99,6 +128,7 @@ export default function HomePage() {
               sessionId={sessionId}
               jobs={filteredJobs}
               jobsLoading={!sessionId || jobs === undefined}
+              libraryPresets={libraryPresets}
             />
           )}
 
@@ -109,36 +139,51 @@ export default function HomePage() {
                   Bibliothèque
                 </h1>
                 <p className="mt-2 text-sm text-[var(--muted)]">
-                  Ambiances pré-générées (bench ACE-Step).
+                  Presets musique, livres audio, doublages, clips et tracks de
+                  votre session.
                 </p>
               </div>
-              {library === undefined ? (
+              {unifiedLibrary === undefined ? (
                 <div className="h-24 animate-pulse rounded-[var(--radius)] bg-[var(--bg-subtle)]" />
-              ) : library.length === 0 ? (
+              ) : unifiedLibrary.length === 0 ? (
                 <p className="rounded-[var(--radius)] border border-dashed border-[var(--line-strong)] px-4 py-10 text-center text-sm text-[var(--muted)]">
-                  Vide pour l&apos;instant. Génère une piste dans Musique, ou
-                  lance le bench ACE-Step.
+                  Vide pour l&apos;instant. Génère une piste, un livre audio ou
+                  un doublage — les outputs terminés apparaîtront ici.
                 </p>
               ) : (
-                <ul className="space-y-3">
-                  {library.map((item) => (
-                    <li
-                      key={item._id}
-                      className="rounded-[var(--radius)] border border-[var(--line)] bg-[var(--bg-elevated)] p-4 shadow-[var(--shadow)]"
-                    >
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <p className="font-medium">{item.title}</p>
-                        <span className="text-xs uppercase tracking-wide text-[var(--muted)]">
-                          {item.mood} · {item.durationS}s
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs text-[var(--muted)]">{item.prompt}</p>
-                      <div className="mt-3">
-                        <MediaByStorage storageId={item.storageId} kind="audio" />
-                      </div>
-                    </li>
+                <div className="space-y-8">
+                  {libraryGroups.map(({ kind, items }) => (
+                    <div key={kind} className="space-y-3">
+                      <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">
+                        {KIND_LABEL[kind] ?? kind}
+                      </h2>
+                      <ul className="space-y-3">
+                        {items.map((item) => (
+                          <li
+                            key={item.id}
+                            className="rounded-[var(--radius)] border border-[var(--line)] bg-[var(--bg-elevated)] p-4 shadow-[var(--shadow)]"
+                          >
+                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                              <p className="font-medium">{item.title}</p>
+                              <Badge tone="muted">{KIND_LABEL[item.kind]}</Badge>
+                            </div>
+                            <p className="mt-1 text-xs text-[var(--muted)]">
+                              {item.subtitle}
+                            </p>
+                            <div className="mt-3">
+                              <MediaByStorage
+                                storageId={item.storageId}
+                                kind={
+                                  item.kind === "clip" ? "video" : "audio"
+                                }
+                              />
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ))}
-                </ul>
+                </div>
               )}
             </section>
           )}

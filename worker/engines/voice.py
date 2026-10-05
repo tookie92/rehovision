@@ -228,6 +228,8 @@ def _ensure_omnivoice():
 
 def _omnivoice_language_arg(target_lang: str) -> str | None:
     code = (target_lang or "").split("-")[0].lower().strip()
+    if code == "wof":
+        code = "wo"
     if not code:
         return None
     try:
