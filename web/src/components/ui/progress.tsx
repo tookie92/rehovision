@@ -20,7 +20,7 @@ export function Progress({
       aria-valuemax={100}
     >
       <div
-        className="h-full bg-[var(--ink)] transition-all duration-300"
+        className="h-full bg-[var(--signal)] transition-all duration-300"
         style={{ width: `${v}%` }}
       />
     </div>

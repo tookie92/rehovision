@@ -12,26 +12,25 @@ import {
 } from "react";
 import {
   ArrowLeft,
-  ArrowRight,
-  AudioLines,
   BookmarkPlus,
   Gauge,
   Mic2,
   Play,
   Sparkles,
-  Trash2,
   UserRound,
-  Wand2,
+  X,
 } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { LangPicker } from "./LangPicker";
-import { JobList } from "./JobList";
+import { DubProjectsList } from "./DubProjectsList";
+import { StudioAudioPlayer } from "./StudioAudioPlayer";
+import { Badge } from "./ui/badge";
 import { PUBLIC_VOICES, type PublicVoice } from "../lib/publicVoices";
+import { VoiceCatalog, type VoiceShelf } from "./VoiceCatalog";
 import type { Doc, Id } from "@convex/_generated/dataModel";
 
 type DubMode = "narration" | "doublage";
 type VoiceMode = "keep" | "model" | "create";
-type Step = 1 | 2 | 3;
 
 type Props = {
   sessionId: string;
@@ -246,15 +245,19 @@ function SaveVoiceBar({
   );
 }
 
-export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
-  const [step, setStep] = useState<Step>(1);
+export function DubPanel({ sessionId, jobs }: Props) {
+  const [activeProjectId, setActiveProjectId] = useState<Id<"projects"> | null>(
+    null,
+  );
+  const [projectTitle, setProjectTitle] = useState("Nouveau projet");
+  const [hydratedId, setHydratedId] = useState<Id<"projects"> | null>(null);
   const [dubMode, setDubMode] = useState<DubMode>("narration");
   const [text, setText] = useState(
     "Bonjour, bienvenue dans notre atelier. Aujourd'hui on parle de création locale.",
   );
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [voiceRefFile, setVoiceRefFile] = useState<File | null>(null);
-  const [voiceMode, setVoiceMode] = useState<VoiceMode>("keep");
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>("model");
   const [sourceLang, setSourceLang] = useState("fr");
   const [targetLang, setTargetLang] = useState("wo");
   const [voiceConsent, setVoiceConsent] = useState(false);
@@ -277,6 +280,9 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
   const [presetRefStorageId, setPresetRefStorageId] = useState<
     Id<"_storage"> | null
   >(null);
+  const [draftSourceStorageId, setDraftSourceStorageId] = useState<
+    Id<"_storage"> | null
+  >(null);
   const [saveName, setSaveName] = useState("");
   const [showSaveForm, setShowSaveForm] = useState(false);
   const [savingVoice, setSavingVoice] = useState(false);
@@ -286,14 +292,44 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     null,
   );
   const [selectedPublicId, setSelectedPublicId] = useState<string | null>(null);
+  const [voiceShelf, setVoiceShelf] = useState<VoiceShelf>("public");
+  const [showVoiceLab, setShowVoiceLab] = useState(false);
+  const [showCloneUpload, setShowCloneUpload] = useState(false);
+  const [pendingClonePreview, setPendingClonePreview] = useState(false);
 
   const spokenRef = useRef<HTMLTextAreaElement>(null);
-  const previewAudioRef = useRef<HTMLAudioElement>(null);
+  const skipSaveRef = useRef(false);
 
   const createJob = useMutation(api.jobs.create);
   const generateUploadUrl = useMutation(api.jobs.generateUploadUrl);
   const saveVoice = useMutation(api.voices.create);
   const removeVoice = useMutation(api.voices.remove);
+  const updateProject = useMutation(api.projects.update);
+
+  const projects = useQuery(
+    api.projects.listBySession,
+    sessionId ? { sessionId, limit: 80 } : "skip",
+  );
+  const dubProjects = useMemo(
+    () =>
+      projects?.filter((p) => p.kind === "dub" || p.kind === "narration") ??
+      undefined,
+    [projects],
+  );
+
+  const activeProject = useQuery(
+    api.projects.get,
+    sessionId && activeProjectId
+      ? { sessionId, projectId: activeProjectId }
+      : "skip",
+  );
+  const projectJobs = useQuery(
+    api.jobs.listByProject,
+    sessionId && activeProjectId
+      ? { sessionId, projectId: activeProjectId, limit: 30 }
+      : "skip",
+  );
+
   const savedVoices = useQuery(
     api.voices.listBySession,
     sessionId ? { sessionId } : "skip",
@@ -301,6 +337,26 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
   const presetRefUrl = useQuery(
     api.jobs.getFileUrl,
     presetRefStorageId ? { storageId: presetRefStorageId } : "skip",
+  );
+  const readyJob = useMemo(
+    () =>
+      (projectJobs ?? jobs)?.find(
+        (j) => j.status === "done" && j.resultStorageId,
+      ),
+    [projectJobs, jobs],
+  );
+  const activeJob = useMemo(
+    () =>
+      (projectJobs ?? jobs)?.find(
+        (j) => j.status === "running" || j.status === "queued",
+      ),
+    [projectJobs, jobs],
+  );
+  const resultStorageId =
+    activeProject?.latestResultStorageId ?? readyJob?.resultStorageId;
+  const readyJobUrl = useQuery(
+    api.jobs.getFileUrl,
+    resultStorageId ? { storageId: resultStorageId } : "skip",
   );
   const cloneVoice = voiceMode === "keep";
   const showAccents = targetLang === "en" || targetLang.startsWith("en");
@@ -316,19 +372,125 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     return parts.join(", ");
   }, [voiceMode, gender, age, pitch, whisper, accent, showAccents]);
 
+  // Hydrate atelier depuis le brouillon projet
+  useEffect(() => {
+    if (!activeProject || !activeProjectId) return;
+    if (hydratedId === activeProjectId) return;
+    skipSaveRef.current = true;
+    const d = (activeProject.draft ?? {}) as Record<string, unknown>;
+    setProjectTitle(activeProject.title);
+    setDubMode(d.mode === "doublage" ? "doublage" : "narration");
+    setText(typeof d.text === "string" ? d.text : "");
+    setSourceLang(typeof d.sourceLang === "string" ? d.sourceLang : "fr");
+    setTargetLang(typeof d.targetLang === "string" ? d.targetLang : "wo");
+    setVoiceMode(
+      d.voiceMode === "keep" || d.voiceMode === "create" || d.voiceMode === "model"
+        ? d.voiceMode
+        : "model",
+    );
+    setGender(typeof d.gender === "string" ? d.gender : "female");
+    setAge(typeof d.age === "string" ? d.age : "young adult");
+    setPitch(typeof d.pitch === "string" ? d.pitch : "moderate pitch");
+    setAccent(typeof d.accent === "string" ? d.accent : "");
+    setWhisper(d.whisper === true);
+    setSpeed(typeof d.speed === "number" ? d.speed : 1);
+    setSelectedPublicId(
+      typeof d.selectedPublicId === "string" ? d.selectedPublicId : null,
+    );
+    setSelectedVoiceId(
+      typeof d.voicePresetId === "string"
+        ? (d.voicePresetId as Id<"voices">)
+        : null,
+    );
+    setSpokenText(typeof d.spokenText === "string" ? d.spokenText : "");
+    setSourceTextSnap(
+      typeof d.sourceTextSnap === "string" ? d.sourceTextSnap : "",
+    );
+    setPresetRefStorageId(
+      typeof d.refStorageId === "string"
+        ? (d.refStorageId as Id<"_storage">)
+        : null,
+    );
+    setDraftSourceStorageId(
+      typeof d.sourceStorageId === "string"
+        ? (d.sourceStorageId as Id<"_storage">)
+        : null,
+    );
+    setShowVoiceLab(d.voiceMode === "create");
+    setShowCloneUpload(d.voiceMode === "keep");
+    setAudioFile(null);
+    setVoiceRefFile(null);
+    setVoiceConsent(false);
+    clearVoicePreview();
+    setHydratedId(activeProjectId);
+    queueMicrotask(() => {
+      skipSaveRef.current = false;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject, activeProjectId, hydratedId]);
+
+  // Autosave brouillon
+  useEffect(() => {
+    if (!activeProjectId || !sessionId || hydratedId !== activeProjectId) return;
+    if (skipSaveRef.current) return;
+    const t = window.setTimeout(() => {
+      void updateProject({
+        sessionId,
+        projectId: activeProjectId,
+        title: projectTitle,
+        draft: {
+          mode: dubMode,
+          text,
+          sourceLang,
+          targetLang,
+          voiceMode,
+          ...(voiceMode === "create" && instruct ? { instruct } : {}),
+          gender: gender || undefined,
+          age: age || undefined,
+          pitch: pitch || undefined,
+          accent: accent || undefined,
+          whisper,
+          speed,
+          selectedPublicId: selectedPublicId ?? undefined,
+          voicePresetId: selectedVoiceId ?? undefined,
+          spokenText: spokenText || undefined,
+          sourceTextSnap: sourceTextSnap || undefined,
+          sourceStorageId: draftSourceStorageId ?? undefined,
+          refStorageId: presetRefStorageId ?? undefined,
+        },
+      }).catch(() => undefined);
+    }, 700);
+    return () => window.clearTimeout(t);
+  }, [
+    activeProjectId,
+    sessionId,
+    hydratedId,
+    projectTitle,
+    dubMode,
+    text,
+    sourceLang,
+    targetLang,
+    voiceMode,
+    instruct,
+    gender,
+    age,
+    pitch,
+    accent,
+    whisper,
+    speed,
+    selectedPublicId,
+    selectedVoiceId,
+    spokenText,
+    sourceTextSnap,
+    draftSourceStorageId,
+    presetRefStorageId,
+    updateProject,
+  ]);
+
   useEffect(() => {
     return () => {
       if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
     };
-  }, [voicePreviewUrl]);
-
-  // Lecture auto une fois le <audio> monté
-  useEffect(() => {
-    if (!voicePreviewUrl) return;
-    const el = previewAudioRef.current;
-    if (!el) return;
-    el.load();
-    void el.play().catch(() => undefined);
   }, [voicePreviewUrl]);
 
   function clearVoicePreview() {
@@ -343,7 +505,7 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     !!sessionId &&
     (dubMode === "narration"
       ? text.trim().length > 0
-      : audioFile !== null);
+      : audioFile !== null || !!draftSourceStorageId);
 
   const step2Ok =
     step1Ok &&
@@ -359,12 +521,10 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     !(voiceMode === "create" && !instruct);
 
   const canPrepare = step2Ok && text.trim().length > 0;
+  const inReview = spokenText.trim().length > 0;
 
   const canSubmit =
-    step === 3 &&
-    voiceConsent &&
-    spokenText.trim().length > 0 &&
-    step2Ok;
+    inReview && voiceConsent && spokenText.trim().length > 0 && step2Ok;
 
   async function uploadAudio(file: File): Promise<string> {
     const uploadUrl = await generateUploadUrl({ sessionId });
@@ -386,12 +546,15 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
   function applySavedVoice(voice: Doc<"voices">) {
     setSelectedVoiceId(voice._id);
     setSelectedPublicId(null);
+    setVoiceShelf("mine");
     clearVoicePreview();
     if (typeof voice.speed === "number" && Number.isFinite(voice.speed)) {
       setSpeed(Math.min(1.3, Math.max(0.7, voice.speed)));
     }
     if (voice.kind === "design") {
       setVoiceMode("create");
+      setShowVoiceLab(false);
+      setShowCloneUpload(false);
       setPresetRefStorageId(null);
       setVoiceRefFile(null);
       if (voice.gender || voice.age || voice.pitch || voice.instruct) {
@@ -413,6 +576,8 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
       return;
     }
     setVoiceMode("keep");
+    setShowVoiceLab(false);
+    setShowCloneUpload(false);
     setPresetRefStorageId(voice.refStorageId ?? null);
     setVoiceRefFile(null);
   }
@@ -422,6 +587,9 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     setSelectedVoiceId(null);
     setPresetRefStorageId(null);
     setVoiceRefFile(null);
+    setShowVoiceLab(false);
+    setShowCloneUpload(false);
+    setVoiceShelf("public");
     clearVoicePreview();
     if (!voice.instruct) {
       setVoiceMode("model");
@@ -497,24 +665,35 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     }
   }
 
-  async function onPreviewVoice() {
-    if (
-      voiceMode === "keep" &&
-      !voiceRefFile &&
-      !presetRefStorageId
-    ) {
+  async function onPreviewVoice(opts?: {
+    mode?: VoiceMode;
+    instructOverride?: string;
+    refFile?: File | null;
+    refStorageId?: Id<"_storage"> | null;
+  }) {
+    const mode = opts?.mode ?? voiceMode;
+    const instructValue =
+      opts?.instructOverride !== undefined
+        ? opts.instructOverride
+        : instruct;
+    const refFile = opts?.refFile !== undefined ? opts.refFile : voiceRefFile;
+    const refStorage =
+      opts?.refStorageId !== undefined
+        ? opts.refStorageId
+        : presetRefStorageId;
+
+    if (mode === "keep" && !refFile && !refStorage) {
       setVoicePreviewError(
         "Ajoute un échantillon ou choisis un preset clone pour écouter.",
       );
       return;
     }
-    if (voiceMode === "create" && !instruct) {
+    if (mode === "create" && !instructValue) {
       setVoicePreviewError("Choisis des attributs Voice Lab avant d’écouter.");
       return;
     }
     setVoicePreviewing(true);
     setVoicePreviewError(null);
-    // Révoque l’ancien blob sans toucher à l’erreur affichée
     setVoicePreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
@@ -522,14 +701,14 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     try {
       let refAudioBase64: string | undefined;
       let refMime: string | undefined;
-      if (voiceMode === "keep") {
-        if (voiceRefFile) {
-          if (voiceRefFile.size > 8_000_000) {
+      if (mode === "keep") {
+        if (refFile) {
+          if (refFile.size > 8_000_000) {
             throw new Error("Échantillon trop lourd pour l’aperçu (max 8 Mo)");
           }
-          refAudioBase64 = await fileToBase64(voiceRefFile);
-          refMime = voiceRefFile.type || "audio/wav";
-        } else if (presetRefUrl) {
+          refAudioBase64 = await fileToBase64(refFile);
+          refMime = refFile.type || "audio/wav";
+        } else if (refStorage && presetRefUrl) {
           const res = await fetch(presetRefUrl);
           if (!res.ok) throw new Error("Impossible de charger l’échantillon");
           const blob = await res.blob();
@@ -538,8 +717,8 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
           }
           refAudioBase64 = await fileToBase64(blob);
           refMime = blob.type || "audio/wav";
-        } else {
-          throw new Error("Échantillon encore en chargement — réessaie");
+        } else if (refStorage) {
+          throw new Error("Échantillon encore en chargement. Réessaie.");
         }
       }
 
@@ -547,12 +726,13 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          // Job target gardé pour logs ; l’aperçu parle toujours EN (timbre)
           targetLang,
           sourceLang,
           previewLang: "en",
           speed,
-          ...(voiceMode === "create" && instruct ? { instruct } : {}),
+          ...(mode === "create" && instructValue
+            ? { instruct: instructValue }
+            : {}),
           ...(refAudioBase64 ? { refAudioBase64, refMime } : {}),
         }),
       });
@@ -584,22 +764,25 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (!pendingClonePreview) return;
+    if (voiceMode !== "keep") {
+      setPendingClonePreview(false);
+      return;
+    }
+    if (presetRefStorageId && !presetRefUrl) return;
+    setPendingClonePreview(false);
+    void onPreviewVoice({
+      mode: "keep",
+      refStorageId: presetRefStorageId,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingClonePreview, presetRefUrl, presetRefStorageId, voiceMode]);
+
   const canPreview =
     voiceMode === "model" ||
     (voiceMode === "create" && !!instruct) ||
     (voiceMode === "keep" && (!!voiceRefFile || !!presetRefStorageId));
-
-  const previewButton = (
-    <button
-      type="button"
-      disabled={voicePreviewing || !canPreview}
-      onClick={() => void onPreviewVoice()}
-      className="flex min-h-11 items-center gap-2 rounded-xl bg-[var(--signal)] px-4 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-    >
-      <Play className="size-4" aria-hidden />
-      {voicePreviewing ? "Génération…" : "Écouter l’aperçu"}
-    </button>
-  );
 
   async function onPrepare() {
     if (!canPrepare) return;
@@ -628,7 +811,7 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
       }
       setSpokenText(body.spokenText.trim());
       setSourceTextSnap(body.sourceText?.trim() || text.trim());
-      setStep(3);
+      setVoiceConsent(false);
     } catch (err) {
       setPreviewError(err instanceof Error ? err.message : "Échec préparation");
     } finally {
@@ -641,10 +824,11 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
     if (!canSubmit || !sessionId) return;
     setSubmitting(true);
     try {
-      let sourceStorageId: string | undefined;
+      let sourceStorageId: string | undefined = draftSourceStorageId ?? undefined;
       let refStorageId: string | undefined;
       if (dubMode === "doublage" && audioFile) {
         sourceStorageId = await uploadAudio(audioFile);
+        setDraftSourceStorageId(sourceStorageId as Id<"_storage">);
       }
       if (cloneVoice && voiceRefFile) {
         refStorageId = await uploadAudio(voiceRefFile);
@@ -655,6 +839,7 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
       await createJob({
         type: dubMode === "doublage" ? "dub" : "narration",
         sessionId,
+        ...(activeProjectId ? { projectId: activeProjectId } : {}),
         params: {
           ...(dubMode === "narration" || text.trim()
             ? { text: text.trim() }
@@ -678,9 +863,6 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
       });
       setAudioFile(null);
       setVoiceRefFile(null);
-      setStep(1);
-      setSpokenText("");
-      setSourceTextSnap("");
       setVoiceConsent(false);
     } catch (err) {
       console.error(err);
@@ -693,427 +875,397 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
   const speedLabel =
     speed < 0.9 ? "Plus lente" : speed > 1.1 ? "Plus vive" : "Naturelle";
 
+  const voiceCatalogProps = {
+    shelf: voiceShelf,
+    onShelfChange: setVoiceShelf,
+    selectedPublicId,
+    selectedVoiceId,
+    savedVoices,
+    onSelectPublic: applyPublicVoice,
+    onSelectSaved: applySavedVoice,
+    onDeleteSaved: (voiceId: Id<"voices">) => void onDeleteVoice(voiceId),
+    onPlayPublic: (voice: PublicVoice) => {
+      applyPublicVoice(voice);
+      void onPreviewVoice({
+        mode: voice.instruct ? "create" : "model",
+        instructOverride: voice.instruct || undefined,
+      });
+    },
+    onPlaySaved: (voice: Doc<"voices">) => {
+      applySavedVoice(voice);
+      if (voice.kind === "design") {
+        void onPreviewVoice({
+          mode: "create",
+          instructOverride: voice.instruct || undefined,
+        });
+      } else {
+        setPendingClonePreview(true);
+      }
+    },
+    playLoading: voicePreviewing,
+    onCreateDesign: () => {
+      setVoiceShelf("mine");
+      setShowVoiceLab(true);
+      setShowCloneUpload(false);
+      setVoiceMode("create");
+      setSelectedPublicId(null);
+      setSelectedVoiceId(null);
+      setPresetRefStorageId(null);
+      setVoiceRefFile(null);
+      setShowSaveForm(false);
+      clearVoicePreview();
+    },
+    onCreateClone: () => {
+      setVoiceShelf("mine");
+      setShowCloneUpload(true);
+      setShowVoiceLab(false);
+      setVoiceMode("keep");
+      setSelectedPublicId(null);
+      setSelectedVoiceId(null);
+      setPresetRefStorageId(null);
+      setVoiceRefFile(null);
+      setShowSaveForm(false);
+      clearVoicePreview();
+    },
+  } as const;
+
+  function clearReview() {
+    setSpokenText("");
+    setSourceTextSnap("");
+    setVoiceConsent(false);
+    setPreviewError(null);
+  }
+
+  const playerTrack = useMemo(() => {
+    if (voicePreviewUrl) {
+      const savedName = selectedVoiceId
+        ? savedVoices?.find((v) => v._id === selectedVoiceId)?.name
+        : undefined;
+      const publicName = selectedPublicId
+        ? PUBLIC_VOICES.find((v) => v.id === selectedPublicId)?.name
+        : undefined;
+      const label =
+        publicName ??
+        savedName ??
+        (voiceMode === "create"
+          ? "Voice Lab"
+          : voiceMode === "keep"
+            ? "Clone"
+            : "Modèle");
+      return {
+        url: voicePreviewUrl,
+        title: `Aperçu · ${label}`,
+        subtitle: `Sample EN · ${speed.toFixed(2)}× · cible ${targetLang}`,
+      };
+    }
+    if (readyJobUrl && readyJob) {
+      const p = readyJob.params as Record<string, unknown>;
+      const text = String(p.text ?? "");
+      return {
+        url: readyJobUrl,
+        title: text
+          ? text.length > 56
+            ? `${text.slice(0, 56)}…`
+            : text
+          : "Dernier rendu",
+        subtitle: `${String(p.sourceLang ?? "?")} → ${String(p.targetLang ?? "?")}`,
+        downloadUrl: readyJobUrl,
+      };
+    }
+    return null;
+  }, [
+    voicePreviewUrl,
+    selectedPublicId,
+    selectedVoiceId,
+    savedVoices,
+    voiceMode,
+    speed,
+    targetLang,
+    readyJobUrl,
+    readyJob,
+  ]);
+
+  const playerPending = activeJob
+    ? {
+        label:
+          activeJob.status === "running"
+            ? "Génération en cours…"
+            : "En file d’attente…",
+        progress: activeJob.progress ?? 8,
+      }
+    : null;
+
+  if (!activeProjectId) {
+    return (
+      <DubProjectsList
+        sessionId={sessionId}
+        projects={dubProjects}
+        loading={projects === undefined}
+        jobs={jobs}
+        onOpen={(id) => {
+          setHydratedId(null);
+          setActiveProjectId(id);
+        }}
+      />
+    );
+  }
+
   return (
-    <section className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-          Doublage & narration
-        </h1>
-        <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">
-          Contenu → langues & voix → aperçu du texte lu → génération.
-        </p>
-      </div>
+    <section className="space-y-5">
+      <header className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            setActiveProjectId(null);
+            setHydratedId(null);
+            clearVoicePreview();
+          }}
+          className="flex min-h-10 items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--bg-elevated)] px-3 text-sm font-medium hover:bg-[var(--bg-subtle)]"
+        >
+          <ArrowLeft className="size-4" aria-hidden />
+          Projets
+        </button>
+        <input
+          value={projectTitle}
+          onChange={(e) => setProjectTitle(e.target.value)}
+          className="min-h-10 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-xl font-semibold tracking-tight outline-none hover:border-[var(--line)] focus:border-[var(--line-strong)] focus:bg-[var(--bg-elevated)] sm:text-2xl"
+          aria-label="Titre du projet"
+        />
+      </header>
 
-      <ol className="flex flex-wrap gap-2 text-xs font-medium">
-        {(
-          [
-            [1, "Contenu"],
-            [2, "Langues & voix"],
-            [3, "Aperçu"],
-          ] as const
-        ).map(([n, label]) => (
-          <li
-            key={n}
-            className={
-              step === n
-                ? "rounded-lg bg-[var(--ink)] px-3 py-1.5 text-white"
-                : step > n
-                  ? "rounded-lg bg-[var(--bg-subtle)] px-3 py-1.5 text-[var(--ink)]"
-                  : "rounded-lg border border-[var(--line)] px-3 py-1.5 text-[var(--muted)]"
-            }
-          >
-            {n}. {label}
-          </li>
-        ))}
-      </ol>
-
-      <form
-        onSubmit={onGenerate}
-        className="space-y-5 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--bg-elevated)] p-4 shadow-[var(--shadow)] sm:p-6"
-      >
-        {step === 1 && (
-          <div className="space-y-5">
-            <fieldset className="space-y-2">
-              <legend className="text-sm font-medium">Type</legend>
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    ["narration", "Narration"],
-                    ["doublage", "Doublage"],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setDubMode(id)}
-                    className={
-                      dubMode === id
-                        ? "min-h-11 rounded-xl bg-[var(--ink)] px-4 text-sm font-semibold text-white"
-                        : "min-h-11 rounded-xl border border-[var(--line)] bg-white px-4 text-sm font-medium transition-colors hover:bg-[var(--bg-subtle)]"
-                    }
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-
-            {dubMode === "doublage" && (
-              <label className="block space-y-2">
-                <span className="text-sm font-medium">Audio source</span>
-                <input
-                  type="file"
-                  accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm"
-                  onChange={(e) => setAudioFile(e.target.files?.[0] ?? null)}
-                  className="block w-full text-sm file:mr-3 file:min-h-11 file:rounded-xl file:border-0 file:bg-[var(--ink)] file:px-4 file:text-sm file:font-semibold file:text-white"
-                />
-                {audioFile && (
-                  <span className="text-xs text-[var(--muted)]">
-                    {audioFile.name} · {(audioFile.size / 1024).toFixed(0)} Ko
-                  </span>
-                )}
-              </label>
-            )}
-
-            <label className="block space-y-2">
-              <span className="text-sm font-medium">
-                {dubMode === "narration"
-                  ? "Script"
-                  : "Script (requis pour l’aperçu)"}
-              </span>
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                rows={dubMode === "narration" ? 6 : 4}
-                className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg)] px-4 py-3 text-[15px] leading-relaxed outline-none transition-shadow duration-200 focus:border-[var(--line-strong)] focus:ring-2 focus:ring-[var(--signal)]/30"
-                placeholder={
-                  dubMode === "narration"
-                    ? "Colle le texte à narrer…"
-                    : "Colle le texte à traduire pour l’aperçu…"
-                }
-              />
-            </label>
-
-            <div className="flex justify-end">
-              <button
-                type="button"
-                disabled={!step1Ok}
-                onClick={() => setStep(2)}
-                className="flex min-h-12 items-center gap-2 rounded-xl bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-              >
-                Continuer
-                <ArrowRight className="size-4" aria-hidden />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <LangPicker
-                label="Langue source"
-                value={sourceLang}
-                onChange={setSourceLang}
-              />
-              <LangPicker
-                label="Langue cible"
-                value={targetLang}
-                onChange={(lang) => {
-                  setTargetLang(lang);
-                  if (lang !== "en" && !lang.startsWith("en")) {
-                    setAccent("");
+      <form onSubmit={onGenerate} className="space-y-0">
+        <div className="grid gap-0 overflow-hidden rounded-[var(--radius)] border border-[var(--line)] bg-[var(--bg-elevated)] shadow-[var(--shadow)] lg:grid-cols-[minmax(0,1fr)_minmax(300px,32%)] lg:items-stretch">
+          <div className="flex min-h-[28rem] flex-col border-[var(--line)] lg:border-r">
+            <div className="flex flex-wrap items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+              {(
+                [
+                  ["narration", "Narration"],
+                  ["doublage", "Doublage"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setDubMode(id)}
+                  className={
+                    dubMode === id
+                      ? "min-h-9 rounded-lg bg-[var(--ink)] px-3.5 text-sm font-semibold text-white"
+                      : "min-h-9 rounded-lg border border-[var(--line)] bg-white px-3.5 text-sm font-medium hover:bg-[var(--bg-subtle)]"
                   }
-                }}
-              />
-            </div>
-
-            {/* Voix publiques OmniVoice (recettes instruct curatées) */}
-            <fieldset className="space-y-3">
-              <legend className="text-sm font-medium">Voix publiques</legend>
-              <p className="text-xs text-[var(--muted)]">
-                OmniVoice n’a pas de catalogue d’IDs comme ElevenLabs — ce sont
-                des recettes Voice Lab prêtes à l’emploi.
-              </p>
-              <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {PUBLIC_VOICES.map((voice) => {
-                  const on = selectedPublicId === voice.id;
-                  return (
-                    <li key={voice.id}>
-                      <button
-                        type="button"
-                        onClick={() => applyPublicVoice(voice)}
-                        className={
-                          on
-                            ? "flex min-h-[4.5rem] w-full flex-col items-start rounded-2xl bg-[var(--ink)] px-3.5 py-3 text-left text-white"
-                            : "flex min-h-[4.5rem] w-full flex-col items-start rounded-2xl border border-[var(--line)] bg-white px-3.5 py-3 text-left transition-colors hover:bg-[var(--bg-subtle)]"
-                        }
-                      >
-                        <span className="text-sm font-semibold">
-                          {voice.name}
-                        </span>
-                        <span
-                          className={
-                            on
-                              ? "mt-0.5 text-xs text-white/65"
-                              : "mt-0.5 text-xs text-[var(--muted)]"
-                          }
-                        >
-                          {voice.blurb}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </fieldset>
-
-            {/* Mes voix — presets type ElevenLabs */}
-            <fieldset className="space-y-3">
-              <legend className="text-sm font-medium">Mes voix</legend>
-              {savedVoices === undefined ? (
-                <p className="text-xs text-[var(--muted)]">Chargement…</p>
-              ) : savedVoices.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-[var(--line)] bg-[var(--bg)] px-3 py-3 text-xs text-[var(--muted)]">
-                  Aucune voix sauvegardée. Compose dans Voice Lab ou clone un
-                  échantillon, puis enregistre.
-                </p>
-              ) : (
-                <ul className="grid gap-2 sm:grid-cols-2">
-                  {savedVoices.map((voice) => {
-                    const on = selectedVoiceId === voice._id;
-                    return (
-                      <li key={voice._id} className="relative">
-                        <button
-                          type="button"
-                          onClick={() => applySavedVoice(voice)}
-                          className={
-                            on
-                              ? "flex min-h-14 w-full flex-col items-start rounded-2xl bg-[var(--ink)] px-4 py-3 text-left text-white"
-                              : "flex min-h-14 w-full flex-col items-start rounded-2xl border border-[var(--line)] bg-white px-4 py-3 text-left transition-colors hover:bg-[var(--bg-subtle)]"
-                          }
-                        >
-                          <span className="text-sm font-semibold">
-                            {voice.name}
-                          </span>
-                          <span
-                            className={
-                              on
-                                ? "mt-0.5 text-xs text-white/65"
-                                : "mt-0.5 text-xs text-[var(--muted)]"
-                            }
-                          >
-                            {voice.kind === "design"
-                              ? voice.instruct || "Voice Lab"
-                              : "Clone · échantillon"}
-                            {typeof voice.speed === "number"
-                              ? ` · ${voice.speed.toFixed(2)}×`
-                              : ""}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={`Supprimer ${voice.name}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void onDeleteVoice(voice._id);
-                          }}
-                          className={
-                            on
-                              ? "absolute right-2 top-2 flex size-8 items-center justify-center rounded-lg text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-                              : "absolute right-2 top-2 flex size-8 items-center justify-center rounded-lg text-[var(--muted)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-[var(--danger)]"
-                          }
-                        >
-                          <Trash2 className="size-3.5" aria-hidden />
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </fieldset>
-
-            {/* Voice mode — 3 clear paths */}
-            <fieldset className="space-y-3">
-              <legend className="text-sm font-medium">Comment obtenir la voix ?</legend>
-              <div className="grid gap-2 sm:grid-cols-3">
-                {(
-                  [
-                    {
-                      id: "keep" as const,
-                      title: "Ma voix",
-                      desc: "Clone depuis un échantillon",
-                      Icon: Mic2,
-                    },
-                    {
-                      id: "model" as const,
-                      title: "Voix modèle",
-                      desc: "Choix automatique OmniVoice",
-                      Icon: AudioLines,
-                    },
-                    {
-                      id: "create" as const,
-                      title: "Créer une voix",
-                      desc: "Compose genre, âge, timbre",
-                      Icon: Wand2,
-                    },
-                  ] as const
-                ).map(({ id, title, desc, Icon }) => {
-                  const on = voiceMode === id;
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => {
-                        setVoiceMode(id);
-                        setSelectedVoiceId(null);
-                        setSelectedPublicId(null);
-                        if (id !== "keep") setPresetRefStorageId(null);
-                        setShowSaveForm(false);
-                        clearVoicePreview();
-                      }}
-                      className={
-                        on
-                          ? "group relative min-h-[5.5rem] overflow-hidden rounded-2xl bg-[var(--ink)] px-4 py-3.5 text-left text-white transition-transform duration-200"
-                          : "min-h-[5.5rem] rounded-2xl border border-[var(--line)] bg-white px-4 py-3.5 text-left transition-colors duration-200 hover:border-[var(--line-strong)] hover:bg-[var(--bg-subtle)]"
-                      }
-                    >
-                      {on && (
-                        <span
-                          aria-hidden
-                          className="pointer-events-none absolute -right-4 -top-4 size-20 rounded-full bg-[var(--signal)]/25 blur-2xl"
-                        />
-                      )}
-                      <Icon
-                        className={
-                          on
-                            ? "relative mb-2 size-4 text-[var(--signal-soft)]"
-                            : "mb-2 size-4 text-[var(--muted)]"
-                        }
-                        aria-hidden
-                      />
-                      <span className="relative block text-sm font-semibold">
-                        {title}
-                      </span>
-                      <span
-                        className={
-                          on
-                            ? "relative mt-0.5 block text-xs font-normal text-white/65"
-                            : "mt-0.5 block text-xs font-normal text-[var(--muted)]"
-                        }
-                      >
-                        {desc}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </fieldset>
-
-            {voiceMode === "keep" && dubMode === "narration" && (
-              <div className="space-y-3">
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium">
-                    Échantillon de ta voix
-                  </span>
+                >
+                  {label}
+                </button>
+              ))}
+              {dubMode === "doublage" && (
+                <label className="ml-auto flex min-h-9 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-[var(--line-strong)] px-3 text-xs font-medium text-[var(--muted)] hover:bg-[var(--bg-subtle)]">
                   <input
                     type="file"
                     accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm"
-                    onChange={(e) => {
-                      setVoiceRefFile(e.target.files?.[0] ?? null);
-                      setPresetRefStorageId(null);
-                      setSelectedVoiceId(null);
-                    }}
-                    className="block w-full text-sm file:mr-3 file:min-h-11 file:rounded-xl file:border-0 file:bg-[var(--ink)] file:px-4 file:text-sm file:font-semibold file:text-white"
+                    onChange={(e) => setAudioFile(e.target.files?.[0] ?? null)}
+                    className="sr-only"
                   />
-                  {voiceRefFile && (
-                    <span className="text-xs text-[var(--muted)]">
-                      {voiceRefFile.name} ·{" "}
-                      {(voiceRefFile.size / 1024).toFixed(0)} Ko
-                    </span>
-                  )}
-                  {!voiceRefFile && presetRefStorageId && (
-                    <span className="text-xs text-[var(--signal)]">
-                      Échantillon du preset sélectionné
-                    </span>
-                  )}
+                  {audioFile
+                    ? audioFile.name
+                    : draftSourceStorageId
+                      ? "Audio source (enregistré)"
+                      : "Audio source"}
                 </label>
-                {(voiceRefFile || presetRefStorageId) && (
-                  <SaveVoiceBar
-                    showForm={showSaveForm}
-                    saveName={saveName}
-                    saving={savingVoice}
-                    onToggle={() => setShowSaveForm((v) => !v)}
-                    onName={setSaveName}
-                    onSave={() => void onSaveVoice()}
-                    hint="Enregistrer ce clone"
-                  />
-                )}
-              </div>
-            )}
+              )}
+            </div>
 
-            {voiceMode === "keep" && dubMode === "doublage" && (
-              <p className="rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-2.5 text-xs text-[var(--muted)]">
-                En doublage, la voix est clonée depuis l’audio source (pas besoin
-                d’échantillon séparé).
-              </p>
-            )}
+            <div className="flex flex-1 flex-col p-4 sm:p-5">
+              <label className="flex min-h-0 flex-1 flex-col gap-2">
+                <span className="text-sm font-medium">
+                  {inReview ? "Script source" : "Script"}
+                </span>
+                <textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  rows={inReview ? 4 : 12}
+                  className="min-h-[12rem] w-full flex-1 resize-y rounded-[var(--radius)] border border-[var(--line)] bg-[var(--bg)] px-4 py-3 text-[15px] leading-relaxed outline-none focus:border-[var(--line-strong)] focus:ring-2 focus:ring-[var(--signal)]/30"
+                  placeholder={
+                    dubMode === "narration"
+                      ? "Colle le texte à narrer…"
+                      : "Colle le texte à traduire…"
+                  }
+                />
+              </label>
 
-            {/* Voice Lab */}
-            {voiceMode === "create" && (
-              <div className="space-y-5 rounded-2xl border border-[var(--line)] bg-[linear-gradient(165deg,var(--bg)_0%,var(--bg-elevated)_45%,var(--signal-soft)_160%)] p-4 sm:p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-                      <UserRound className="size-4 text-[var(--signal)]" aria-hidden />
-                      Voice Lab
-                    </p>
-                    <p className="mt-1 text-xs text-[var(--muted)]">
-                      Compose une voix en quelques chips — plus clair qu’une
-                      liste de sliders.
-                    </p>
+              {inReview && (
+                <div className="mt-4 space-y-3 border-t border-[var(--line)] pt-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold">Texte lu (aperçu)</p>
+                      {sourceTextSnap ? (
+                        <p className="mt-0.5 line-clamp-1 text-xs text-[var(--muted)]">
+                          Traduit depuis : {sourceTextSnap}
+                        </p>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearReview}
+                      className="flex min-h-8 items-center gap-1 rounded-md border border-[var(--line)] px-2.5 text-xs font-medium hover:bg-[var(--bg-subtle)]"
+                    >
+                      <X className="size-3.5" aria-hidden />
+                      Recommencer
+                    </button>
                   </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {EXPRESS_TAGS.map((t) => (
+                      <button
+                        key={t.tag}
+                        type="button"
+                        onClick={() =>
+                          insertAtCursor(
+                            spokenText,
+                            setSpokenText,
+                            spokenRef,
+                            t.tag,
+                          )
+                        }
+                        className="min-h-8 rounded-md border border-[var(--line)] bg-white px-2.5 text-xs font-medium hover:border-[var(--signal)] hover:bg-[var(--signal-soft)] hover:text-[var(--signal)]"
+                        title={t.tag}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    ref={spokenRef}
+                    value={spokenText}
+                    onChange={(e) => setSpokenText(e.target.value)}
+                    rows={5}
+                    className="w-full resize-y rounded-[var(--radius)] border border-[var(--line)] bg-[var(--bg)] px-4 py-3 text-[15px] leading-relaxed outline-none focus:border-[var(--line-strong)] focus:ring-2 focus:ring-[var(--signal)]/30"
+                    placeholder="Corrige légèrement si besoin…"
+                  />
+                  <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--bg)] px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={voiceConsent}
+                      onChange={(e) => setVoiceConsent(e.target.checked)}
+                      className="mt-1 size-4 accent-[var(--ink)]"
+                    />
+                    <span className="text-sm leading-snug">
+                      Je confirme le{" "}
+                      <strong className="font-semibold">
+                        consentement explicite
+                      </strong>{" "}
+                      pour toute voix / clonage audio.
+                    </span>
+                  </label>
                 </div>
+              )}
+            </div>
+          </div>
 
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
-                    Genre
+          <aside
+            aria-label="Réglages"
+            className="flex flex-col bg-[var(--bg-elevated)] lg:max-h-[calc(100dvh-8rem)]"
+          >
+            <div className="border-b border-[var(--line)] px-4 py-3">
+              <p className="text-sm font-semibold tracking-tight">Réglages</p>
+              <p className="text-xs text-[var(--muted)]">
+                Langues, voix, rythme
+              </p>
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
+              <div className="grid gap-3">
+                <LangPicker
+                  label="Source"
+                  value={sourceLang}
+                  onChange={setSourceLang}
+                />
+                <LangPicker
+                  label="Cible"
+                  value={targetLang}
+                  onChange={(lang) => {
+                    setTargetLang(lang);
+                    if (lang !== "en" && !lang.startsWith("en")) {
+                      setAccent("");
+                    }
+                  }}
+                />
+              </div>
+
+              <div className="border-t border-[var(--line)] pt-4">
+                <VoiceCatalog {...voiceCatalogProps} />
+              </div>
+
+              {showCloneUpload &&
+                voiceMode === "keep" &&
+                dubMode === "narration" && (
+                  <div className="space-y-3 border-t border-[var(--line)] pt-4">
+                    <label className="block space-y-2">
+                      <span className="text-sm font-medium">
+                        Échantillon voix
+                      </span>
+                      <input
+                        type="file"
+                        accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm"
+                        onChange={(e) => {
+                          setVoiceRefFile(e.target.files?.[0] ?? null);
+                          setPresetRefStorageId(null);
+                          setSelectedVoiceId(null);
+                        }}
+                        className="block w-full text-xs file:mr-2 file:min-h-9 file:rounded-lg file:border-0 file:bg-[var(--ink)] file:px-3 file:text-xs file:font-semibold file:text-white"
+                      />
+                    </label>
+                    {(voiceRefFile || presetRefStorageId) && (
+                      <SaveVoiceBar
+                        showForm={showSaveForm}
+                        saveName={saveName}
+                        saving={savingVoice}
+                        onToggle={() => setShowSaveForm((v) => !v)}
+                        onName={setSaveName}
+                        onSave={() => void onSaveVoice()}
+                        hint="Sauver le clone"
+                      />
+                    )}
+                  </div>
+                )}
+
+              {voiceMode === "keep" && dubMode === "doublage" && (
+                <p className="text-xs text-[var(--muted)]">
+                  Doublage : voix clonée depuis l’audio source.
+                </p>
+              )}
+
+              {showVoiceLab && voiceMode === "create" && (
+                <div className="space-y-3 border-t border-[var(--line)] pt-4">
+                  <p className="flex items-center gap-2 text-sm font-semibold">
+                    <UserRound
+                      className="size-4 text-[var(--signal)]"
+                      aria-hidden
+                    />
+                    Voice Lab
                   </p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {GENDER.map((g) => (
                       <Chip
                         key={g.id}
                         active={gender === g.id}
                         onClick={() => setGender(g.id)}
+                        size="sm"
                       >
                         {g.label}
                       </Chip>
                     ))}
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
-                    Âge
-                  </p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {AGE.map((a) => (
                       <Chip
                         key={a.id}
                         active={age === a.id}
                         onClick={() => setAge(a.id)}
+                        size="sm"
                       >
                         {a.label}
                       </Chip>
                     ))}
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
-                    Timbre
-                  </p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {PITCH.map((p) => (
                       <Chip
                         key={p.id}
@@ -1125,28 +1277,15 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                       </Chip>
                     ))}
                   </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
                   <Chip
                     active={whisper}
                     onClick={() => setWhisper((w) => !w)}
+                    size="sm"
                   >
                     Chuchotement
                   </Chip>
-                  {!showAccents && (
-                    <p className="text-xs text-[var(--muted)]">
-                      Accents EN : passe la langue cible en anglais.
-                    </p>
-                  )}
-                </div>
-
-                {showAccents && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
-                      Accent (anglais)
-                    </p>
-                    <div className="flex flex-wrap gap-2">
+                  {showAccents && (
+                    <div className="flex flex-wrap gap-1.5">
                       <Chip
                         active={!accent}
                         onClick={() => setAccent("")}
@@ -1167,97 +1306,49 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                         </Chip>
                       ))}
                     </div>
-                  </div>
-                )}
-
-                <div className="rounded-xl border border-[var(--line)] bg-white/80 px-3 py-2.5 backdrop-blur-sm">
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">
-                    Recette OmniVoice
+                  )}
+                  <p className="font-mono text-xs text-[var(--signal)]">
+                    {instruct || "Genre + âge + timbre"}
                   </p>
-                  <p className="mt-1 font-mono text-xs text-[var(--signal)] sm:text-sm">
-                    {instruct ||
-                      "Sélectionne genre, âge et timbre (un chip par catégorie)"}
-                  </p>
+                  {!!instruct && (
+                    <SaveVoiceBar
+                      showForm={showSaveForm}
+                      saveName={saveName}
+                      saving={savingVoice}
+                      onToggle={() => setShowSaveForm((v) => !v)}
+                      onName={setSaveName}
+                      onSave={() => void onSaveVoice()}
+                      hint="Sauver la voix"
+                    />
+                  )}
                 </div>
+              )}
 
-                {voiceMode === "create" && !instruct && (
-                  <p className="rounded-lg border border-[var(--warn-line)] bg-[var(--warn-bg)] px-3 py-2 text-xs text-[var(--warn-ink)]">
-                    Mode « Créer une voix » : choisis au moins genre + âge +
-                    timbre pour continuer.
+              <div className="space-y-3 border-t border-[var(--line)] pt-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="flex items-center gap-2 text-sm font-semibold">
+                    <Gauge
+                      className="size-4 text-[var(--muted)]"
+                      aria-hidden
+                    />
+                    Rythme
                   </p>
-                )}
-
-                {!!instruct && (
-                  <SaveVoiceBar
-                    showForm={showSaveForm}
-                    saveName={saveName}
-                    saving={savingVoice}
-                    onToggle={() => setShowSaveForm((v) => !v)}
-                    onName={setSaveName}
-                    onSave={() => void onSaveVoice()}
-                    hint="Enregistrer cette voix"
-                  />
-                )}
-              </div>
-            )}
-
-            {/* Aperçu audio — toujours visible étape 2 */}
-            <div className="space-y-3 rounded-2xl border border-[var(--signal)]/30 bg-[var(--signal-soft)]/40 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold">Aperçu de la voix</p>
-                  <p className="text-xs text-[var(--muted)]">
-                    Sample anglais court pour entendre le timbre · job cible{" "}
-                    {targetLang} · {speed.toFixed(2)}×
-                  </p>
+                  <span className="text-xs font-semibold text-[var(--signal)]">
+                    {speed.toFixed(2)}× · {speedLabel}
+                  </span>
                 </div>
-                {previewButton}
-              </div>
-              {voicePreviewError && (
-                <p className="rounded-lg border border-[var(--warn-line)] bg-[var(--warn-bg)] px-3 py-2 text-sm text-[var(--warn-ink)]">
-                  {voicePreviewError}
-                </p>
-              )}
-              {voicePreviewUrl ? (
-                <audio
-                  ref={previewAudioRef}
-                  key={voicePreviewUrl}
-                  controls
-                  src={voicePreviewUrl}
-                  className="w-full"
-                />
-              ) : (
-                <p className="text-xs text-[var(--muted)]">
-                  « Hello, this is a short preview of my voice. » — pas la
-                  langue du doublage, juste le son de la voix.
-                </p>
-              )}
-            </div>
-
-            {/* Speed — all voice modes */}
-            <div className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--bg)] p-4">
-              <div className="flex items-center justify-between gap-3">
-                <p className="flex items-center gap-2 text-sm font-semibold">
-                  <Gauge className="size-4 text-[var(--muted)]" aria-hidden />
-                  Rythme
-                </p>
-                <span className="rounded-full bg-[var(--signal-soft)] px-2.5 py-0.5 text-xs font-semibold text-[var(--signal)]">
-                  {speed.toFixed(2)}× · {speedLabel}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {SPEED_PRESETS.map((p) => (
-                  <Chip
-                    key={p.id}
-                    active={Math.abs(speed - p.id) < 0.01}
-                    onClick={() => setSpeed(p.id)}
-                    size="sm"
-                  >
-                    {p.label}
-                  </Chip>
-                ))}
-              </div>
-              <label className="block space-y-1">
+                <div className="flex flex-wrap gap-1.5">
+                  {SPEED_PRESETS.map((p) => (
+                    <Chip
+                      key={p.id}
+                      active={Math.abs(speed - p.id) < 0.01}
+                      onClick={() => setSpeed(p.id)}
+                      size="sm"
+                    >
+                      {p.label}
+                    </Chip>
+                  ))}
+                </div>
                 <input
                   type="range"
                   min={0.7}
@@ -1265,163 +1356,104 @@ export function DubPanel({ sessionId, jobs, jobsLoading }: Props) {
                   step={0.05}
                   value={speed}
                   onChange={(e) => setSpeed(Number(e.target.value))}
-                  className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[var(--line)] accent-[var(--ink)]"
+                  className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-[var(--line)] accent-[var(--ink)]"
+                  aria-label={`Rythme ${speedLabel}`}
                 />
-                <div className="flex justify-between text-[10px] uppercase tracking-wider text-[var(--muted)]">
-                  <span>0.7×</span>
-                  <span>1.0×</span>
-                  <span>1.3×</span>
-                </div>
-              </label>
-            </div>
-
-            {previewError && (
-              <p className="rounded-xl border border-[var(--warn-line)] bg-[var(--warn-bg)] px-3 py-2 text-sm text-[var(--warn-ink)]">
-                {previewError}
-              </p>
-            )}
-
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="flex min-h-11 items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-4 text-sm font-medium hover:bg-[var(--bg-subtle)]"
-              >
-                <ArrowLeft className="size-4" aria-hidden />
-                Retour
-              </button>
-              <button
-                type="button"
-                disabled={!canPrepare || previewing}
-                onClick={() => void onPrepare()}
-                className="flex min-h-12 items-center gap-2 rounded-xl bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-              >
-                <Sparkles className="size-4" aria-hidden />
-                {previewing ? "Préparation…" : "Préparer la traduction"}
-              </button>
-            </div>
-            {!text.trim() && dubMode === "doublage" && (
-              <p className="text-xs text-[var(--muted)]">
-                Ajoute un script à l’étape Contenu pour préparer l’aperçu.
-              </p>
-            )}
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="space-y-5">
-            <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
-                <span>
-                  Source · {sourceLang} → {targetLang}
-                </span>
-                <span aria-hidden>·</span>
-                <span>
-                  {voiceMode === "keep"
-                    ? "Clone"
-                    : voiceMode === "create"
-                      ? "Voix créée"
-                      : "Voix modèle"}
-                </span>
-                <span aria-hidden>·</span>
-                <span>{speed.toFixed(2)}×</span>
-                {voiceMode === "create" && instruct && (
-                  <>
-                    <span aria-hidden>·</span>
-                    <span className="font-mono text-[var(--signal)]">
-                      {instruct}
-                    </span>
-                  </>
-                )}
               </div>
-              {sourceTextSnap ? (
-                <p className="line-clamp-2 text-xs text-[var(--muted)]">
-                  Origine : {sourceTextSnap}
+
+              {voicePreviewError && (
+                <p className="text-xs text-[var(--warn-ink)]">
+                  {voicePreviewError}
                 </p>
-              ) : null}
+              )}
+              {previewError && (
+                <p className="text-xs text-[var(--danger)]">{previewError}</p>
+              )}
             </div>
 
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-sm font-medium">Texte lu (aperçu)</span>
-                <span className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
-                  Clique un tag pour l’insérer
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {EXPRESS_TAGS.map((t) => (
-                  <button
-                    key={t.tag}
-                    type="button"
-                    onClick={() =>
-                      insertAtCursor(
-                        spokenText,
-                        setSpokenText,
-                        spokenRef,
-                        t.tag,
-                      )
-                    }
-                    className="min-h-8 rounded-lg border border-[var(--line)] bg-white px-2.5 text-xs font-medium transition-colors duration-150 hover:border-[var(--signal)] hover:bg-[var(--signal-soft)] hover:text-[var(--signal)]"
-                    title={t.tag}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-              <textarea
-                ref={spokenRef}
-                value={spokenText}
-                onChange={(e) => setSpokenText(e.target.value)}
-                rows={6}
-                className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg)] px-4 py-3 text-[15px] leading-relaxed outline-none transition-shadow duration-200 focus:border-[var(--line-strong)] focus:ring-2 focus:ring-[var(--signal)]/30"
-                placeholder="Corrige légèrement si besoin… ou ajoute [laughter]"
-              />
-              <p className="text-xs text-[var(--muted)]">
-                Tags natifs OmniVoice ([laughter], [sigh]…). Le texte part tel
-                quel au TTS.
-              </p>
-            </div>
-
-            <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-3">
-              <input
-                type="checkbox"
-                checked={voiceConsent}
-                onChange={(e) => setVoiceConsent(e.target.checked)}
-                className="mt-1 size-4 accent-[var(--ink)]"
-              />
-              <span className="text-sm leading-snug text-[var(--ink)]">
-                Je confirme disposer du{" "}
-                <strong className="font-semibold">consentement explicite</strong>{" "}
-                pour toute voix / clonage audio.
-              </span>
-            </label>
-
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-2 border-t border-[var(--line)] bg-[var(--bg)] p-4">
               <button
                 type="button"
-                onClick={() => setStep(2)}
-                className="flex min-h-11 items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-4 text-sm font-medium hover:bg-[var(--bg-subtle)]"
+                disabled={voicePreviewing || !canPreview}
+                onClick={() => void onPreviewVoice()}
+                className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--bg-elevated)] text-sm font-medium hover:bg-[var(--bg-subtle)] disabled:opacity-40"
               >
-                <ArrowLeft className="size-4" aria-hidden />
-                Retour
+                <Play className="size-3.5" aria-hidden />
+                {voicePreviewing ? "Aperçu…" : "Écouter la voix"}
               </button>
-              <button
-                type="submit"
-                disabled={submitting || !canSubmit}
-                className="flex min-h-12 items-center gap-2 rounded-xl bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-              >
-                <Mic2 className="size-4" aria-hidden />
-                {submitting ? "Envoi…" : "Générer"}
-              </button>
+              {!inReview ? (
+                <button
+                  type="button"
+                  disabled={!canPrepare || previewing}
+                  onClick={() => void onPrepare()}
+                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius)] bg-[var(--ink)] text-sm font-semibold text-white hover:opacity-90 disabled:opacity-40"
+                >
+                  <Sparkles className="size-4" aria-hidden />
+                  {previewing ? "Préparation…" : "Préparer la traduction"}
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={submitting || !canSubmit}
+                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius)] bg-[var(--ink)] text-sm font-semibold text-white hover:opacity-90 disabled:opacity-40"
+                >
+                  <Mic2 className="size-4" aria-hidden />
+                  {submitting ? "Envoi…" : "Générer le doublage"}
+                </button>
+              )}
+              <p className="text-center text-[10px] text-[var(--muted)]">
+                {text.trim().length} car. · {sourceLang} → {targetLang}
+              </p>
             </div>
-          </div>
-        )}
+          </aside>
+        </div>
       </form>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Historique doublage</h2>
-        <JobList jobs={jobs} loading={jobsLoading} />
-      </section>
+      <div className="w-full">
+        <StudioAudioPlayer
+          track={playerTrack}
+          pending={!playerTrack ? playerPending : null}
+          emptyHint="Écoute un aperçu de voix ou génère — le lecteur s’affiche ici en pleine largeur."
+          className="w-full rounded-[var(--radius)]"
+        />
+      </div>
+
+      {projectJobs && projectJobs.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold text-[var(--muted)]">
+            Versions de ce projet
+          </h2>
+          <ul className="divide-y divide-[var(--line)] rounded-[var(--radius)] border border-[var(--line)] bg-[var(--bg-elevated)]">
+            {projectJobs.slice(0, 8).map((job) => (
+              <li
+                key={job._id}
+                className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm"
+              >
+                <span className="text-[var(--muted)]">
+                  {new Date(job.createdAt).toLocaleString("fr-FR")}
+                </span>
+                <Badge
+                  tone={
+                    job.status === "done"
+                      ? "ok"
+                      : job.status === "failed"
+                        ? "danger"
+                        : "muted"
+                  }
+                >
+                  {job.status === "done"
+                    ? "Prêt"
+                    : job.status === "failed"
+                      ? "Erreur"
+                      : job.status === "running"
+                        ? "Génération"
+                        : "En file"}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </section>
   );
 }

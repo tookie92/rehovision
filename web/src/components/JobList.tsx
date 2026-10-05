@@ -74,9 +74,15 @@ export function JobList({
   }
   if (!jobs?.length) {
     return (
-      <p className="rounded-[var(--radius)] border border-dashed border-[var(--line-strong)] px-4 py-8 text-center text-sm text-[var(--muted)]">
-        Aucune génération pour cette session.
-      </p>
+      <div className="rounded-[var(--radius)] border border-dashed border-[var(--line-strong)] bg-[var(--bg-elevated)] px-4 py-10 text-center">
+        <p className="font-[family-name:var(--font-display)] text-base font-semibold">
+          Pas encore de rendu ici
+        </p>
+        <p className="mx-auto mt-2 max-w-sm text-sm text-[var(--muted)]">
+          Lance une génération. L&apos;historique de cette session apparaîtra
+          juste en dessous, et le dernier prêt dans l&apos;aperçu.
+        </p>
+      </div>
     );
   }
 

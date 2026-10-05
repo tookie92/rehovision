@@ -8,6 +8,7 @@ import type { Doc } from "@convex/_generated/dataModel";
 import { ClipProjectsList } from "./ClipProjectsList";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
+import { Toast } from "./ui/toast";
 import {
   CHUNK_THRESHOLD_BYTES,
   uploadVideoChunked,
@@ -31,6 +32,7 @@ export function ClipsPanel({
   const [title, setTitle] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   async function uploadSource(f: File): Promise<string> {
     if (f.size > CHUNK_THRESHOLD_BYTES) {
@@ -76,7 +78,11 @@ export function ClipsPanel({
       setUploadProgress(null);
     } catch (err) {
       console.error(err);
-      alert(err instanceof Error ? err.message : "Échec envoi");
+      setToast(
+        err instanceof Error
+          ? err.message
+          : "Échec de l’envoi. Réessaie dans un instant.",
+      );
     } finally {
       setSubmitting(false);
       setUploadProgress(null);
@@ -85,15 +91,16 @@ export function ClipsPanel({
 
   return (
     <section className="space-y-6">
+      <Toast message={toast} onDismiss={() => setToast(null)} />
       <div>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
           Clips
         </h1>
         <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">
-          Un projet = une vidéo source. On propose plusieurs hooks (début + pics
-          d’énergie) ; chaque suggestion crée une{" "}
-          <strong className="font-semibold text-[var(--ink)]">version</strong>{" "}
-          sous la source.
+          Un projet = une vidéo source. Des hooks verticaux ; chaque suggestion
+          devient une{" "}
+          <strong className="font-semibold text-[var(--ink)]">version</strong>.
+          Le rendu prêt s&apos;affiche à droite.
         </p>
       </div>
 

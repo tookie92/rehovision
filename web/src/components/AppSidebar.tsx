@@ -11,6 +11,7 @@ import {
   AudioLines,
   BookOpen,
   Clapperboard,
+  Home,
   Languages,
   Library,
 } from "lucide-react";
@@ -28,13 +29,20 @@ import {
 } from "./ui/sidebar";
 import { Button } from "./ui/button";
 
-export type AppTab = "dub" | "audiobook" | "clips" | "music" | "library";
+export type AppTab =
+  | "home"
+  | "clips"
+  | "dub"
+  | "music"
+  | "audiobook"
+  | "library";
 
 const NAV: { id: AppTab; label: string; icon: LucideIcon }[] = [
-  { id: "dub", label: "Doublage", icon: Languages },
-  { id: "audiobook", label: "Livre audio", icon: BookOpen },
+  { id: "home", label: "Accueil", icon: Home },
   { id: "clips", label: "Clips", icon: Clapperboard },
+  { id: "dub", label: "Doublage", icon: Languages },
   { id: "music", label: "Musique", icon: AudioLines },
+  { id: "audiobook", label: "Livre audio", icon: BookOpen },
   { id: "library", label: "Bibliothèque", icon: Library },
 ];
 
@@ -53,7 +61,7 @@ export function AppSidebar({
       <SidebarHeader>
         {collapsed ? (
           <span
-            className="flex size-10 items-center justify-center rounded-xl bg-[var(--ink)] font-[family-name:var(--font-display)] text-sm font-semibold text-white"
+            className="flex size-10 items-center justify-center rounded-xl bg-[var(--ink)] font-[family-name:var(--font-display)] text-sm font-semibold text-[var(--bg)]"
             title="Rehovision"
             aria-label="Rehovision"
           >
@@ -64,14 +72,16 @@ export function AppSidebar({
             <p className="font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight text-[var(--ink)]">
               Rehovision
             </p>
-            <p className="text-xs text-[var(--muted)]">Studio voix & musique</p>
+            <p className="text-xs text-[var(--muted)]">
+              Voix, clips, langues locales
+            </p>
           </>
         )}
       </SidebarHeader>
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Création</SidebarGroupLabel>
+          <SidebarGroupLabel>Studio</SidebarGroupLabel>
           <SidebarMenu>
             {NAV.map(({ id, label, icon: Icon }) => (
               <SidebarMenuItem key={id}>
@@ -112,8 +122,8 @@ export function AppSidebar({
               }}
             />
             {!collapsed && (
-              <p className="min-w-0 text-[11px] text-[var(--muted)]">
-                Compte Clerk · GPU local
+              <p className="min-w-0 text-[11px] leading-snug text-[var(--muted)]">
+                Connecté · rendu local
               </p>
             )}
           </div>

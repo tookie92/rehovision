@@ -171,8 +171,8 @@ export function MusicPanel({
           Musique
         </h1>
         <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">
-          Ambiance → option paroles → générer. ACE-Step local, une piste à la
-          fois.
+          Ambiance → paroles optionnelles → générer. Une piste à la fois ; le
+          résultat sort dans la scène.
         </p>
       </div>
 

@@ -121,6 +121,13 @@ export const completeJob = mutation({
       finishedAt: Date.now(),
       error: undefined,
     });
+    if (job.projectId) {
+      await ctx.db.patch(job.projectId, {
+        latestJobId: args.jobId,
+        latestResultStorageId: args.resultStorageId,
+        updatedAt: Date.now(),
+      });
+    }
   },
 });
 

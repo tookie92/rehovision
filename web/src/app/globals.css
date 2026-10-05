@@ -1,24 +1,29 @@
 @import "tailwindcss";
 
-/* ElevenLabs-inspired atelier — pas de purple AI générique */
+/*
+  Atelier produit — Forest cool + monosignal.
+  Pas de crème/terracotta, pas de purple, pas de serif display.
+*/
 :root {
-  --bg: #f6f6f4;
+  --bg: #f2f4f1;
   --bg-elevated: #ffffff;
-  --bg-subtle: #eeeee9;
-  --ink: #0a0a0a;
-  --muted: #5c5c5a;
-  --line: #e4e4df;
-  --line-strong: #cfcfc8;
-  --accent: #0a0a0a;
-  --accent-soft: #e8e8e3;
-  --signal: #0d9488;
-  --signal-soft: #ccfbf1;
-  --danger: #b91c1c;
-  --warn-bg: #fff7ed;
-  --warn-ink: #9a3412;
-  --warn-line: #fdba74;
-  --radius: 14px;
-  --shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 8px 24px rgb(0 0 0 / 4%);
+  --bg-subtle: #e6ebe5;
+  --ink: #121613;
+  --muted: #5a655c;
+  --line: #d5dbd4;
+  --line-strong: #b8c2b7;
+  --accent: #121613;
+  --accent-soft: #e8eee8;
+  --signal: #1a6b4a;
+  --signal-soft: #d7ebe0;
+  --danger: #b42318;
+  --warn-bg: #fff8eb;
+  --warn-ink: #8a4b08;
+  --warn-line: #efd09a;
+  --radius: 12px;
+  --shadow: 0 1px 2px rgb(18 22 19 / 4%), 0 8px 20px rgb(18 22 19 / 5%);
+  --stage: #121613;
+  --stage-ink: #eef2ee;
 }
 
 @theme inline {
@@ -49,8 +54,10 @@ body {
 h1,
 h2,
 h3 {
-  font-family: var(--font-display), var(--font-body), ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: -0.02em;
+  font-family: var(--font-display), var(--font-body), ui-sans-serif, system-ui,
+    sans-serif;
+  letter-spacing: -0.025em;
+  font-weight: 600;
 }
 
 button,
@@ -68,6 +75,10 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
 :focus-visible {
   outline: 2px solid var(--signal);
   outline-offset: 2px;
@@ -79,5 +90,9 @@ button:disabled {
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+
+  button:active:not(:disabled) {
+    transform: none;
   }
 }

@@ -500,7 +500,8 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
           Livre audio
         </h1>
         <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">
-          FR / EN / ES / DE… = cast multi-voix. Wolof, Swahili… = 1 voix simple.
+          FR / EN / ES / DE… = cast multi-voix. Wolof, Swahili… = 1 voix.
+          Le rendu prêt s’affiche dans la scène.
         </p>
       </div>
 
@@ -973,7 +974,7 @@ export function AudiobookPanel({ sessionId, jobs, jobsLoading }: Props) {
 
       {/* Barre d'action sticky */}
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--line)] bg-[var(--bg-elevated)]/95 px-4 py-3 backdrop-blur-sm sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
+        <div className="flex w-full items-center justify-between gap-3">
           <p className="hidden text-xs text-[var(--muted)] sm:block">
             {activeSegments.length} segment(s) · {langLabel(targetLang)} ·{" "}
             {audiobookModeBadge(targetLang)}

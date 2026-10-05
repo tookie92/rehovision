@@ -1,22 +1,31 @@
 # Rehovision UI — Master
 
-Inspired by ElevenLabs speech studio + ui-ux-pro-max (atelier clair).
-**Deviation from skill default palette:** no purple/pink-dark Glassmorphism (anti-pattern projet). Black CTA + teal signal + Syne/DM Sans.
+**Surface:** atelier produit (pas landing). Taste-skill anti-slop appliqué au shell.
+**Dials:** variance 5 / motion 3 / density 5.
 
 ## Tokens
-- Background `#f6f6f4`, elevated white, ink `#0a0a0a`
-- Signal/teal `#0d9488` for focus rings
-- CTA: black, min-height 44–48px
-- Fonts: Syne (display) + DM Sans (body)
-- Motion: 150–300ms, respect `prefers-reduced-motion`
+- Neutres cool bone/slate-green: bg `#f2f4f1`, elevated white, ink `#121613`
+- Signal unique forest `#1a6b4a` (focus, progress, status ok)
+- Scène aperçu: `#121613` / crème froide `#eef2ee`
+- Radius 12px partout (boutons, cartes, inputs)
+- Fonts: **Outfit** (display + body) — pas Fraunces, pas Inter
+- Pas de grain, pas de mesh gradient décoratif
+
+## Anti-patterns (explicit)
+- Crème + terracotta / brass / espresso
+- Serif display type Fraunces
+- Purple SaaS, glassmorphism
+- Eyebrows uppercase tracking partout
+- Em-dashes, jargon Clerk/GPU dans l’UI
 
 ## Patterns
-- ElevenLabs-like left sidebar (shadcn `SidebarProvider` / `Sidebar` / `SidebarInset`) — brand + groupe Création + footer warn
-- Product nav: Doublage / Livre audio / Clips / Musique / Bibliothèque
-- Doublage: wizard 3 étapes (voir pages/dub.md) — Voice Lab, Mes voix (presets), rythme, tags ; aperçu texte lu, pas de cible obligatoire
-- Livre audio: Vague B (voir pages/audiobook.md) — découpe chapitres, jobs longs chunkés, concat
-- Musique: MusicPanel ACE-Step Create léger (voir pages/music.md) — caption + lyrics, résultat hero
-- Explicit voice-consent checkbox before dub generate
-- Job history with status chips + progress
-- Clips: carte Projet (source + versions enfants), pas liste plate (voir pages/clips.md)
-- shadcn-lite: `components/ui/{button,label,badge,progress,skeleton,toast,sidebar}`
+- Accueil: colonnes centrées OK (`max-w-3xl mx-auto`)
+- **Outils** (clips, dub, music, audiobook, library): **plein largeur** — pas de `mx-auto` / `max-w-*` sur le shell
+- Sidebar: Accueil / Clips / Doublage / Musique / Livre audio / Bibliothèque
+- Outils + **StudioStage** sticky (sauf Doublage = player full width)
+- Copy FR courte, fonctionnelle
+- Toast pour erreurs; empty states sobres (`mx-auto` OK sur le texte seul)
+- shadcn-lite customisé aux tokens ci-dessus
+
+## Anti-layout
+- Ne pas recentrer les ateliers dans une colonne marketing (`max-w-6xl mx-auto`)

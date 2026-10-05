@@ -215,7 +215,7 @@ def start_translate_server() -> None:
     if _thread is not None and _thread.is_alive():
         return
     port = int(os.environ.get("TRANSLATE_PORT", "8788"))
-    host = os.environ.get("TRANSLATE_HOST", "127.0.0.1")
+    host = os.environ.get("TRANSLATE_HOST", "0.0.0.0")
     # Évite « Address already in use » au restart systemd
     ThreadingHTTPServer.allow_reuse_address = True
     _server = ThreadingHTTPServer((host, port), _Handler)

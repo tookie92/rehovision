@@ -13,20 +13,35 @@ export const create = mutation({
     type: jobType,
     params: v.any(),
     sessionId: v.string(),
+    projectId: v.optional(v.id("projects")),
   },
   handler: async (ctx, args) => {
     if (!args.sessionId || args.sessionId.length < 8) {
       throw new Error("sessionId invalide");
     }
+    if (args.projectId) {
+      const project = await ctx.db.get(args.projectId);
+      if (!project || project.sessionId !== args.sessionId) {
+        throw new Error("Projet introuvable");
+      }
+    }
     const now = Date.now();
-    return await ctx.db.insert("jobs", {
+    const jobId = await ctx.db.insert("jobs", {
       type: args.type,
       status: "queued",
       params: args.params,
       sessionId: args.sessionId,
+      ...(args.projectId ? { projectId: args.projectId } : {}),
       progress: 0,
       createdAt: now,
     });
+    if (args.projectId) {
+      await ctx.db.patch(args.projectId, {
+        latestJobId: jobId,
+        updatedAt: now,
+      });
+    }
+    return jobId;
   },
 });
 
@@ -56,6 +71,24 @@ export const listBySession = query({
     return jobs
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, cap);
+  },
+});
+
+export const listByProject = query({
+  args: {
+    sessionId: v.string(),
+    projectId: v.id("projects"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.sessionId !== args.sessionId) return [];
+    const cap = Math.min(Math.max(args.limit ?? 40, 1), 100);
+    const jobs = await ctx.db
+      .query("jobs")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    return jobs.sort((a, b) => b.createdAt - a.createdAt).slice(0, cap);
   },
 });
 
