@@ -53,7 +53,7 @@ C’est un **coupeur** : source longue → extrait de tête + versions (inclure/
 ### 0. Qualité / infra (court)
 - [ ] Anti-hallucinations NLLB encore plus strict si besoin
 - [x] Upload Clips gros fichiers : chunks 40 Mo via `/api/upload-video` → Convex **local** (bypass limite ~100 Mo Cloudflare Tunnel)
-- [ ] Auth minimale avant expo publique
+- [x] Auth minimale (Clerk + table `users` sync à la connexion)
 
 ### Vague C — Clips « vrais Reels »
 - [x] Extraire **plusieurs** hooks (ouverture + énergie + milieu)

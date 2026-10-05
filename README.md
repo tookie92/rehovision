@@ -1,6 +1,6 @@
 # Rehovision — MVP musique GPU local
 
-> **AVERTISSEMENT : Aucune authentification.**
+> **Auth :** Clerk (sign-in requis). Les jobs restent scopés par `sessionId` navigateur ; identité persistée dans Convex `users`.
 > Ne pas exposer publiquement avant d’avoir ajouté Convex Auth ou équivalent.
 > Les jobs sont filtrés par un `sessionId` navigateur (localStorage).
 

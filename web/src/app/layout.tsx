@@ -1,3 +1,4 @@
+import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { DM_Sans, Syne } from "next/font/google";
 import { ConvexClientProvider } from "../components/ConvexClientProvider";
@@ -28,7 +29,9 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <body className={`${display.variable} ${body.variable} antialiased`}>
-        <ConvexClientProvider>{children}</ConvexClientProvider>
+        <ClerkProvider>
+          <ConvexClientProvider>{children}</ConvexClientProvider>
+        </ClerkProvider>
       </body>
     </html>
   );

@@ -1,8 +1,5 @@
 /**
- * AVERTISSEMENT : Aucune authentification.
- * Ne pas exposer publiquement avant d'avoir ajouté Convex Auth ou équivalent.
- * Les jobs sont filtrés par sessionId (navigateur) — à remplacer plus tard
- * par l'identité utilisateur.
+ * Jobs filtrés par sessionId (navigateur) ; identité Clerk dans `users`.
  */
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
@@ -79,4 +76,14 @@ export default defineSchema({
     refStorageId: v.optional(v.id("_storage")),
     createdAt: v.number(),
   }).index("by_sessionId", ["sessionId"]),
+
+  /** Utilisateurs Clerk (sync à la connexion). */
+  users: defineTable({
+    clerkId: v.string(),
+    email: v.optional(v.string()),
+    name: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    createdAt: v.number(),
+    lastSeenAt: v.number(),
+  }).index("by_clerkId", ["clerkId"]),
 });

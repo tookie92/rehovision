@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  Show,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+} from "@clerk/nextjs";
 import type { LucideIcon } from "lucide-react";
 import {
   AudioLines,
@@ -20,6 +26,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "./ui/sidebar";
+import { Button } from "./ui/button";
 
 export type AppTab = "dub" | "audiobook" | "clips" | "music" | "library";
 
@@ -89,23 +96,60 @@ export function AppSidebar({
       </SidebarContent>
 
       <SidebarFooter>
-        {collapsed ? (
-          <span
-            className="mx-auto flex size-2.5 rounded-full bg-[var(--warn-ink)]"
-            title="Aucune authentification — ne pas exposer publiquement"
-            aria-label="Avertissement : aucune authentification"
-          />
-        ) : (
-          <>
-            <p className="rounded-xl border border-[var(--warn-line)] bg-[var(--warn-bg)] px-3 py-2 text-xs leading-relaxed text-[var(--warn-ink)]">
-              Aucune authentification. Ne pas exposer publiquement avant Convex
-              Auth ou équivalent.
-            </p>
-            <p className="px-1 pt-2 text-[11px] text-[var(--muted)]">
-              GPU local · 1 job à la fois
-            </p>
-          </>
-        )}
+        <Show when="signed-in">
+          <div
+            className={
+              collapsed
+                ? "flex justify-center"
+                : "flex items-center gap-3 px-1"
+            }
+          >
+            <UserButton
+              appearance={{
+                elements: {
+                  avatarBox: "size-9",
+                },
+              }}
+            />
+            {!collapsed && (
+              <p className="min-w-0 text-[11px] text-[var(--muted)]">
+                Compte Clerk · GPU local
+              </p>
+            )}
+          </div>
+        </Show>
+        <Show when="signed-out">
+          {collapsed ? (
+            <SignInButton mode="modal">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mx-auto"
+              >
+                In
+              </Button>
+            </SignInButton>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <SignInButton mode="modal">
+                <Button type="button" size="sm" className="w-full">
+                  Connexion
+                </Button>
+              </SignInButton>
+              <SignUpButton mode="modal">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="w-full"
+                >
+                  Créer un compte
+                </Button>
+              </SignUpButton>
+            </div>
+          )}
+        </Show>
       </SidebarFooter>
     </Sidebar>
   );
